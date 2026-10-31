@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { passToken, sha256hex } from '@/lib/domain/token';
 import { myEvent, saveBadgeProfile } from '@/lib/me/profile';
+import { setLooking } from '@/lib/me/team';
 import { myPasses } from '@/lib/pass/mine';
 import { serviceClient } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -125,6 +126,31 @@ describe('hacker menu (SPEC F14, v0.6)', () => {
 
     const { rows } = await f.pool.query(`select detail from audit_log where action = 'profile.update' and subject_id = $1`, [id]);
     expect(JSON.stringify(rows)).not.toMatch(/peanut|step-free|severe|sam|555|@/i); // no PII (I-11)
+  });
+
+  it('T-ME-10 (v0.11.25): team status follows the team: joining hides Looking, leaving brings it back, the Team page switch moves the answer', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    const email = await emailOf(id);
+    const user = { id: f.staff.vol1, email };
+    const row = async () => (await f.pool.query('select team_status, looking_for_team from participants where id = $1', [id])).rows[0];
+    expect(await saveBadgeProfile(serviceClient(), user, id, { ...contact, overnight: 'no', teamStatus: 'looking' }, { setup: true })).toBe('SAVED');
+    const { rows: [team] } = await f.pool.query<{ id: string }>(`insert into teams (event_id, name, join_code) values ($1, 'Status team', 'STTSTMMM') returning id`, [f.e1.id]);
+    await f.pool.query('update participants set team_id = $2 where id = $1', [id, team!.id]);
+    expect(await row()).toEqual({ team_status: 'looking', looking_for_team: false });
+    expect((await myEvent(serviceClient(), email, new Date()))?.teamName).toBe('Status team');
+    // Leaving (or being removed) puts someone who was looking back under Looking.
+    await f.pool.query('update participants set team_id = null where id = $1', [id]);
+    expect(await row()).toEqual({ team_status: 'looking', looking_for_team: true });
+    expect((await myEvent(serviceClient(), email, new Date()))?.teamName).toBeNull();
+    // The Team page switch keeps the profile answer in step.
+    expect(await setLooking(serviceClient(), user, id, false)).toBe('SAVED');
+    expect(await row()).toEqual({ team_status: 'solo', looking_for_team: false });
+    expect(await setLooking(serviceClient(), user, id, true)).toBe('SAVED');
+    expect(await row()).toEqual({ team_status: 'looking', looking_for_team: true });
+    // Someone who said "I have a team" and leaves an app team isn't put under Looking.
+    await f.pool.query(`update participants set team_status = 'team', team_id = $2 where id = $1`, [id, team!.id]);
+    await f.pool.query('update participants set team_id = null where id = $1', [id]);
+    expect(await row()).toEqual({ team_status: 'team', looking_for_team: false });
   });
 
   it('T-ME-05: an attendee saves their own emergency contact and dietary notes; invalid input and other rows change nothing', async () => {

@@ -357,7 +357,7 @@ export function createAdminApi(deps: AdminDeps) {
           emergency: p.emergency_name ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
           // v0.9 profile setup (F14). Allergies and accessibility are personal data: organizers only, never logged.
           overnight: p.overnight,
-          teamStatus: p.team_status,
+          teamStatus: p.team_id ? 'team' : p.team_status, // v0.11.25: in a team means in a team
           allergies: p.allergies,
           allergySeverity: p.allergy_severity,
           accessibility: p.accessibility,
@@ -837,6 +837,9 @@ export function createAdminApi(deps: AdminDeps) {
           .is('voided_at', null);
         if (doorError) throw new Error(`door scans load failed (${doorError.code})`);
         const checkedInAt = new Map(doors.map((d) => [d.participant_id, d.scanned_at]));
+        const { data: teamed, error: teamError } = await db.from('participants').select('id').eq('event_id', g.eventId).not('team_id', 'is', null);
+        if (teamError) throw new Error(`team members load failed (${teamError.code})`);
+        const inTeam = new Set(teamed.map((t) => t.id));
         return csvResponse(
           slug,
           kind,
@@ -848,7 +851,7 @@ export function createAdminApi(deps: AdminDeps) {
             data.map((p) => [
               p.first_name, p.last_name, p.email, p.status, p.source, p.is_test, p.dietary_notes,
               local(checkedInAt.get(p.id) ?? null), p.external_id,
-              p.overnight, p.team_status, p.allergies, p.allergy_severity,
+              p.overnight, inTeam.has(p.id) ? 'team' : p.team_status, p.allergies, p.allergy_severity, // v0.11.25: in a team means in a team
             ]),
           ),
         );

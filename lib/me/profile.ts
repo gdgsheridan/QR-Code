@@ -26,6 +26,8 @@ export interface MyEvent {
   dietaryNotes: string | null;
   emergency: { name: string; phone: string; relation: string | null } | null;
   teamId: string | null;
+  /** v0.11.25: the team they're in, shown on the profile instead of the team-status question. */
+  teamName: string | null;
   lookingForTeam: boolean;
   /** v0.9 profile setup (F14). Finished once the contact, overnight and team status are set. */
   overnight: string | null;
@@ -55,7 +57,7 @@ export async function myEvent(db: SupabaseClient<Database>, email: string, now: 
   const { data, error } = await db
     .from('participants')
     .select(
-      'id, first_name, last_name, directory_opt_in, bio, pace, linkedin_url, discord_username, website_url, profile_public, dietary_notes, emergency_name, emergency_phone, emergency_relation, team_id, looking_for_team, overnight, allergies, allergy_severity, team_status, accessibility, events!inner(id, slug, name, venue, starts_at, ends_at, timezone, schedule, emergency_info, teams_open, tracks_released), badges(uid)',
+      'id, first_name, last_name, directory_opt_in, bio, pace, linkedin_url, discord_username, website_url, profile_public, dietary_notes, emergency_name, emergency_phone, emergency_relation, team_id, looking_for_team, overnight, allergies, allergy_severity, team_status, accessibility, teams(name), events!inner(id, slug, name, venue, starts_at, ends_at, timezone, schedule, emergency_info, teams_open, tracks_released), badges(uid)',
     )
     .eq('email', normalizeEmail(email))
     .eq('status', 'accepted')
@@ -84,6 +86,7 @@ export async function myEvent(db: SupabaseClient<Database>, email: string, now: 
     dietaryNotes: p.dietary_notes,
     emergency: p.emergency_name && p.emergency_phone ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
     teamId: p.team_id,
+    teamName: p.teams?.name ?? null,
     lookingForTeam: p.looking_for_team,
     overnight: p.overnight,
     allergies: p.allergies,

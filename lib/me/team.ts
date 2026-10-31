@@ -76,10 +76,16 @@ export async function declineInvite(db: Db, user: Account, participantId: string
 export async function setLooking(db: Db, user: Account, participantId: string, on: boolean): Promise<TeamCode> {
   const me = own(user, participantId);
   if (!me) return 'NOT_FOUND';
-  const { data, error } = await db.from('participants').update({ looking_for_team: on }).eq('id', participantId)
-    .eq('email', me.p_email).eq('status', 'accepted').is('deleted_at', null).is('team_id', null).select('id').maybeSingle();
+  const { data, error } = await db.from('participants').update({ looking_for_team: on, ...(on && { team_status: 'looking' }) }).eq('id', participantId)
+    .eq('email', me.p_email).eq('status', 'accepted').is('deleted_at', null).is('team_id', null).select('id, team_status').maybeSingle();
   if (error) throw new Error(`directory preference failed (${error.code})`);
-  return data ? 'SAVED' : 'NOT_FOUND';
+  if (!data) return 'NOT_FOUND';
+  // v0.11.25: the profile's team answer follows the switch, so the two never disagree.
+  if (!on && data.team_status === 'looking') {
+    const { error: statusError } = await db.from('participants').update({ team_status: 'solo' }).eq('id', participantId).eq('team_status', 'looking');
+    if (statusError) throw new Error(`team status update failed (${statusError.code})`);
+  }
+  return 'SAVED';
 }
 
 export interface MyTeam {

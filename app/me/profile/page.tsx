@@ -44,7 +44,7 @@ const OVERNIGHT = [
 ] as const;
 const TEAM = [
   ['team', 'I have a team'],
-  ['looking', 'I’m looking for a team (lists my name in the Hacker directory)'],
+  ['looking', 'I’m looking for a team (shows me under Looking for a team in the Hacker directory)'],
   ['solo', 'I plan to go solo'],
 ] as const;
 
@@ -207,7 +207,13 @@ export default async function HackerProfilePage(props: {
 
           [&_legend]:p-0 [&_legend]:mb-[4px] [&_legend]:text-[14px] [&_legend]:font-medium">
             <legend>Your team</legend>
-            {TEAM.map(([value, label]) => (
+            {m.teamName ? (
+              // v0.11.25: in a team, the answer is the team; the stored answer is kept for if they leave.
+              <p className="copy m-0 min-h-[44px] flex items-center gap-2">
+                <input type="hidden" name="teamStatus" value={m.teamStatus ?? 'team'} />
+                In a team: <strong>{m.teamName}</strong> <Link className="inline-flex min-h-[44px] items-center" href="/me/team">Team page →</Link>
+              </p>
+            ) : TEAM.map(([value, label]) => (
               <Label key={value} className="flex gap-[10px] items-center min-h-[44px] [&_input]:[flex:0_0_auto] [&_input]:w-[22px]
 
           [&_input]:h-[22px]">

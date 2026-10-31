@@ -102,7 +102,7 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.getByRole('button', { name: 'Next', exact: true }).click();
   expect(await p.getByLabel('Not sure yet').evaluate((el) => (el as HTMLInputElement).validity.valueMissing)).toBe(true);
   await p.getByLabel('Not sure yet').check();
-  await p.getByLabel('I’m looking for a team (lists my name in the Hacker directory)').check();
+  await p.getByLabel('I’m looking for a team (shows me under Looking for a team in the Hacker directory)').check();
   await p.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(p.getByRole('heading', { name: 'Health and access', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Back', exact: true }).click();
