@@ -12,6 +12,9 @@ function devPublicHosts(): string[] {
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // L16: minimal runtime image — build emits .next/standalone (no node_modules
+  // needed at runtime). public/ and .next/static are copied manually in the Dockerfile.
+  output: 'standalone',
   allowedDevOrigins: devPublicHosts(),
   poweredByHeader: false,
   // forbidden() in the admin layout returns a real 403 (T-ADM-01). Experimental in Next 16.
