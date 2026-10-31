@@ -219,7 +219,8 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
 
           [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
               <input type="hidden" name="op" value="leave" />
-              <ConfirmSubmit variant="outline" message={team.members.length === 1 ? 'Leave and delete your team? You’re its only member.' : `Leave ${team.name}?`}>
+              <ConfirmSubmit title={`Leave ${team.name}?`} cancelLabel="Keep my team" confirmLabel="Leave team"
+                message={team.members.length === 1 ? 'You’re its only member, so leaving deletes the team.' : 'You can rejoin with its code while team forming is open and there’s room.'}>
                 Leave team
               </ConfirmSubmit>
             </form>
