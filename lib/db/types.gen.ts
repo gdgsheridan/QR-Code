@@ -489,6 +489,9 @@ isOneToOne: false
 "delete_participant":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_id": string }; Returns: Json
                            },
+"delete_team":
+{ Args: { "p_actor": string,"p_event_id": string,"p_team_id": string }; Returns: string
+                           },
 "enqueue_pass":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_id": string }; Returns: string
                            },

@@ -758,10 +758,10 @@ export function createAdminApi(deps: AdminDeps) {
       if (g instanceof Response) return g;
       const id = uuid(params.id);
       if (!id) return notFound();
-      const { data, error } = await db.from('teams').delete().eq('id', id).eq('event_id', g.eventId).select('id').maybeSingle();
-      if (error) throw new Error(`team delete failed (${error.code})`);
-      if (!data) return notFound();
-      await audit(g.eventId, g.userId, 'team.delete', id);
+      // delete_team() locks the members before the team, like the hacker functions, so it can't deadlock (v0.11.25).
+      const { data, error } = await db.rpc('delete_team', { p_event_id: g.eventId, p_team_id: id, p_actor: g.userId });
+      if (error) throw new Error(`delete_team failed (${error.code})`);
+      if (data === 'NOT_FOUND') return notFound();
       return json({ deleted: true });
     },
 
