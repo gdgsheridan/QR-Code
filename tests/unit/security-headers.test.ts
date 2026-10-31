@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { securityHeaders } from '@/lib/domain/security-headers';
+import { contentSecurityPolicy, securityHeaders } from '@/lib/domain/security-headers';
 
 const SUPABASE = 'https://abc.supabase.co';
 const get = (headers: Array<{ key: string; value: string }>, key: string) => headers.find((h) => h.key.toLowerCase() === key.toLowerCase())?.value;
@@ -18,8 +18,26 @@ describe('security headers (SPEC §14.12)', () => {
     expect(directive(csp, 'frame-ancestors')).toBe("frame-ancestors 'none'");
     expect(directive(csp, 'object-src')).toBe("object-src 'none'");
     expect(directive(csp, 'base-uri')).toBe("base-uri 'self'");
-    expect(directive(csp, 'script-src')).toBe("script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'");
     expect(directive(csp, 'default-src')).toBe("default-src 'self'");
+  });
+
+  it('T-SEC-06: static fallback CSP (no nonce, e.g. /api/*) keeps unsafe-inline script-src', () => {
+    const csp = get(prod, 'Content-Security-Policy');
+    expect(directive(csp, 'script-src')).toBe("script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'");
+  });
+
+  it("L10: nonce CSP carries the nonce plus strict-dynamic and drops unsafe-inline", () => {
+    const csp = contentSecurityPolicy({ production: true, supabaseUrl: SUPABASE, nonce: 'test-nonce' });
+    expect(directive(csp, 'script-src')).toBe("script-src 'self' 'nonce-test-nonce' 'strict-dynamic' 'wasm-unsafe-eval'");
+    expect(directive(csp, 'script-src')).not.toContain("'unsafe-inline'");
+    // Tailwind runtime style attributes stay allowed; every other lockdown matches the fallback.
+    expect(directive(csp, 'style-src')).toBe("style-src 'self' 'unsafe-inline'");
+    expect(directive(csp, 'frame-ancestors')).toBe("frame-ancestors 'none'");
+    expect(directive(csp, 'object-src')).toBe("object-src 'none'");
+    expect(securityHeaders({ production: true, supabaseUrl: SUPABASE, nonce: 'test-nonce' })[0]).toEqual({
+      key: 'Content-Security-Policy',
+      value: csp,
+    });
   });
 
   it('T-SEC-06: Supabase is reachable for auth (connect) and storage images (img), nothing else', () => {
@@ -32,9 +50,13 @@ describe('security headers (SPEC §14.12)', () => {
     expect(get(prod, 'Permissions-Policy')).toBe('camera=(self), microphone=(), geolocation=()');
   });
 
-  it('T-SEC-06: HSTS in production only (localhost must stay usable over http)', () => {
-    expect(get(prod, 'Strict-Transport-Security')).toBe('max-age=63072000; includeSubDomains');
+  it('L11: HSTS has preload; COOP/CORP are same-origin and COEP stays off', () => {
+    expect(get(prod, 'Strict-Transport-Security')).toBe('max-age=63072000; includeSubDomains; preload');
     expect(get(dev, 'Strict-Transport-Security')).toBeUndefined();
+    expect(get(prod, 'Cross-Origin-Opener-Policy')).toBe('same-origin');
+    expect(get(prod, 'Cross-Origin-Resource-Policy')).toBe('same-origin');
+    // require-corp would break Supabase-hosted images, which send no CORP headers.
+    expect(get(prod, 'Cross-Origin-Embedder-Policy')).toBeUndefined();
   });
 
   it('T-SEC-06: dev allows eval + websocket for the dev server; prod does not', () => {

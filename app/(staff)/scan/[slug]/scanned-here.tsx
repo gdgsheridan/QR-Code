@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { requestVoid } from '@/lib/scanner/undo';
 import { UndoDialog } from './undo-dialog';
 
 interface Row {
@@ -44,7 +45,11 @@ export function ScannedHere(props: {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/events/${encodeURIComponent(slug)}/checkpoints/${checkpoint.id}/scans`, { cache: 'no-store' });
+      const res = await fetch(`/api/events/${encodeURIComponent(slug)}/checkpoints/${checkpoint.id}/scans`, {
+        cache: 'no-store',
+        // A11: bound the reload too, so a stalled list can't hold the remove pending state.
+        signal: AbortSignal.timeout(8000),
+      });
       if (res.status === 401) return onUnauthorized();
       if (!res.ok) return setState({ kind: 'error' });
       setState({ kind: 'rows', rows: ((await res.json()) as { scans: Row[] }).scans });
@@ -61,24 +66,24 @@ export function ScannedHere(props: {
   async function remove(row: Row, reason: string) {
     setRemoving(null);
     setRemovingNow(true);
-    await removeAndReload(row, reason);
-    setRemovingNow(false);
-    heading.current?.focus(); // the row (and its button) is gone: keep keyboard focus in the sheet
+    // A11: the pending flag always clears, even if the void or the reload hangs.
+    try {
+      await removeAndReload(row, reason);
+    } finally {
+      setRemovingNow(false);
+      heading.current?.focus(); // the row (and its button) is gone: keep keyboard focus in the sheet
+    }
   }
 
   async function removeAndReload(row: Row, reason: string) {
-    const res = await fetch(`/api/scans/${row.id}/void`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reason }),
-    }).catch(() => null);
-    if (!res) return setNotice('✕ Couldn’t remove: no connection.');
-    if (res.status === 401) return onUnauthorized();
-    const body = (await res.json().catch(() => ({}))) as { code?: string };
-    if (body.code === 'VOIDED' || body.code === 'ALREADY_VOIDED') {
+    // A11: 8 s timeout via requestVoid; a stall surfaces instead of hanging.
+    const outcome = await requestVoid(row.id, reason);
+    if (outcome.kind === 'unauthorized') return onUnauthorized();
+    if (outcome.kind === 'no-connection') return setNotice('✕ Couldn’t remove: no connection.');
+    if (outcome.kind === 'voided' || outcome.kind === 'already-voided') {
       setNotice(`✓ Removed ${row.displayName}. They can be scanned again.`);
       props.onRemoved(row.id);
-    } else if (body.code === 'FORBIDDEN') setNotice('✕ Too late to remove that one. Ask an organizer.');
+    } else if (outcome.kind === 'forbidden') setNotice('✕ Too late to remove that one. Ask an organizer.');
     else setNotice('✕ Couldn’t remove. Try again.');
     await load();
   }

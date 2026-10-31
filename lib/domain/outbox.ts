@@ -4,12 +4,14 @@ const BACKOFF_SECONDS = [60, 5 * 60, 25 * 60, 2 * 60 * 60] as const;
 const MAX_BACKOFF_SECONDS = 2 * 60 * 60;
 export const MAX_ATTEMPTS = 5;
 // v0.11.25: a provider's 429 isn't a failed attempt. Only this many rate-limited tries in a row give up.
+// A10: `rateLimitHits` is the CONSECUTIVE count (finish_outbox resets it to 0 on any real non-429
+// outcome; a refunded handoff preserves it), so a recovered row starts a fresh streak.
 export const MAX_RATE_LIMIT_RETRIES = 20;
 const RATE_LIMIT_WAIT_SECONDS = 60;
 
 export type NextAttempt = { status: 'pending'; at: Date } | { status: 'failed' };
 
-/** `rateLimitHits` is set only for a 429: the row's rate-limited tries, this one included. */
+/** `rateLimitHits` is set only for a 429: the row's CONSECUTIVE rate-limited tries, this one included. */
 export function nextAttempt(input: { attempts: number; now: Date; retryAfterSeconds?: number; rateLimitHits?: number }): NextAttempt {
   if (input.rateLimitHits !== undefined) {
     if (input.rateLimitHits >= MAX_RATE_LIMIT_RETRIES) return { status: 'failed' };

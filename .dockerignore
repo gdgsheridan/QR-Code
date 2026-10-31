@@ -9,3 +9,8 @@ test-results
 playwright-report
 tests/e2e/.auth
 public/zxing
+# Build context only: never part of any image layer
+Dockerfile
+.dockerignore
+.tokensave/
+*.tsbuildinfo

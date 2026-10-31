@@ -17,8 +17,8 @@ import { useBadgeWrite } from '@/lib/scanner/badge-write';
 import { nfcSupported, useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
 import { CameraError, createBarcodeScanner, type BarcodeScanner, type CameraFailure } from '@/lib/scanner/qr-scanner';
 import { viewFor, type Outcome, type ResultView } from '@/lib/scanner/result-view';
-import { submitScan } from '@/lib/scanner/submit';
-import { undoVisible } from '@/lib/scanner/undo';
+import { nextNetworkDown, submitScan } from '@/lib/scanner/submit';
+import { requestVoid, undoVisible } from '@/lib/scanner/undo';
 import { keepScreenAwake } from '@/lib/scanner/wake-lock';
 import { CheckpointPicker } from './checkpoint-picker';
 import { LinkSheet, type LinkState } from './link-sheet';
@@ -92,7 +92,11 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const mode = useSyncExternalStore(subscribeInput, currentInput, () => null); // null until hydrated
 
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
-  const offline = !online || networkDown;
+  // A03: only the browser really being offline disables scanning. A thrown fetch
+  // (server down, captive portal, Wi-Fi without internet) sets networkDown but
+  // leaves scanning on, so the next scan retries and clears the banner on
+  // success — no reload needed. The `online` listener below stays as backup.
+  const offline = !online;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const scannerRef = useRef<BarcodeScanner | null>(null);
@@ -170,6 +174,9 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         setNetworkDown(true);
         return show({ kind: 'network' }, checkpoint, part.method);
       }
+      // Any HTTP-backed answer proves connectivity; 'network' (timeout/5xx/parse)
+      // leaves the flag so the next scan can still clear it on success (A03).
+      setNetworkDown((prev) => nextNetworkDown(prev, outcome.kind));
       if (outcome.kind === 'response') {
         const { data } = outcome;
         if (data.code === 'ACCEPTED' && data.scanId && !data.voided) {
@@ -377,18 +384,14 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   async function undo(reason: string) {
     if (!lastOwn) return;
     setUndoOpen(false);
-    const res = await fetch(`/api/scans/${lastOwn.scanId}/void`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ reason }),
-    }).catch(() => null);
-    if (!res) return setNotice('✕ Undo failed: no connection.');
-    if (res.status === 401) return toLogin();
-    const body = (await res.json().catch(() => ({}))) as { code?: string };
-    if (body.code === 'VOIDED' || body.code === 'ALREADY_VOIDED') {
+    // A11: 8 s timeout via requestVoid; a stalled void surfaces instead of hanging.
+    const outcome = await requestVoid(lastOwn.scanId, reason);
+    if (outcome.kind === 'unauthorized') return toLogin();
+    if (outcome.kind === 'no-connection') return setNotice('✕ Undo failed: no connection.');
+    if (outcome.kind === 'voided' || outcome.kind === 'already-voided') {
       setLastOwn(null);
       setNotice('✓ Last scan undone.');
-    } else if (body.code === 'FORBIDDEN') {
+    } else if (outcome.kind === 'forbidden') {
       setLastOwn(null);
       setNotice('✕ Too late to undo. Ask an organizer.');
     } else {
@@ -427,11 +430,11 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         </Button>
       </header>
 
-      {offline && (
+      {(offline || networkDown) && (
         <Alert className="[background:rgb(127,_29,_29)] text-white p-[12px_16px] font-bold text-center
 
           [border-bottom:1px_solid_rgba(255,_255,_255,_0.12)]" asChild><div  role="alert">
-          ⚠ OFFLINE: use paper list
+          {offline ? '⚠ OFFLINE: use paper list' : '⚠ CONNECTION ISSUE: use paper list'}
         </div></Alert>
       )}
 

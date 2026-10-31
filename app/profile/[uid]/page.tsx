@@ -6,9 +6,12 @@ import { Button } from '@/components/ui/button';
 import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { connection } from 'next/server';
+import { headers } from 'next/headers';
 import { z } from 'zod';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
+import { clientIpKey } from '@/lib/http/ip';
+import { IP_CEILING_PER_MIN, withinLimit } from '@/lib/pass/handlers';
 import { normalizeUid } from '@/lib/domain/badge';
 import { normalizeEmail } from '@/lib/domain/normalize';
 import { CopyButton } from './copy-button';
@@ -49,6 +52,23 @@ export default async function BadgeProfilePage(props: { params: Promise<{ uid: s
   const raw = (await props.params).uid;
   const uid = normalizeUid(raw);
   if (!uid) notFound();
+  // M5: public by design, but short UIDs are enumerable, so throttle per client IP (hashed key
+  // only, I-11) before touching the DB. Same venue-NAT ceiling as the pass endpoints: a whole hall
+  // can share one egress IP. Over the limit the page answers 200 with a neutral retry note in the
+  // usual shell — no profile data and no existence signal either way (a 404 would imply unlinked).
+  if (!(await withinLimit(db(), clientIpKey(await headers(), 'profile'), 60, IP_CEILING_PER_MIN))) {
+    return (
+      <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
+
+          [:where(&)_>_*]:mb-0">
+        <BrandMark className="min-h-11 mb-[8px]" />
+        <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section >
+          <h1>Too many requests</h1>
+          <p className="copy">Try again shortly.</p>
+        </section></Card>
+      </main></Entrance>
+    );
+  }
   const viewer = await currentUser();
 
   const { data, error } = await db().rpc('badge_profile', {
