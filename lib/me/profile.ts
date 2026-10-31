@@ -160,9 +160,9 @@ export async function saveBadgeProfile(
   user: Account,
   participantId: string,
   input: ProfileInput,
-  opts: { setup?: boolean } = {},
+  opts: { setup?: boolean; requireEmergency?: boolean } = {},
 ): Promise<SaveProfileResult> {
-  const parsed = parseProfileInput(input, { requireEmergency: false, requireSetup: opts.setup });
+  const parsed = parseProfileInput(input, { requireEmergency: opts.requireEmergency ?? false, requireSetup: opts.setup });
   if (!parsed.ok) return FIELD_RESULT[parsed.field];
   const v = parsed.value;
   if (!user.email || !z.uuid().safeParse(participantId).success) return 'NOT_FOUND';

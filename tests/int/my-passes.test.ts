@@ -153,6 +153,17 @@ describe('hacker menu (SPEC F14, v0.6)', () => {
     expect(await row()).toEqual({ team_status: 'team', looking_for_team: false });
   });
 
+  it('T-ME-10 (v0.11.25): the setup walkthrough requires the emergency contact and saves it with the other answers', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    const email = await emailOf(id);
+    const user = { id: f.staff.vol1, email };
+    const answers = { overnight: 'yes', teamStatus: 'solo' };
+    const walk = (input: Parameters<typeof saveBadgeProfile>[3]) => saveBadgeProfile(serviceClient(), user, id, input, { setup: true, requireEmergency: true });
+    expect(await walk({ ...answers, emergencyName: '', emergencyPhone: '' })).toBe('INVALID_CONTACT');
+    expect(await walk({ ...answers, ...contact })).toBe('SAVED');
+    expect((await myEvent(serviceClient(), email, new Date()))?.profileDone).toBe(true);
+  });
+
   it('T-ME-05: an attendee saves their own emergency contact and dietary notes; invalid input and other rows change nothing', async () => {
     const { id } = await f.addParticipant(f.e1.id);
     const user = { id: f.staff.vol1, email: (await emailOf(id)).toUpperCase() };

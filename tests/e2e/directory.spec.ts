@@ -29,6 +29,9 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await page.getByRole('radio', { name: 'Not sure yet', exact: true }).check();
   await page.getByRole('radio', { name: 'I plan to go solo', exact: true }).check();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByLabel('Emergency contact name').fill('Dee Fixture');
+  await page.getByLabel('Emergency contact phone').fill('416 555 0101');
   await page.getByRole('button', { name: 'Save profile', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible();
   await page.getByLabel('List me in the Hacker directory').check();
@@ -159,8 +162,9 @@ test('T-DIR-05 (v0.11.25): the directory shows 50 hackers, and Show more adds th
   await f.pool.query(
     `insert into participants (event_id, email, first_name, last_name, search_text, status, source, directory_opt_in)
      select $1, 'more' || g || '-' || $2 || '@example.test', 'Bulk', 'Hacker' || lpad(g::text, 2, '0'), 'bulk hacker' || lpad(g::text, 2, '0'),
-            'accepted', 'seed', true from generate_series(1, 60) g`, [f.e1.id, f.slug]);
-  const email = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.B])).rows[0]!.email;
+            'accepted', 'seed', true from generate_series(1, 60) g`, [f.e2.id, f.slug]);
+  // Event 2 (X's), so the other directory tests in this file never see these 60.
+  const email = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.X])).rows[0]!.email;
   await createAccount(email);
   await signIn(page, email, '/me/hackers');
   const cards = page.getByRole('region', { name: 'Hacker directory' }).getByRole('article');
@@ -170,5 +174,5 @@ test('T-DIR-05 (v0.11.25): the directory shows 50 hackers, and Show more adds th
   await expect(cards.nth(50)).toBeVisible();
   expect(await cards.count()).toBeGreaterThan(60);
   await expect(page.getByRole('link', { name: 'Show more' })).toHaveCount(0);
-  await f.pool.query(`delete from participants where event_id = $1 and email like 'more%'`, [f.e1.id]);
+  await f.pool.query(`delete from participants where event_id = $1 and email like 'more%'`, [f.e2.id]);
 });

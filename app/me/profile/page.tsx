@@ -15,7 +15,7 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { DISCORD_PATTERN, LINKEDIN_PATTERN, WEBSITE_PATTERN } from '@/lib/domain/badge';
-import { PACE, type ProfileInput } from '@/lib/domain/profile';
+import { PACE, PHONE_PATTERN, type ProfileInput } from '@/lib/domain/profile';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AllergyFields } from './allergy-fields';
@@ -99,8 +99,14 @@ async function saveSetup(formData: FormData) {
       allergySeverity: text(formData, 'allergySeverity'),
       teamStatus: text(formData, 'teamStatus'),
       accessibility: text(formData, 'accessibility'),
+      // v0.11.25: the walkthrough's step 3 (the emergency contact page edits it later).
+      ...(formData.get('walkthrough') === '1' && {
+        emergencyName: text(formData, 'emergencyName'),
+        emergencyPhone: text(formData, 'emergencyPhone'),
+        emergencyRelation: text(formData, 'emergencyRelation'),
+      }),
     },
-    { setup: true },
+    { setup: true, requireEmergency: formData.get('walkthrough') === '1' },
   );
   redirect(`/me/profile?${result === 'SAVED' ? `saved=setup${formData.get('walkthrough') === '1' ? '&step=links' : ''}` : `error=${result}${formData.get('walkthrough') === '1' ? '&setup=1' : ''}`}`);
 }
@@ -143,8 +149,9 @@ export default async function HackerProfilePage(props: {
   const tab = ERROR_TAB[notices.error as SaveProfileResult]
     ?? TABS.find(([value]) => value === notices.tab)?.[0] ?? defaultTab;
   const unfinished = { event: !setupDone, health: false, networking: false };
-  const initialStep = networkingError || (notices.step === 'links' && setupDone) ? 3
+  const initialStep = networkingError || (notices.step === 'links' && setupDone) ? 4
     : ['INVALID_OVERNIGHT', 'INVALID_TEAM_STATUS'].includes(notices.error ?? '') ? 1
+    : notices.error === 'INVALID_CONTACT' ? 3
     : error ? 2 : 1;
 
   return (
@@ -160,7 +167,7 @@ export default async function HackerProfilePage(props: {
       </div>
       <h1>{setupDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
       {!setupDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
-      {!m.emergency && <Alert role="note" asChild><p>
+      {!m.emergency && !walkthrough && <Alert role="note" asChild><p>
         We still need your emergency contact. <Link className="font-semibold text-accent" href="/me/emergency">Add your emergency contact →</Link>
       </p></Alert>}
 
@@ -234,6 +241,18 @@ export default async function HackerProfilePage(props: {
           <Label htmlFor="accessibility">Accessibility needs (optional)</Label>
           <Textarea id="accessibility" name="accessibility" maxLength={500} placeholder="Anything that would make the event easier for you" defaultValue={m.accessibility ?? ''} className="min-h-12 w-full" />
 
+          {!walkthrough && <Button type="submit">Save profile</Button>}
+          </SetupStep>}
+          {walkthrough && <SetupStep number={3}>
+          <h2 id="setup-step-3" tabIndex={-1}>Emergency contact</h2>
+          <p className="copy m-0 text-muted-foreground text-[14px]">Only the organizers see it.</p>
+          <Label htmlFor="emergencyName">Emergency contact name</Label>
+          <Input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" defaultValue={m.emergency?.name ?? ''} className="min-h-12 w-full" />
+          <Label htmlFor="emergencyPhone">Emergency contact phone</Label>
+          <Input id="emergencyPhone" name="emergencyPhone" type="tel" required maxLength={30} pattern={PHONE_PATTERN}
+            title="A phone number: digits, spaces and + ( ) - ." autoComplete="off" defaultValue={m.emergency?.phone ?? ''} className="min-h-12 w-full" />
+          <Label htmlFor="emergencyRelation">Relationship (optional)</Label>
+          <Input id="emergencyRelation" name="emergencyRelation" maxLength={60} placeholder="Parent, partner, friend…" autoComplete="off" defaultValue={m.emergency?.relation ?? ''} className="min-h-12 w-full" />
           <Button type="submit">Save profile</Button>
           </SetupStep>}
           {error && !networkingError && (
