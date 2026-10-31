@@ -27,3 +27,20 @@ jobs:
       - run: pnpm test:int
       # T-SEC-03: build with the local-stack env, then scan the client bundle for server secrets.
       - run: set -a && . ./.env.test && set +a && pnpm check:bundle
+
+  # L17: advisory gate — fails on high/critical advisories in production deps.
+  # Uses --prod so dev-only advisories (vitest/vite trees) don't block CI.
+  # 2026-10-31: prod graph is clean (source-map-js bumped 1.2.1 -> 1.2.2 via
+  # the lockfile; GHSA-68fv-2mgg-jv7q resolved), so this gate blocks.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level=high

@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # L17: weekly dependency updates for the pnpm graph (security patches surface
+  # as PRs even if the audit gate ever goes report-only).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # This repo uses pnpm (pnpm-lock.yaml); dependabot's npm ecosystem handles it.
+    allow:
+      - dependency-type: direct
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
