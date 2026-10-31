@@ -20,14 +20,15 @@ export const metadata: Metadata = menuMetadata('Menu');
 // (v0.4.1). The pass link carries the token only in the fragment (I-3), and the page never sends a referrer.
 export default async function MePage() {
   const { user, now, me: m } = await loadMe('/me');
-  const pass = m ? (await myPasses(db(), user.email ?? '', env().PASS_TOKEN_SECRET, new Date())).find((p) => p.participantId === m.participantId)?.pass : undefined;
-  // v0.4.1: staff get links to their events (the admin and scanner pages check the role again).
-  const { data: roles, error } = await db()
-    .from('event_staff')
-    .select('role, events!inner(slug, name, starts_at)')
-    .eq('user_id', user.id)
-    .order('starts_at', { referencedTable: 'events', ascending: false });
+  // v0.11.25: the pass and the staff roles (v0.4.1: links to their events; the admin and scanner pages check
+  // the role again) don't depend on each other, so they load together.
+  const [passes, { data: roles, error }] = await Promise.all([
+    m ? myPasses(db(), user.email ?? '', env().PASS_TOKEN_SECRET, new Date()) : Promise.resolve([]),
+    db().from('event_staff').select('role, events!inner(slug, name, starts_at)').eq('user_id', user.id)
+      .order('starts_at', { referencedTable: 'events', ascending: false }),
+  ]);
   if (error) throw new Error(`event_staff lookup failed (${error.code})`);
+  const pass = m ? passes.find((p) => p.participantId === m.participantId)?.pass : undefined;
 
   const live = m ? Date.parse(m.event.endsAt) > now.getTime() : false;
   // The emergency contact has its own menu item and warning; this hint is about the profile page's own answers.
