@@ -25,7 +25,7 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
     }
   });
 
-  it('T-RSVP-13: the reply-by date is shown while it is ahead; past it (a late invite) or unset, the real close (v0.11.27)', () => {
+  it('T-RSVP-13: the reply-by date is shown while it is ahead; past it (a late invite) or unset, the real close (v0.11.28)', () => {
     const now = new Date('2026-11-01T12:00:00Z');
     const replyBy = '2026-11-04T04:59:00.000Z'; // Tue, Nov 3, 11:59 PM EST
     const closes = '2026-11-08T04:59:00.000Z'; // Sat, Nov 7, 11:59 PM EST

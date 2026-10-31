@@ -7,19 +7,23 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NativeSelect } from '@/components/ui/native-select';
 import { PaceSlider } from '@/components/pace-slider';
 import { directoryPace } from '@/components/pace-options';
 import { db } from '@/lib/db/server';
 import { PACE } from '@/lib/domain/profile';
-import { hackerDirectory } from '@/lib/me/hackers';
+import { DIRECTORY_MAX, DIRECTORY_PAGE, hackerDirectory } from '@/lib/me/hackers';
 import { inviteTeammate, myTeam } from '@/lib/me/team';
 import { emailFrom, getProvider } from '@/lib/email';
 import { drainUntilIdle } from '@/lib/email/drain';
 import { env } from '@/lib/env';
 import { CopyButton } from '@/app/profile/[uid]/copy-button';
+import { withinLimit } from '@/lib/pass/handlers';
 import { loadMyEvent, menuMetadata } from '../load';
+import { AutoFilters, RefreshButton } from './filters';
 
 export const metadata = menuMetadata('Hackers');
+const DIRECTORY_READS_PER_MIN = 60;
 
 async function invite(formData: FormData) {
   'use server';
@@ -39,13 +43,19 @@ const NOTICES: Record<string, string> = {
   NOT_FOUND: 'Something changed. Reload the page and try again.',
 };
 
-export default async function HackersPage({ searchParams }: { searchParams: Promise<{ q?: string; looking?: string; pace?: string; r?: string }> }) {
+export default async function HackersPage({ searchParams }: { searchParams: Promise<{ q?: string; looking?: string; pace?: string; track?: string; r?: string; show?: string }> }) {
   const params = await searchParams;
   const { me, user, now } = await loadMyEvent('/me/hackers');
   const looking = params.looking === '1';
   const pace = directoryPace(params.pace);
-  const [people, { team }] = await Promise.all([
-    hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace }),
+  // v0.11.25: 50 at a time; Show more asks for 50 more (a plain link, so it works without JavaScript).
+  const show = Math.min(Math.max(Math.floor(Number(params.show)) || DIRECTORY_PAGE, DIRECTORY_PAGE), DIRECTORY_MAX);
+  // v0.11.25: filters apply as they change, so directory reads are limited per hacker (60 a minute).
+  const allowed = await withinLimit(db(), `directory:${me.participantId}`, 60, DIRECTORY_READS_PER_MIN);
+  // An unknown track id just matches nobody (the SQL checks it); the list below only offers this event's tracks.
+  const track = params.track ?? '';
+  const [{ people, more }, { team, tracks }] = await Promise.all([
+    allowed ? hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace, track, show }) : Promise.resolve({ people: [], more: false }),
     myTeam(db(), me),
   ]);
   const canInvite = me.event.teamsOpen && Date.parse(me.event.endsAt) > now.getTime() && team && team.members.length < 4;
@@ -58,17 +68,21 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
     </div>
     <h1>Hackers</h1>
     <Link href="/me/profile#networking" className="inline-flex min-h-11 items-center self-start">Edit my directory profile →</Link>
-    {/* Owner's request: the filters stack in one column. */}
-    <form className="grid max-w-[640px] gap-4" aria-label="Filter hackers" action="/me/hackers">
+    {/* Owner's request: the filters stack in one column. They apply as they change (v0.11.25). */}
+    <AutoFilters className="grid max-w-[640px] gap-4">
       <div className="grid min-w-0 gap-2"><Label htmlFor="search">Search by name</Label><Input id="search" name="q" type="search" defaultValue={params.q ?? ''} className="min-h-12 w-full" /></div>
       <PaceSlider key={pace} value={pace} filter />
+      <div className="grid gap-2"><Label htmlFor="track">Track</Label><NativeSelect id="track" name="track" defaultValue={track} className="min-h-12 w-full">
+        <option value="">All tracks</option>{tracks.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+      </NativeSelect></div>
       <Label className="flex min-h-11 items-center gap-3"><input className="size-[22px]" type="checkbox" name="looking" value="1" defaultChecked={looking} />Looking for a team</Label>
-      <Button type="submit" className="justify-self-start">Apply filters</Button>
-    </form>
+      <div className="justify-self-start"><RefreshButton /></div>
+    </AutoFilters>
     {notice && <p role={params.r === 'INVITED' ? 'status' : 'alert'}>{notice}</p>}
-    {looking && !team && <p className="copy m-0 text-muted-foreground">Create a team to invite them. <Link href="/me/team">Open Team →</Link></p>}
+    {!allowed && <p role="alert">Too many refreshes. Wait a minute, then try again.</p>}
+    {looking && !team && <p className="copy m-0 text-muted-foreground">Create a team to invite them. <Link className="inline-flex min-h-11 items-center" href="/me/team">Open Team →</Link></p>}
     <section aria-label="Hacker directory" className="grid items-start gap-3 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 min-[1440px]:grid-cols-4">
-      {people.length === 0 && <p className="copy text-muted-foreground col-span-full">No hackers match these filters.</p>}
+      {allowed && people.length === 0 && <p className="copy text-muted-foreground col-span-full">No hackers match these filters.</p>}
       {people.map((person) => {
         const self = person.id === me.participantId;
         const full = 'bio' in person;
@@ -76,12 +90,12 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
         const paceLabel = full ? person.pace ? PACE[person.pace] : 'Pace not set' : 'Pace not shared';
         const paceLevel = full && person.pace ? { casual: 1, balanced: 2, competitive: 3 }[person.pace] : 0;
         const paceDescription = `${paceLabel.startsWith('Pace ') ? paceLabel : `Pace: ${paceLabel}`} (${paceLevel} of 3)`;
-        return <Card key={person.id} asChild className="min-w-0 gap-0 p-0 [overflow-wrap:anywhere]"><article aria-label={`${person.name}${self ? ' (you)' : ''}`}>
+        return <Card key={person.id} asChild className="min-w-0 gap-0 p-0 [overflow-wrap:anywhere]"><article id={`h-${person.id}`} aria-label={`${person.name}${self ? ' (you)' : ''}`}>
           <details className="group">
             <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-md px-4 py-3 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
               <h2 className="m-0 min-w-0 flex-1 text-base font-semibold">{person.name}{self && <span className="text-sm font-normal text-muted-foreground"> (you)</span>}</h2>
-              <span role="img" aria-label={paceDescription} title={paceDescription} className="flex h-2 w-[72px] shrink-0 gap-0.5 overflow-hidden rounded-full">
-                {['bg-accent', 'bg-[var(--warn)]', 'bg-[var(--bad)]'].map((color, index) => <span key={color} aria-hidden="true" className={`h-full flex-1 ${index < paceLevel ? color : 'rounded-sm border border-dashed border-muted-foreground/50 bg-muted'}`} />)}
+              <span role="img" aria-label={paceDescription} title={paceDescription} className="flex h-2 w-[72px] shrink-0 gap-0.5">
+                {['bg-accent', 'bg-[var(--warn)]', 'bg-[var(--bad)]'].map((color, index) => <span key={color} aria-hidden="true" className={`h-full flex-1 rounded-full ${index < paceLevel ? color : 'border border-dashed border-muted-foreground/50 bg-muted'}`} />)}
               </span>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4 shrink-0 text-muted-foreground group-open:rotate-180 motion-safe:transition-transform">
                 <path d="m6 9 6 6 6-6" />
@@ -91,6 +105,7 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
               <p className="m-0 text-sm text-muted-foreground">{paceLabel}</p>
               {full && <>
                 <p className="copy m-0 text-sm text-muted-foreground">{person.teamName ? `In a team: ${person.teamName}` : person.looking ? 'Looking for a team' : 'Going solo'}</p>
+                {person.tracks.length > 0 && <p className="copy m-0 text-sm">Wants to do: {person.tracks.join(', ')}</p>}
                 {person.bio && <p className="copy m-0 whitespace-pre-line">{person.bio}</p>}
                 {!self && <div className="grid gap-1">
                   {person.linkedinUrl && <a className="inline-flex min-h-11 items-center" href={person.linkedinUrl} rel="nofollow ugc">LinkedIn →</a>}
@@ -107,5 +122,10 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
         </article></Card>;
       })}
     </section>
+    {more && show < DIRECTORY_MAX && (() => {
+      const next = new URLSearchParams({ ...(params.q && { q: params.q }), ...(looking && { looking: '1' }), ...(pace && { pace }), ...(track && { track }), show: String(show + DIRECTORY_PAGE) });
+      const firstNew = people.at(-1)?.id;
+      return <Button variant="outline" className="self-center" asChild><Link href={`/me/hackers?${next.toString()}${firstNew ? `#h-${firstNew}` : ''}`} scroll={false}>Show more</Link></Button>;
+    })()}
   </main></Entrance>;
 }

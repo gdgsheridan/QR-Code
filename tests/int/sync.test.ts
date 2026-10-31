@@ -42,7 +42,7 @@ describe('Sync now (SPEC F10)', () => {
       dryRun: true,
       total: 4,
       skipped: 0,
-      // v0.4: Status never changes anyone's status (Withdrawn changes nothing). v0.11.26: Sync records the Sheet's
+      // v0.4: Status never changes anyone's status (Withdrawn changes nothing). v0.11.27: Sync records the Sheet's
       // decision, so `existing` (Accepted; the Apps Script path stored none) is an update too.
       counts: { UPDATED: 2, CREATED: 1, 'INVALID:email': 1 },
       changes: [

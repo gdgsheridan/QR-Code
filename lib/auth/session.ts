@@ -1,6 +1,7 @@
 import 'server-only';
 import { createServerClient, parseCookieHeader } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { cache } from 'react';
 import { env } from '@/lib/env';
 
 export interface SessionUser {
@@ -43,7 +44,9 @@ export async function supabaseForRequest() {
   });
 }
 
-export async function currentUser(): Promise<SessionUser | null> {
+// v0.11.25: once per request (React cache): the layout, page and server action all ask, and each getUser()
+// is a round trip to the auth server.
+export const currentUser = cache(async (): Promise<SessionUser | null> => {
   const { data } = await (await supabaseForRequest()).auth.getUser();
   return data.user ? { id: data.user.id, email: data.user.email ?? null } : null;
-}
+});

@@ -4,8 +4,6 @@ import { BrandMark } from '@/components/brand-mark';
 import { Entrance } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
-import { Alert } from '@/components/ui/alert';
 
 import Link from 'next/link';
 import QRCode from 'qrcode';
@@ -18,7 +16,9 @@ interface ActivePass {
   firstName: string;
   lastName: string;
   event: { name: string; venue: string; startsAt: string; timezone: string };
-  profile: { public: boolean; hasLinkedin: boolean };
+  /** v0.11.25: the holder's team, and the links they share on their badge (null when they don't). */
+  team: { name: string; track: string | null } | null;
+  links: { linkedinUrl: string | null; discord: string | null; websiteUrl: string | null } | null;
 }
 
 type View =
@@ -168,6 +168,13 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
     });
   }, [token]);
 
+  const shared = pass.links;
+  const links = [
+    shared?.linkedinUrl && { key: 'li', node: <a href={shared.linkedinUrl} rel="nofollow ugc noopener" target="_blank" className="text-link underline">LinkedIn</a> },
+    shared?.discord && { key: 'dc', node: <span><span className="text-muted-foreground">Discord </span>@{shared.discord}</span> },
+    shared?.websiteUrl && { key: 'web', node: <a href={shared.websiteUrl} rel="nofollow ugc noopener" target="_blank" className="text-link underline">{shared.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> },
+  ].filter((l): l is { key: string; node: React.ReactElement } => Boolean(l));
+
   return (
     <>
 
@@ -177,10 +184,10 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
 
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-ticket shadow-panel" aria-labelledby="pass-name">
         <div className="grid [justify-items:center] gap-[4px] p-[24px_20px_20px] text-center [:where(&)_>_*]:m-0">
-          <h1 id="pass-name" className="text-[32px] leading-[1.15] [overflow-wrap:anywhere]">
+          <h1 id="pass-name" className="text-[28px] leading-[1.15] [overflow-wrap:anywhere]">
             {`${pass.firstName} ${pass.lastName}`.trim()}
           </h1>
-          <canvas ref={canvas} className="block w-[min(100%,_300px)] h-auto [background:rgb(255,_255,_255)] rounded-md
+          <canvas ref={canvas} className="block mt-[8px] w-[min(100%,_360px)] h-auto [background:rgb(255,_255,_255)] rounded-md
 
           [image-rendering:pixelated]" role="img" aria-label="Your check-in QR code" />
         </div>
@@ -197,63 +204,26 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
             <dt>Where</dt>
             <dd>{pass.event.venue}</dd>
           </div>
+          {pass.team && (
+            <div>
+              <dt>Team</dt>
+              <dd>{pass.team.name}</dd>
+            </div>
+          )}
+          {pass.team?.track && (
+            <div>
+              <dt>Track</dt>
+              <dd>{pass.team.track}</dd>
+            </div>
+          )}
         </dl>
+        {links.length > 0 && (
+          <ul aria-label="Your links" className="flex flex-wrap gap-x-[20px] gap-y-[4px] m-0 p-[0px_20px_16px] list-none text-[14px]">
+            {links.map((l) => <li key={l.key} className="flex items-center min-h-[44px]">{l.node}</li>)}
+          </ul>
+        )}
       </section>
-      {/* Keyed so another pass opened in this tab (hash change) never shows the previous pass's setting. */}
-      <ProfileSection key={`${token}:${pass.profile.public}`} pass={pass} token={token} />
     </>
   );
 }
 
-// SPEC §6.5: opt-in, off by default. The token travels only in the PATCH body (I-3).
-function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
-  const [on, setOn] = useState(pass.profile.public);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
-
-  async function onToggle(e: React.ChangeEvent<HTMLInputElement>) {
-    const next = e.target.checked;
-    setOn(next); // shown at once; put back if the save fails
-    setBusy(true);
-    setMessage(null);
-    try {
-      const res = await fetch('/api/pass', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ token, profilePublic: next }),
-      });
-      if (res.ok) {
-        setMessage({ tone: 'ok', text: next ? 'Your badge profile is shared.' : 'Your badge profile is hidden.' });
-      } else {
-        setOn(!next);
-        setMessage({ tone: 'bad', text: res.status === 429 ? 'Too many attempts. Please wait a minute.' : 'Couldn’t save. Please try again.' });
-      }
-    } catch {
-      setOn(!next);
-      setMessage({ tone: 'bad', text: 'Couldn’t save. Check your connection and try again.' });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card className="tw-pass-card flex flex-col gap-[12px] [background:var(--card)] [border-width:1px] [border-style:solid]
-
-          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
-
-          [border-left-color:var(--line)] rounded-card p-[20px] shadow-panel [:where(&)_>_*]:m-0
-
-          [&_h2]:text-[18px]" asChild><section  aria-labelledby="profile-heading">
-      <h2 id="profile-heading">Badge profile</h2>
-      <Label className="flex gap-[12px] items-center min-h-[44px] font-semibold [&_input]:w-[22px] [&_input]:h-[22px]
-
-          [&_input]:[flex:0_0_auto] [&_input]:[accent-color:var(--accent)]">
-        <input type="checkbox" checked={on} onChange={onToggle} disabled={busy} />
-        Show my name and profile links to anyone who taps my badge
-      </Label>
-      <Alert className={` [&:empty]:mt-[-12px] [&:empty]:p-0 [&:empty]:border-0 [&:empty]:bg-transparent [&:empty]:shadow-none ${message ? ({ warn: 'text-warn', bad: 'text-bad', ok: 'text-ok' })[message.tone] : ''}`} asChild role="status"><p  role="status" aria-live="polite">
-        {message ? `${message.tone === 'ok' ? '✓' : '✕'} ${message.text}` : ''}
-      </p></Alert>
-    </section></Card>
-  );
-}

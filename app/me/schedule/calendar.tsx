@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { NativeDialog } from '@/components/ui/native-dialog';
+import { venueMapUrl } from '@/lib/email/links';
 import { scheduleTimeline, type ScheduleCategory, type ScheduleSection, type TimelineSlot } from '@/lib/domain/schedule';
 
 // Colours sampled from the Hacker Package poster. Red and blue are the next Google shade down from the poster's
@@ -75,6 +76,7 @@ function EventDialog({ selected, onClose }: { selected: Selected | null; onClose
     if (selected && element && !element.open) element.showModal();
   }, [selected]);
   const slot = selected?.slot;
+  const mapUrl = slot?.place ? venueMapUrl(slot.place) : null;
   const category = slot && categories.find(c => c.id === slot.category)!;
   const [title = '', ...subtitle] = slot?.title.split(' — ') ?? [];
   // `close` fires after a task: if the dialog was reopened meanwhile (Escape, then Enter), that late event must not clear it.
@@ -94,7 +96,7 @@ function EventDialog({ selected, onClose }: { selected: Selected | null; onClose
         <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[15px]">
           <dt className="font-bold text-muted-foreground">When</dt>
           <dd className="m-0">{selected.day && <>{selected.day}<br /></>}{slot.start}{slot.end ? ` to ${slot.end}` : ''} <span className="text-muted-foreground">({duration(slot.endMinute - slot.startMinute)}{slot.end ? '' : ', end not posted'})</span></dd>
-          {slot.place && <><dt className="font-bold text-muted-foreground">Where</dt><dd className="m-0 font-bold">{slot.place}</dd></>}
+          {slot.place && <><dt className="font-bold text-muted-foreground">Where</dt><dd className="m-0 font-bold">{mapUrl ? <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline focus-visible:outline-2 focus-visible:outline-offset-2">{slot.place}</a> : slot.place}</dd></>}
         </dl>
         <form method="dialog" className="m-0">
           <Button type="submit" autoFocus className="w-full">Close</Button>

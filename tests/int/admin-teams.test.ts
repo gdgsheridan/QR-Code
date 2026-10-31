@@ -95,4 +95,25 @@ describe('teams admin (SPEC §11, v0.7)', () => {
     expect(rows.length).toBeGreaterThan(5);
     expect(JSON.stringify(rows)).not.toMatch(new RegExp(`wizards|hardware|${team.code}|@`, 'i'));
   });
+  it('T-TEAM-03 (v0.11.25): an organizer deleting a team while its members leave or pick a track never deadlocks', async () => {
+    await f.pool.query('update events set teams_open = true, tracks_released = true where id = $1', [f.e1.id]);
+    const { rows: [tr] } = await f.pool.query<{ id: string }>(`insert into tracks (event_id, name) values ($1, 'Deadlock track') returning id`, [f.e1.id]);
+    const emailOf = async (id: string) => (await f.pool.query<{ email: string }>('select email from participants where id = $1', [id])).rows[0]!.email;
+    for (let round = 0; round < 40; round++) {
+      const [a, b] = await Promise.all([f.addParticipant(f.e1.id, { withPass: false }), f.addParticipant(f.e1.id, { withPass: false })]);
+      const { rows: [team] } = await f.pool.query<{ id: string }>(
+        `insert into teams (event_id, name, join_code) values ($1, $2, $3) returning id`, [f.e1.id, `Deadlock ${round}`, `DLK${String(round).padStart(2, '2').replace(/[01]/g, '2')}ZZZ`.slice(0, 8)]);
+      await f.pool.query('update participants set team_id = $1 where id = any($2)', [team!.id, [a.id, b.id]]);
+      const [del, left, picked] = await Promise.all([
+        // What the Teams page's Delete runs (delete_team(), v0.11.25), at database speed so the race is real.
+        f.pool.query('select delete_team($1, $2, $3) as r', [f.e1.id, team!.id, f.staff.org1]).then((r) => ({ status: r.rows[0]?.r === 'DELETED' ? 200 : 404 })),
+        f.pool.query('select team_leave($1, $2, $3) as r', [a.id, await emailOf(a.id), f.staff.vol1]),
+        f.pool.query('select team_set_track($1, $2, $3, $4) as r', [b.id, await emailOf(b.id), f.staff.vol1, tr!.id]),
+      ]);
+      expect([200, 404], `round ${round}`).toContain(del.status);
+      expect(left.rows[0]?.r).toBeDefined();
+      expect(picked.rows[0]?.r).toBeDefined();
+      expect((await f.pool.query('select 1 from teams where id = $1', [team!.id])).rowCount, `round ${round}`).toBe(0);
+    }
+  });
 });

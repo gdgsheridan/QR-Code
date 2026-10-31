@@ -21,7 +21,7 @@ const IMPORT_LINES: Array<[key: string, label: string]> = [
   ['INVALID', 'skipped: missing or invalid Applicant ID, email or name'],
 ];
 const MAX_CSV_BYTES = 2_000_000;
-// Owner's request (v0.11.26): every import takes only the people the Sheet accepted or waitlisted; no choice to make.
+// Owner's request (v0.11.27): every import takes only the people the Sheet accepted or waitlisted; no choice to make.
 const STATUSES: SheetStatus[] = ['accepted', 'waitlisted'];
 
 type Report = { total: number; skipped: number; counts: Record<string, number> };

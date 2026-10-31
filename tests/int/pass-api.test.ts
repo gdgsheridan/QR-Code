@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe('POST /api/pass (SPEC F5)', () => {
-  it('T-PASS-01: an active token returns their name and event; nothing else about the person', async () => {
+  it('T-PASS-01: an active token returns the pass holder, event, team and shared links; never dietary notes or email', async () => {
     const res = await c.lookup({ token: f.token.A });
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
@@ -23,12 +23,30 @@ describe('POST /api/pass (SPEC F5)', () => {
     expect(body).toEqual({
       state: 'active',
       firstName: 'Ada',
-      lastName: 'Fixture', // v0.11.27: the pass shows the full name
+      lastName: 'Fixture',
       event: { name: f.e1.name, venue: 'Fixture Hall', startsAt: expect.any(String), timezone: 'America/Toronto' },
-      profile: { public: true, hasLinkedin: false }, // §6.5 badge profile: on by default since v0.9
+      team: null,
+      links: { linkedinUrl: null, discord: null, websiteUrl: null }, // shared: badge profile on by default since v0.9
     });
     await f.checkIn(f.p.A, f.token.A);
     expect(await (await c.lookup({ token: f.token.A })).json()).toEqual(body);
+
+    // v0.11.25: the pass shows their team and track, and the links they share on their badge.
+    const { rows: [track] } = await f.pool.query<{ id: string }>(`insert into tracks (event_id, name) values ($1, 'Best AI') returning id`, [f.e1.id]);
+    const { rows: [team] } = await f.pool.query<{ id: string }>(
+      `insert into teams (event_id, name, join_code, track_id) values ($1, 'Byte Club', 'ABCDEFGH', $2) returning id`, [f.e1.id, track?.id]);
+    await f.pool.query(
+      `update participants set team_id = $2, linkedin_url = 'https://www.linkedin.com/in/ada', discord_username = 'ada.codes',
+              website_url = 'https://ada.dev/', dietary_notes = 'Vegan' where id = $1`, [f.p.A, team?.id]);
+    const shared = await (await c.lookup({ token: f.token.A })).json();
+    expect(shared).toMatchObject({
+      team: { name: 'Byte Club', track: 'Best AI' },
+      links: { linkedinUrl: 'https://www.linkedin.com/in/ada', discord: 'ada.codes', websiteUrl: 'https://ada.dev/' },
+    });
+    expect(JSON.stringify(shared)).not.toMatch(/Vegan|@/);
+    // Not shared on the badge: no links, since anyone who scans the QR opens this page.
+    await f.pool.query('update participants set profile_public = false where id = $1', [f.p.A]);
+    expect(await (await c.lookup({ token: f.token.A })).json()).toMatchObject({ team: { name: 'Byte Club' }, links: null });
   });
 
   it('T-PASS-02: a garbage token and an unknown well-formed token get the identical generic response', async () => {
@@ -54,14 +72,26 @@ describe('POST /api/pass (SPEC F5)', () => {
     expect((await c.lookup('{nope')).status).toBe(400);
   });
 
-  it('§15: /api/pass allows 30 requests per minute per IP, then 429', async () => {
+  it('§15 (v0.11.25): /api/pass allows 30 requests per minute per pass, and 600 per IP, so a venue sharing one IP still works', async () => {
     await awaitFreshWindow(60);
+    // A whole venue behind one IP: 40 different passes all answer (unknown ones 404, never 429).
+    const venue: number[] = [];
+    for (let i = 0; i < 40; i++) venue.push((await c.lookup({ token: generateToken() })).status);
+    expect(venue.every((s) => s === 404)).toBe(true);
+    // One pass hammered: the 31st request in a minute is refused, from any IP.
+    const hammered = generateToken();
     const statuses: number[] = [];
-    for (let i = 0; i < 31; i++) statuses.push((await c.lookup({ token: generateToken() })).status);
+    for (let i = 0; i < 31; i++) statuses.push((await passClient().lookup({ token: hammered })).status);
     expect(statuses.slice(0, 30).every((s) => s === 404)).toBe(true);
     expect(statuses[30]).toBe(429);
-    const other = passClient();
-    expect((await other.lookup({ token: f.token.A })).status).toBe(200);
+    expect((await c.lookup({ token: f.token.A })).status).toBe(200);
+    // The per-IP ceiling still stops a scraper.
+    const scraper = passClient();
+    const results: number[] = [];
+    for (let sent = 0; sent < 601; sent += 20) {
+      results.push(...(await Promise.all(Array.from({ length: Math.min(20, 601 - sent) }, () => scraper.lookup({ token: generateToken() }).then((r) => r.status)))));
+    }
+    expect(results.filter((s) => s === 429)).toHaveLength(1);
   });
 
   it('§15: the rate-limit key stores a hash, never the raw IP (I-11)', async () => {

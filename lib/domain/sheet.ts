@@ -78,7 +78,7 @@ export const SHEET_HEADERS = {
   status: 'Status',
 } as const satisfies Record<keyof SheetRowInput, string>;
 
-// v0.11.25: the organizers' applications Sheet heads its LinkedIn column "LinkedIn".
+// v0.11.26: the organizers' applications Sheet heads its LinkedIn column "LinkedIn".
 const ALIASES: Partial<Record<keyof SheetRowInput, string[]>> = { linkedin_url: ['LinkedIn'] };
 
 const REQUIRED: Array<keyof SheetRowInput> = ['email', 'first_name'];
@@ -91,7 +91,7 @@ export function mapSheetValues(values: string[][]): Array<Required<SheetRowInput
   for (const key of REQUIRED) {
     if (column.get(key) === undefined) throw new Error(`Missing header: ${SHEET_HEADERS[key]}`);
   }
-  // v0.11.25 (owner's decision, relaxes I-14): an export without an Applicant ID column is keyed by its email.
+  // v0.11.26 (owner's decision, relaxes I-14): an export without an Applicant ID column is keyed by its email.
   const byEmail = column.get('external_id') === undefined;
   const cell = (row: string[], key: keyof SheetRowInput) => {
     const i = column.get(key);

@@ -118,7 +118,7 @@ describe('event info for hackers (SPEC §11 Info, v0.6)', () => {
     expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ rsvpDeadline: null });
   });
 
-  it('T-ADM-08: the reply-by date (v0.11.27) is set and cleared like the deadline, and never after it', async () => {
+  it('T-ADM-08: the reply-by date (v0.11.28) is set and cleared like the deadline, and never after it', async () => {
     const day = 86_400_000;
     const [replyBy, closes] = [Date.now() + 4 * day, Date.now() + 8 * day].map((t) => new Date(t).toISOString());
     expect(await patch({ rsvpReplyBy: replyBy, rsvpDeadline: closes })).toMatchObject({ status: 200, body: { rsvpReplyBy: replyBy, rsvpDeadline: closes } });

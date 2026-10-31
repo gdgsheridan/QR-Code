@@ -23,7 +23,7 @@ test('T-ADM-08: Info edits only the RSVP dates (reply by, close); schedule and e
   expect(saved.ok()).toBe(true);
   await page.getByRole('link', { name: 'Info', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Event info' })).toBeVisible();
-  // v0.11.27: the RSVP deadline is "RSVPs close"; "Reply by" is the earlier date invitees are shown.
+  // v0.11.28: the RSVP deadline is "RSVPs close"; "Reply by" is the earlier date invitees are shown.
   const deadline = page.getByLabel(/^RSVPs close/);
   const replyBy = page.getByLabel(/^Reply by/);
   await expect(deadline).toBeVisible();

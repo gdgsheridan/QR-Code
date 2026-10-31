@@ -35,7 +35,7 @@ describe('CSV and Sheet Status filtering (SPEC F10)', () => {
     expect(() => filterSheetValues([['Status'], ['Rejected']], ['accepted'])).toThrow('Missing header: Email Address');
   });
 
-  it('T-ING-28: the organizers\' Sheet (v0.11.25): a STATUS header, Yes as accepted, Waitlist as waitlisted, everything else skipped', () => {
+  it('T-ING-28: the organizers\' Sheet (v0.11.26): a STATUS header, Yes as accepted, Waitlist as waitlisted, everything else skipped', () => {
     const sheet = [
       ['STATUS', 'Email Address', 'First Name'],
       ...['Yes', ' yes ', 'Waitlist', 'Deny', 'Duplicate', 'Test', ''].map((status, i) => [status, `${i}@example.test`, 'Applicant']),

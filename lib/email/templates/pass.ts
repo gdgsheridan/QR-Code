@@ -1,6 +1,6 @@
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { escapeHtml } from '@/lib/domain/html';
-import { DISCORD_URL, GOOGLE_GROUP_URL, HACKER_PACKAGE_URL } from '../links';
+import { DISCORD_URL, GOOGLE_GROUP_URL, HACKER_PACKAGE_URL, venueMapUrl } from '../links';
 import type { InlineImage } from '../provider';
 import { button, details, emailPage, HEADLINE, link, list, p, qr, SIGN_OFF_TEXT } from './layout';
 
@@ -24,6 +24,7 @@ export interface RenderedEmail {
 // the event's links (v0.9), privacy line. The QR is an inline cid: attachment, never a data: URI.
 export function renderPassEmail(input: PassEmailInput): RenderedEmail {
   const when = formatEventDateTime(input.event.startsAt, input.event.timezone);
+  const mapUrl = venueMapUrl(input.event.venue);
   const e = {
     first: escapeHtml(input.firstName),
     event: escapeHtml(input.event.name),
@@ -39,7 +40,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
   const html = emailPage(new URL(input.passUrl).origin, 'You’re in!', [
     p(`Hi ${e.first},`),
     p(`You're in for <strong>${e.event}</strong>.`, HEADLINE),
-    details([['When', e.when], ['Where', e.venue]]),
+    details([['When', e.when], ['Where', mapUrl ? link(escapeHtml(mapUrl), e.venue) : e.venue]]),
     qr('<img src="cid:qr" width="264" height="264" alt="Your check-in QR code" style="display:block;width:264px;height:264px;background:#ffffff;border:0">'),
     button(e.url, 'Open your pass'),
     p(`<strong>Next: set up your profile.</strong> Tell us ${setupWhat}.`),
@@ -57,7 +58,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     `You're in for ${input.event.name}.`,
     '',
     `When: ${when}`,
-    `Where: ${input.event.venue}`,
+    `Where: ${input.event.venue}${mapUrl ? `: ${mapUrl}` : ''}`,
     '',
     `Open your pass (shows your QR code): ${input.passUrl}`,
     '',

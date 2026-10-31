@@ -76,7 +76,7 @@ const eventUpdate = z
     tracksReleased: z.boolean().optional(),
     // v0.9 (F13). Never in the past: the next cron run would turn every unanswered invite into a no.
     rsvpDeadline: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
-    // v0.11.27: the date shown to invitees (and the reminder days); not after the deadline (a database check).
+    // v0.11.28: the date shown to invitees (and the reminder days); not after the deadline (a database check).
     rsvpReplyBy: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
   })
   .strict()
@@ -300,6 +300,14 @@ export function createAdminApi(deps: AdminDeps) {
         p_no_show: url.searchParams.get('noShow') === '1',
       });
       if (error) throw new Error(`admin_participants failed (${error.code})`);
+      // v0.11.25: whose newest RSVP email (invitation or reminder) failed for good, so they never got a link.
+      const { data: rsvpMail, error: mailError } = await db.from('email_outbox')
+        .select('participant_id, status, participants!inner(event_id)')
+        .in('kind', ['rsvp', 'rsvp_reminder']).eq('participants.event_id', g.eventId)
+        .order('created_at', { ascending: false });
+      if (mailError) throw new Error(`rsvp outbox load failed (${mailError.code})`);
+      const newest = new Map<string, string>();
+      for (const m of rsvpMail) if (m.participant_id && !newest.has(m.participant_id)) newest.set(m.participant_id, m.status);
       return json({
         participants: data.map((p) => ({
           id: p.id,
@@ -314,6 +322,7 @@ export function createAdminApi(deps: AdminDeps) {
           hasBadge: p.has_badge,
           passState: p.pass_state,
           rsvpSentAt: p.rsvp_sent_at,
+          rsvpFailed: newest.get(p.id) === 'failed',
           liveScans: p.live_scans,
           checkedIn: p.checked_in,
           sheetStatus: p.sheet_status,
@@ -353,7 +362,7 @@ export function createAdminApi(deps: AdminDeps) {
           emergency: p.emergency_name ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
           // v0.9 profile setup (F14). Allergies and accessibility are personal data: organizers only, never logged.
           overnight: p.overnight,
-          teamStatus: p.team_status,
+          teamStatus: p.team_id ? 'team' : p.team_status, // v0.11.25: in a team means in a team
           allergies: p.allergies,
           allergySeverity: p.allergy_severity,
           accessibility: p.accessibility,
@@ -736,10 +745,10 @@ export function createAdminApi(deps: AdminDeps) {
       if (g instanceof Response) return g;
       const id = uuid(params.id);
       if (!id) return notFound();
-      const { data, error } = await db.from('teams').delete().eq('id', id).eq('event_id', g.eventId).select('id').maybeSingle();
-      if (error) throw new Error(`team delete failed (${error.code})`);
-      if (!data) return notFound();
-      await audit(g.eventId, g.userId, 'team.delete', id);
+      // delete_team() locks the members before the team, like the hacker functions, so it can't deadlock (v0.11.25).
+      const { data, error } = await db.rpc('delete_team', { p_event_id: g.eventId, p_team_id: id, p_actor: g.userId });
+      if (error) throw new Error(`delete_team failed (${error.code})`);
+      if (data === 'NOT_FOUND') return notFound();
       return json({ deleted: true });
     },
 
@@ -815,6 +824,9 @@ export function createAdminApi(deps: AdminDeps) {
           .is('voided_at', null);
         if (doorError) throw new Error(`door scans load failed (${doorError.code})`);
         const checkedInAt = new Map(doors.map((d) => [d.participant_id, d.scanned_at]));
+        const { data: teamed, error: teamError } = await db.from('participants').select('id').eq('event_id', g.eventId).not('team_id', 'is', null);
+        if (teamError) throw new Error(`team members load failed (${teamError.code})`);
+        const inTeam = new Set(teamed.map((t) => t.id));
         return csvResponse(
           slug,
           kind,
@@ -826,7 +838,7 @@ export function createAdminApi(deps: AdminDeps) {
             data.map((p) => [
               p.first_name, p.last_name, p.email, p.status, p.source, p.is_test, p.dietary_notes,
               local(checkedInAt.get(p.id) ?? null), p.external_id,
-              p.overnight, p.team_status, p.allergies, p.allergy_severity,
+              p.overnight, inTeam.has(p.id) ? 'team' : p.team_status, p.allergies, p.allergy_severity, // v0.11.25: in a team means in a team
             ]),
           ),
         );

@@ -109,7 +109,7 @@ describe('Import CSV (SPEC F10, v0.11.22) through the admin API', () => {
     expect((await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true, csv: '', extra: 1 } })).status).toBe(400);
   });
 
-  it('T-ING-28: the organizers\' Sheet as exported (v0.11.25): STATUS Yes/Waitlist, no Applicant ID, LinkedIn; keyed by email', async () => {
+  it('T-ING-28: the organizers\' Sheet as exported (v0.11.26): STATUS Yes/Waitlist, no Applicant ID, LinkedIn; keyed by email', async () => {
     const [yes, wait, deny] = ['Yes', 'Waitlist', 'Deny'].map((status) => sheetRow(f.slug, { first_name: `Sheet${status}`, status }));
     const csv = toCsv(
       ['STATUS', 'Timestamp', 'Email Address', 'First Name', 'Last Name', 'LinkedIn', 'Notes'],
@@ -124,7 +124,7 @@ describe('Import CSV (SPEC F10, v0.11.22) through the admin API', () => {
     expect(rows).toEqual([wait!, yes!].map((r) => ({ external_id: r.email.toLowerCase(), email: r.email.toLowerCase(), status: 'pending', linkedin_url: 'https://www.linkedin.com/in/sheet-person' })));
     expect((await c.call('syncSheet', org, { slug: f.slug }, { body: { ...body, dryRun: true } })).body).toMatchObject({ counts: { UNCHANGED: 2 } });
 
-    // v0.11.26: the Sheet's decision is kept apart from their status, listed, and filterable.
+    // v0.11.27: the Sheet's decision is kept apart from their status, listed, and filterable.
     const listed = async (sheet?: string) => {
       const res = await c.call('listParticipants', org, { slug: f.slug }, { query: { q: 'sheet', ...(sheet && { sheet }) } });
       return (res.body as { participants: Array<{ firstName: string; status: string; sheetStatus: string | null }> }).participants

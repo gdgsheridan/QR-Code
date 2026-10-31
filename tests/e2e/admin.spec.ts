@@ -245,7 +245,7 @@ test('T-ING-28: Tools → Import CSV previews the Sheet export, takes only Yes a
   await expect(page).toHaveURL(`/admin/${f.slug}/tools`);
   const panel = page.getByRole('region', { name: 'Import CSV' });
   await expect(panel.getByRole('button', { name: 'Import', exact: true })).toBeDisabled();
-  // v0.11.26: no Status choice; only Yes (Accepted) and Waitlist rows ever come in.
+  // v0.11.27: no Status choice; only Yes (Accepted) and Waitlist rows ever come in.
   await expect(panel.getByRole('checkbox')).toHaveCount(0);
   await panel.getByLabel('CSV file').setInputFiles({ name: 'applicants.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   const preview = panel.getByRole('status');

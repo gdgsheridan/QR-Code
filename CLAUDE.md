@@ -69,7 +69,7 @@ Each one has tests. If a task seems to require breaking one, **stop and ask**.
 - **I-11 No PII in logs or `audit_log.detail`.** Log ids, codes and latencies only. No names, emails, tokens, dietary notes or photos.
 - **I-12 Normalize at every entry point.** Use `normalizeEmail()` (trim + lowercase) and `toSearchText()` for names. Never inline these.
 - **I-13 CSV only via `toCsv()`.** It includes the BOM, quoting and the formula-injection guard.
-- **I-14 Sheet row identity is `Applicant ID`.** Never use a row number, and never use email as the key. One exception (SPEC v0.11.25, owner's decision): an Import CSV file with no Applicant ID column is keyed by its normalized email (`mapSheetValues`).
+- **I-14 Sheet row identity is `Applicant ID`.** Never use a row number, and never use email as the key. One exception (SPEC v0.11.26, owner's decision): an Import CSV file with no Applicant ID column is keyed by its normalized email (`mapSheetValues`).
 - **I-15 Result codes are defined once.** `ScanCode` lives in `lib/domain/scan-codes.ts`. Changing a code means changing the SQL, TS, UI table (SPEC §10.2) and tests together.
 
 ## Workflow for every task

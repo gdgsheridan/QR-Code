@@ -91,14 +91,14 @@ isOneToOne: false
                   ]
                 },"email_outbox": {
                   Row: {
-                    "attempts": number,"created_at": string,"event_id": string | null,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string | null,"provider_message_id": string | null,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"],"user_id": string | null
+                    "attempts": number,"created_at": string,"event_id": string | null,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string | null,"provider_message_id": string | null,"rate_limit_hits": number,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"],"user_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind": string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
+                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind": string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
                   }
                   Update: {
-                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
+                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -148,6 +148,32 @@ isOneToOne: false
                   }
                   Relationships: [
                     
+                  ]
+                },"participant_tracks": {
+                  Row: {
+                    "created_at": string,"event_id": string,"participant_id": string,"track_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"event_id": string,"participant_id": string,"track_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"event_id"?: string,"participant_id"?: string,"track_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "participant_tracks_participant_id_event_id_fkey"
+      columns: ["participant_id","event_id"]
+isOneToOne: false
+      referencedRelation: "participants"
+      referencedColumns: ["id","event_id"]
+    },{
+      foreignKeyName: "participant_tracks_track_id_event_id_fkey"
+      columns: ["track_id","event_id"]
+isOneToOne: false
+      referencedRelation: "tracks"
+      referencedColumns: ["id","event_id"]
+    }
                   ]
                 },"participants": {
                   Row: {
@@ -416,7 +442,7 @@ isOneToOne: false
           Views: {
             "v_checkpoint_counts": {
                   Row: {
-                    "capacity": number | null,"checkpoint_id": string | null,"event_id": string | null,"kind": Database["public"]['Enums']["checkpoint_kind"] | null,"live_scans": number | null,"name": string | null
+                    "capacity": number | null,"checkpoint_id": string,"event_id": string,"kind": Database["public"]['Enums']["checkpoint_kind"],"live_scans": number | null,"name": string
                   }
                   ComputedFields: never
                   Relationships: [
@@ -436,6 +462,9 @@ isOneToOne: false
                            },
 "_rsvp_closes":
 { Args: { "p_deadline": string,"p_sent_at": string }; Returns: string
+                           },
+"_rsvp_undelivered":
+{ Args: { "p_participant_id": string }; Returns: boolean
                            },
 "_set_hacker_profile":
 { Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_bio"?: string,"p_dietary_notes": string,"p_directory_opt_in"?: boolean,"p_discord"?: string,"p_emergency_name": string,"p_emergency_phone": string,"p_emergency_relation": string,"p_linkedin_url": string,"p_overnight"?: string,"p_pace"?: string,"p_participant_id": string,"p_public": boolean,"p_team_status"?: string,"p_website"?: string }; Returns: undefined
@@ -466,6 +495,7 @@ isOneToOne: false
 "next_attempt_at": string,
 "participant_id": string | null,
 "provider_message_id": string | null,
+"rate_limit_hits": number,
 "sent_at": string | null,
 "status": Database["public"]['Enums']["outbox_status"],
 "user_id": string | null
@@ -485,6 +515,9 @@ isOneToOne: false
 "delete_participant":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_id": string }; Returns: Json
                            },
+"delete_team":
+{ Args: { "p_actor": string,"p_event_id": string,"p_team_id": string }; Returns: string
+                           },
 "enqueue_pass":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_id": string }; Returns: string
                            },
@@ -492,13 +525,13 @@ isOneToOne: false
 { Args: { "p_event_id": string,"p_now"?: string }; Returns: Json
                            },
 "finish_outbox":
-{ Args: { "p_id": string,"p_last_error"?: string,"p_next_attempt_at"?: string,"p_provider_message_id"?: string,"p_status": Database["public"]['Enums']["outbox_status"] }; Returns: boolean
+{ Args: { "p_id": string,"p_last_error"?: string,"p_next_attempt_at"?: string,"p_provider_message_id"?: string,"p_rate_limited"?: boolean,"p_refund"?: boolean,"p_status": Database["public"]['Enums']["outbox_status"] }; Returns: boolean
                            },
 "grant_admin_roles":
 { Args: { "p_user_id": string }; Returns: number
                            },
 "hacker_directory":
-{ Args: { "p_email": string,"p_event_id": string,"p_looking"?: boolean }; Returns: Json
+{ Args: { "p_email": string,"p_event_id": string,"p_limit"?: number,"p_looking"?: boolean,"p_pace"?: string,"p_query"?: string,"p_track"?: string }; Returns: Json
                            },
 "ingest_sheet_row":
 { Args: { "p_dietary_notes"?: string,"p_dry_run"?: boolean,"p_email": string,"p_event_id": string,"p_external_id": string,"p_first_name": string,"p_last_name": string,"p_linkedin_url"?: string,"p_search_text": string,"p_sheet_status"?: string }; Returns: string
@@ -564,6 +597,9 @@ isOneToOne: false
                            },
 "set_rsvp_token":
 { Args: { "p_outbox_id": string,"p_token_hash": string }; Returns: Json
+                           },
+"set_track_interests":
+{ Args: { "p_email": string,"p_participant_id": string,"p_track_ids": (string)[],"p_user_id": string }; Returns: string
                            },
 "staff_email_target":
 { Args: { "p_outbox_id": string }; Returns: Json

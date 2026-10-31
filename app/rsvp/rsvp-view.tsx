@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { formatEventDateTime } from '@/lib/domain/event-time';
+import { DISCORD_URL } from '@/lib/email/links';
 
 interface Invite {
   firstName: string;
@@ -23,14 +24,14 @@ interface Invite {
   profile: { dietaryNotes: string | null; linkedinUrl: string | null; profilePublic: boolean };
   /** v0.9: the reply-by time (null: no deadline), and whether it has passed for them. */
   closesAt: string | null;
-  /** v0.11.27: the date to reply by (what's shown while it's open); the invitation closes at closesAt. */
+  /** v0.11.28: the date to reply by (what's shown while it's open); the invitation closes at closesAt. */
   replyBy: string | null;
   closed: boolean;
 }
 
 type View =
   | { kind: 'loading' | 'not_found' | 'rate_limited' | 'error' | 'not_going' | 'going' }
-  | { kind: 'invite'; invite: Invite; yesForm: boolean }
+  | { kind: 'invite'; invite: Invite; yesForm: boolean; confirmNo?: boolean }
   | { kind: 'signed_in'; firstName: string };
 
 function readToken(): string {
@@ -50,6 +51,27 @@ async function post(body: object): Promise<{ status: number; data: Record<string
   }
 }
 
+const GIVE_AWAY = 'give away';
+
+// v0.11.25: giving a spot away can't be undone after the deadline (and cancels an accepted hacker's pass),
+// so it takes the words typed, not one tap.
+function GiveAwayConfirm({ accepted, busy, onConfirm, onCancel }: { accepted: boolean; busy: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const [typed, setTyped] = useState('');
+  const ok = typed.trim().toLowerCase() === GIVE_AWAY;
+  return (
+    <form className="grid gap-[12px] [&_h2]:m-0 [&_h2]:text-[18px] [&>p]:m-0" onSubmit={(e) => { e.preventDefault(); if (ok) onConfirm(); }}>
+      <h2>Give your spot away?</h2>
+      <p className="copy text-muted-foreground text-[14px]">
+        {accepted ? 'Your pass stops working and your spot goes to someone on the waitlist.' : 'Your spot goes to someone on the waitlist.'}
+      </p>
+      <Label htmlFor="give-away" className="text-[14px] font-medium">Type “{GIVE_AWAY}” to confirm</Label>
+      <Input id="give-away" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} className="min-h-12 w-full" />
+      <Button type="submit" variant="destructive" disabled={!ok || busy}>{busy ? 'Saving…' : 'Give my spot away'}</Button>
+      <Button type="button" variant="link" className="font-normal" disabled={busy} onClick={onCancel}>Keep my spot</Button>
+    </form>
+  );
+}
+
 // SPEC F13: answer the invitation by its deadline (v0.9). Yes asks only for a password (v0.7.2: a new one
 // without an account, their own with one), signs them in and offers profile setup (/me/profile, F14) or
 // their menu; the pass is emailed. No gives the spot away (they can change their mind until the deadline).
@@ -58,6 +80,13 @@ export function RsvpView() {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // v0.11.25: another invitation opened in this tab (mail apps reuse tabs) changes only the fragment.
+  const [hashes, setHashes] = useState(0);
+  useEffect(() => {
+    const onHash = () => { setView({ kind: 'loading' }); setError(null); setHashes((n) => n + 1); };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   useEffect(() => {
     // A late answer from an abandoned lookup (React runs this twice in dev) must not reset an open form.
@@ -74,7 +103,7 @@ export function RsvpView() {
     return () => {
       stale = true;
     };
-  }, []);
+  }, [hashes]);
 
   async function respond(going: boolean, fields: Record<string, string | boolean> = {}) {
     setBusy(true);
@@ -113,6 +142,7 @@ export function RsvpView() {
           <>
             <h1>This invitation link doesn’t work</h1>
             <p className="copy">It may have been replaced by a newer email, or the event is over.</p>
+            <Button className="self-start" asChild><a href="/login?next=%2Fme">Sign in</a></Button>
           </>
         )}
         {(view.kind === 'rate_limited' || view.kind === 'error') && (
@@ -147,7 +177,22 @@ export function RsvpView() {
             <p className="copy">Your spot goes to someone on the waitlist. Changed your mind? Until the RSVP deadline, open the invitation link again to say yes.</p>
           </>
         )}
-        {view.kind === 'invite' && (
+        {view.kind === 'invite' && view.confirmNo && (
+          <GiveAwayConfirm accepted={view.invite.status === 'accepted'} busy={busy}
+            onConfirm={() => void respond(false)} onCancel={() => setView({ ...view, confirmNo: false })} />
+        )}
+        {view.kind === 'invite' && !view.confirmNo && view.invite.status === 'accepted' && (
+          // v0.11.25: hackers reopen the invitation to find their pass; they're in, so say so.
+          <div className="grid gap-[16px] [&>p]:m-0">
+            <h1>You’re in, {view.invite.firstName}</h1>
+            <p className="copy">Your check-in pass is in your email and on your menu.</p>
+            <Button asChild><a href="/me">Open my pass and menu</a></Button>
+            <Button type="button" variant="link" className="font-normal" disabled={busy} onClick={() => setView({ ...view, confirmNo: true })}>
+              Can’t make it anymore?
+            </Button>
+          </div>
+        )}
+        {view.kind === 'invite' && !view.confirmNo && view.invite.status !== 'accepted' && (
           <>
             <Typewriter heading={view.invite.event.name} details={
               <p className="m-0 text-muted-foreground text-[14px]">
@@ -157,12 +202,11 @@ export function RsvpView() {
               {view.invite.closed ? (
                 <>
                   Hi {view.invite.firstName}. The RSVP deadline
-                  {view.invite.closesAt && ` (${formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)})`} has passed. Contact the organizers if you still want to come.
+                  {view.invite.closesAt && ` (${formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)})`} has passed. If you still want to come, <a className="text-link underline" href={DISCORD_URL} rel="noopener" target="_blank">Ask the organizers on Discord</a>.
                 </>
               ) : (
                 <>
                   Hi {view.invite.firstName}, will you be there?
-                  {view.invite.status === 'accepted' && ' (You said yes.)'}
                   {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
                   {view.invite.status !== 'accepted' && view.invite.replyBy && (
                     <strong> Reply by {formatEventDateTime(view.invite.replyBy, view.invite.event.timezone)}.</strong>
@@ -180,7 +224,7 @@ export function RsvpView() {
           [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
 
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
-                  <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => void respond(false)}>
+                  <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => setView({ ...view, confirmNo: true })}>
                     No, give my spot away
                   </Button>
                 </div>
@@ -244,7 +288,7 @@ export function RsvpView() {
                 <Button type="button" disabled={busy} onClick={() => setView({ ...view, yesForm: true })}>
                   Yes, I’m coming
                 </Button>
-                <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => void respond(false)}>
+                <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => setView({ ...view, confirmNo: true })}>
                   No, give my spot away
                 </Button>
               </div>

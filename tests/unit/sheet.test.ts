@@ -80,7 +80,7 @@ describe('sheet rows (SPEC F3, §9.2)', () => {
     ]);
     expect(() => mapSheetValues([['Applicant ID', 'First Name']])).toThrow('Missing header: Email Address');
     expect(() => mapSheetValues([['Applicant ID', 'Email Address']])).toThrow('Missing header: First Name');
-    // v0.11.25: without an Applicant ID column the email is the key; headers match in any case; "LinkedIn" is LinkedIn URL.
+    // v0.11.26: without an Applicant ID column the email is the key; headers match in any case; "LinkedIn" is LinkedIn URL.
     expect(mapSheetValues([['STATUS', 'email address', 'First Name', 'LinkedIn'], ['Yes', ' Ada@Example.COM ', 'Ada', 'linkedin.com/in/ada']])).toEqual([
       { external_id: 'ada@example.com', email: 'Ada@Example.COM', first_name: 'Ada', last_name: '', dietary_notes: '', linkedin_url: 'linkedin.com/in/ada', status: 'Yes' },
     ]);

@@ -26,7 +26,7 @@ export async function ingestRows(
   db: Db,
   eventId: string,
   rows: SheetRowInput[],
-  // sheetStatus (v0.11.26): store the row's Sheet decision. Only Import CSV / Sync now; the Apps Script path doesn't.
+  // sheetStatus (v0.11.27): store the row's Sheet decision. Only Import CSV / Sync now; the Apps Script path doesn't.
   opts: { dryRun: boolean; concurrency?: number; sheetStatus?: boolean },
 ): Promise<RowResult[]> {
   const results: RowResult[] = new Array<RowResult>(rows.length);

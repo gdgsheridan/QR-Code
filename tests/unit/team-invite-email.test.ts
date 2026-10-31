@@ -14,3 +14,10 @@ it('T-TEAM-06: invite email escapes names, links only to Team, has text and stay
   expect(email.html + email.text).not.toMatch(/[A-HJ-NP-Z2-9]{8}|\/p#|\/rsvp#|join.code/i);
   expect(Buffer.byteLength(email.html)).toBeLessThan(60 * 1024);
 });
+
+it('T-TEAM-06 (v0.11.25): several pending invites make one email that counts them', () => {
+  const email = renderTeamInviteEmail({ firstName: 'Ada', inviter: 'Ben', team: 'Byte Club', event: 'Datathon', appOrigin: 'https://s.test', count: 3 });
+  expect(email.subject).toBe('3 teams invited you to join them at Datathon');
+  expect(email.text).toContain('3 teams invited you to join them at Datathon.');
+  expect(email.html).toContain('href="https://s.test/me/team"');
+});

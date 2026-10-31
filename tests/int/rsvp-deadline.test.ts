@@ -124,11 +124,14 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     const resent = await invitee(events.past);
     await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'rsvp')`, [resent.id]);
     const over = await invitee(events.ended);
+    // Their newest invitation email failed for good (e.g. rate limits): they never got a working link.
+    const undelivered = await invitee(events.past);
+    await f.pool.query(`insert into email_outbox (participant_id, kind, status, created_at) values ($1, 'rsvp', 'sent', now() - interval '3 days'), ($1, 'rsvp_reminder', 'failed', now())`, [undelivered.id]);
 
     await jobs();
     expect(await row(missed.id)).toMatchObject({ status: 'withdrawn' });
     expect(await outbox(missed.id)).toEqual([{ kind: 'rsvp_reminder', status: 'cancelled' }]);
-    for (const p of [notInvited, late, resent, over]) expect(await row(p.id), p.email).toMatchObject({ status: 'pending' });
+    for (const p of [notInvited, late, resent, over, undelivered]) expect(await row(p.id), p.email).toMatchObject({ status: 'pending' });
     expect(await row(accepted.id)).toMatchObject({ status: 'accepted' });
     expect(await outbox(resent.id)).toEqual([{ kind: 'rsvp', status: 'pending' }]);
 
@@ -322,7 +325,7 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     }
     await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = any($1) and status = 'pending'`, [ids]);
   });
-  it('T-RSVP-13: a reply-by date earlier than the close (v0.11.27): shown, reminded on, but answers still count until the close', async () => {
+  it('T-RSVP-13: a reply-by date earlier than the close (v0.11.28): shown, reminded on, but answers still count until the close', async () => {
     const soft = async (slug: string, replyBy: string) => (await f.pool.query<{ id: string }>(
       `insert into events (slug, name, venue, starts_at, ends_at, rsvp_deadline, rsvp_reply_by)
        values ($1, 'Soft deadline', 'Hall', now() + interval '20 days', now() + interval '21 days', ${ahead(10)}, ${replyBy}) returning id`,

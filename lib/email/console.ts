@@ -27,7 +27,7 @@ export function createConsoleProvider(opts: { dir?: string; holdQueue?: boolean 
   };
 }
 
-/** Only a Supabase on this machine is local; anything else is shared with the deployed app (v0.11.26). */
+/** Only a Supabase on this machine is local; anything else is shared with the deployed app (v0.11.27). */
 export function isLocalDatabase(url: string): boolean {
   try {
     return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname);

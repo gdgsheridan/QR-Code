@@ -5,6 +5,10 @@ import { drainUntilIdle } from '@/lib/email/drain';
 import { env } from '@/lib/env';
 import { route } from '@/lib/http/route';
 
+// v0.11.25: room to send a few hundred RSVPs in one run (5 a second) instead of ~120 per 25 s run (Vercel Pro: 300 s).
+export const maxDuration = 300;
+const DRAIN_BUDGET_MS = 240_000;
+
 // SPEC F4/F13 (v0.9): the scheduler's job every few minutes (Bearer DRAIN_SECRET only). Expire missed RSVP
 // deadlines and queue due reminders, then send whatever is waiting, including retries of failed sends.
 export const POST = route(async (request) => {
@@ -19,7 +23,7 @@ export const POST = route(async (request) => {
     appOrigin: env().NEXT_PUBLIC_APP_ORIGIN,
     passSecret: env().PASS_TOKEN_SECRET,
     from: emailFrom(),
-  });
+  }, DRAIN_BUDGET_MS);
   if (error) throw new Error(`run_rsvp_jobs failed (${error.code})`);
   return Response.json({ jobs, claimed });
 });

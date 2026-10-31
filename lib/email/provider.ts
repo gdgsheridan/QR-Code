@@ -22,7 +22,7 @@ export interface EmailMessage {
 
 export interface EmailProvider {
   readonly name: string;
-  /** v0.11.26: leave the outbox alone. A console provider on a shared (deployed) database would mark real
+  /** v0.11.27: leave the outbox alone. A console provider on a shared (deployed) database would mark real
    *  emails sent without sending them; held, they stay queued for the deployed app's drainer. */
   readonly holdQueue?: boolean;
   send(message: EmailMessage): Promise<{ id: string }>;

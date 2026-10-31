@@ -29,6 +29,9 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await page.getByRole('radio', { name: 'Not sure yet', exact: true }).check();
   await page.getByRole('radio', { name: 'I plan to go solo', exact: true }).check();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.getByLabel('Emergency contact name').fill('Dee Fixture');
+  await page.getByLabel('Emergency contact phone').fill('416 555 0101');
   await page.getByRole('button', { name: 'Save profile', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible();
   await page.getByLabel('List me in the Hacker directory').check();
@@ -41,9 +44,8 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
     await page.setViewportSize({ width: width!, height: height! });
     await page.screenshot({ path: `${screenshots}/directory-networking-${width}.png`, fullPage: true });
   }
-  await page.getByRole('button', { name: 'Save links', exact: true }).click();
-  // Finishing the walkthrough lands on the hacker menu.
-  await expect(page).toHaveURL(/\/me$/);
+  await page.getByRole('button', { name: 'Save and finish', exact: true }).click();
+  await page.waitForURL(/\/me$/);
   await page.getByRole('link', { name: 'Hackers' }).click();
   await expect(page).toHaveURL(/\/me\/hackers$/);
   // Start a fresh document: client navigation retains the previous menu's bootstrap scripts (own email).
@@ -102,14 +104,14 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(nativeBen.getByText('Building with open data.', { exact: false })).toBeVisible();
   await nativePage.getByRole('slider', { name: 'Pace', exact: true }).press('Home');
   await nativePage.getByRole('slider', { name: 'Pace', exact: true }).press('ArrowRight');
-  await nativePage.getByRole('button', { name: 'Apply filters' }).click();
+  await nativePage.getByLabel('Search by name').press('Enter'); // no JavaScript: Enter submits the GET form
   await expect(nativePage).toHaveURL(/pace=1/);
   await expect(nativePage.getByRole('slider', { name: 'Pace', exact: true })).toHaveAttribute('aria-valuetext', 'Here to learn and meet people');
   await expect(nativePage.getByRole('slider', { name: 'Pace', exact: true })).toHaveValue('1');
   await expect(nativePage.getByRole('article', { name: 'Nia Fixture', exact: true })).toBeVisible();
   await expect(nativeBen).toHaveCount(0);
   await nativePage.getByRole('slider', { name: 'Pace', exact: true }).press('Home');
-  await nativePage.getByRole('button', { name: 'Apply filters' }).click();
+  await nativePage.getByLabel('Search by name').press('Enter'); // no JavaScript: Enter submits the GET form
   await expect(nativePage).toHaveURL(/pace=0/);
   await expect(nativePage.getByRole('slider', { name: 'Pace', exact: true })).toHaveAttribute('aria-valuetext', 'Any pace');
   await expect(nativeBen).toBeVisible();
@@ -126,8 +128,10 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
     await page.screenshot({ path: `${screenshots}/dir-accordion-${width}.png`, fullPage: true });
     await ben.screenshot({ path: `${screenshots}/directory-contacts-${width}.png` });
   }
+  // v0.11.25: filters apply as they change; no Apply button.
+  await expect(page.getByRole('button', { name: 'Apply filters' })).toHaveCount(0);
   await page.getByLabel('Looking for a team', { exact: true }).check();
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(/looking=1/);
   await expect(directory.getByText('Legacy Fixture')).toBeVisible();
   await expect(directory.getByRole('article', { name: 'Legacy Fixture', exact: true }).getByRole('img', { name: 'Pace not shared (0 of 3)', exact: true })).toBeVisible();
   await expect(directory).not.toContainText('Hidden legacy bio');
@@ -135,8 +139,8 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await page.getByRole('slider', { name: 'Pace', exact: true }).press('Home');
   await page.getByRole('slider', { name: 'Pace', exact: true }).press('ArrowRight');
   await expect(page.getByRole('slider', { name: 'Pace', exact: true })).toHaveAttribute('aria-valuetext', 'Here to learn and meet people');
-  await expect(page.getByRole('slider', { name: 'Pace', exact: true })).toHaveValue('1');
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  // v0.11.25: filters apply as they change (no Apply button).
+  await expect(page).toHaveURL(/pace=1/);
   await expect(directory.getByText('Nia Fixture')).toBeVisible();
   await expect(directory.getByText('Legacy Fixture')).toHaveCount(0);
   await page.goto('/me/hackers?looking=1&pace=casual');
@@ -145,8 +149,13 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(directory.getByText('Legacy Fixture')).toHaveCount(0);
   await page.goto('/me/hackers');
   await page.getByLabel('Search by name').fill('  BÉN  ');
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(/q=/); // shortly after typing stops
+  await expect(page.getByLabel('Search by name')).toBeFocused();
   await expect(ben).toBeVisible();
+  // Refresh reloads the list, then rests for a few seconds.
+  const refresh = page.getByRole('button', { name: 'Refresh' });
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
   await expect(directory.getByText('Nia Fixture')).toHaveCount(0);
   await page.goto('/me/team');
   await expect(page.getByRole('link', { name: 'Find teammates in the Hacker directory' })).toHaveAttribute('href', '/me/hackers?looking=1');
@@ -175,4 +184,37 @@ test('T-DIR-06: waitlisted and withdrawn viewers get 404; signed-out visitors mu
     expect((await viewer.goto('/me/hackers'))?.status()).toBe(404);
     await context.close();
   }
+});
+
+test('T-DIR-05 (v0.11.25): the directory shows 50 hackers, and Show more adds the next 50', async ({ page }) => {
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, last_name, search_text, status, source, directory_opt_in)
+     select $1, 'more' || g || '-' || $2 || '@example.test', 'Bulk', 'Hacker' || lpad(g::text, 2, '0'), 'bulk hacker' || lpad(g::text, 2, '0'),
+            'accepted', 'seed', true from generate_series(1, 60) g`, [f.e2.id, f.slug]);
+  // Event 2 (X's), so the other directory tests in this file never see these 60.
+  const email = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.X])).rows[0]!.email;
+  await createAccount(email);
+  await signIn(page, email, '/me/hackers');
+  const cards = page.getByRole('region', { name: 'Hacker directory' }).getByRole('article');
+  await expect(cards).toHaveCount(50);
+  await page.getByRole('link', { name: 'Show more' }).click();
+  await page.waitForURL(/show=100/);
+  await expect(cards.nth(50)).toBeVisible();
+  expect(await cards.count()).toBeGreaterThan(60);
+  await expect(page.getByRole('link', { name: 'Show more' })).toHaveCount(0);
+  await f.pool.query(`delete from participants where event_id = $1 and email like 'more%'`, [f.e2.id]);
+});
+
+test('T-DIR-05 (v0.11.25): directory reads are rate limited per hacker', async ({ page }) => {
+  const email = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.C])).rows[0]!.email;
+  await f.pool.query(`update participants set status = 'accepted' where id = $1`, [f.p.C]);
+  await createAccount(email);
+  await signIn(page, email, '/me');
+  await f.pool.query(
+    `insert into rate_limits (key, window_start, hits) values ($1, to_timestamp(floor(extract(epoch from now()) / 60) * 60), 1000)
+     on conflict (key, window_start) do update set hits = 1000`, [`directory:${f.p.C}`]);
+  await page.goto('/me/hackers');
+  await expect(page.getByRole('alert').filter({ hasText: 'Too many refreshes' })).toHaveText('Too many refreshes. Wait a minute, then try again.');
+  await expect(page.getByRole('region', { name: 'Hacker directory' }).getByRole('article')).toHaveCount(0);
+  await f.pool.query(`update participants set status = 'waitlisted' where id = $1`, [f.p.C]);
 });

@@ -13,7 +13,7 @@ import { adminUrl, errorText, useApi, useLoad } from '../api';
 interface EventInfo {
   /** v0.9 (F13): an instant from the API; edited as a datetime-local in the event timezone. */
   rsvpDeadline: string | null;
-  /** v0.11.27: the date shown to invitees, which can be earlier than the deadline. */
+  /** v0.11.28: the date shown to invitees, which can be earlier than the deadline. */
   rsvpReplyBy: string | null;
   timezone: string;
 }

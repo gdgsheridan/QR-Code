@@ -30,8 +30,9 @@ export interface Row {
   liveScans: number;
   checkedIn: boolean;
   rsvpSentAt: string | null;
-  /** What the Sheet decided (Import CSV, v0.11.26); never their Station status. */
+  /** What the Sheet decided (Import CSV, v0.11.27); never their Station status. */
   sheetStatus: 'accepted' | 'waitlisted' | null;
+  rsvpFailed: boolean;
 }
 
 type Pending = { kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'unlink' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
@@ -320,7 +321,8 @@ export function Participants({ slug, badgeOrigin }: { slug: string; badgeOrigin:
                 [&.tw-admin-badgeBad]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
                 [&.tw-admin-badgeBad]:[background:color-mix(in_srgb,_var(--bad,_#f87171)_10%,_var(--card))]
                 [&.tw-admin-badgeBad]:[color:var(--bad,_#f87171)]` : ''}`}>{r.status}</Badge>
-                    {r.status === 'pending' && r.rsvpSentAt && <span className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]"> · RSVP sent</span>}
+                    {r.status === 'pending' && r.rsvpFailed && <span className="text-bad text-[12px] leading-[1.7]"> · ✕ RSVP email failed: send it again</span>}
+                    {r.status === 'pending' && r.rsvpSentAt && !r.rsvpFailed && <span className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]"> · RSVP sent</span>}
                   </TableCell>
                   <TableCell>{r.sheetStatus === 'accepted' ? 'Accepted' : r.sheetStatus === 'waitlisted' ? 'Waitlisted' : '—'}</TableCell>
                   <TableCell>{r.passState === 'active' ? 'Active' : r.passState === 'revoked' ? 'Revoked' : '—'}</TableCell>
