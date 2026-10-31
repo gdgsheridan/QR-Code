@@ -91,8 +91,8 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
           <details className="group">
             <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-md px-4 py-3 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
               <h2 className="m-0 min-w-0 flex-1 text-base font-semibold">{person.name}{self && <span className="text-sm font-normal text-muted-foreground"> (you)</span>}</h2>
-              <span role="img" aria-label={paceDescription} title={paceDescription} className="flex h-2 w-[72px] shrink-0 gap-0.5 overflow-hidden rounded-full">
-                {['bg-accent', 'bg-[var(--warn)]', 'bg-[var(--bad)]'].map((color, index) => <span key={color} aria-hidden="true" className={`h-full flex-1 ${index < paceLevel ? color : 'rounded-sm border border-dashed border-muted-foreground/50 bg-muted'}`} />)}
+              <span role="img" aria-label={paceDescription} title={paceDescription} className="flex h-2 w-[72px] shrink-0 gap-0.5">
+                {['bg-accent', 'bg-[var(--warn)]', 'bg-[var(--bad)]'].map((color, index) => <span key={color} aria-hidden="true" className={`h-full flex-1 rounded-full ${index < paceLevel ? color : 'border border-dashed border-muted-foreground/50 bg-muted'}`} />)}
               </span>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4 shrink-0 text-muted-foreground group-open:rotate-180 motion-safe:transition-transform">
                 <path d="m6 9 6 6 6-6" />
