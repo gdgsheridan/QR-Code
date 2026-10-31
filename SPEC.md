@@ -1,6 +1,6 @@
 # Sheridan Datathon Station — Product & Technical Specification
 
-> **Status:** Draft v0.11.31 · **Owner:** Ade · **Last updated:** 2026-10-31
+> **Status:** Draft v0.11.32 · **Owner:** Ade · **Last updated:** 2026-10-31
 > The app is **Station** (Sheridan Datathon Station, `https://station.sheridandatathon.com`); it was called Passline until v0.11.21.
 
 ## 0. How to read this document
@@ -1046,7 +1046,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 | Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. **People** (v0.8): who was scanned there, newest first, with **Remove** (a void with a reason, F11). |
 | Staff | Invite by email + role, list, remove. |
 | Info (v0.6) | **RSVP deadline** (labelled **RSVPs close** since v0.11.28) and **Reply by** (v0.11.28) only (v0.9, in the event timezone, F13), saved with `PATCH /api/admin/:slug/event`; audit `event.info` with `{}`. **Owner’s decision (v0.11.11):** Schedule and Emergency info are set through the same API (`schedule`, `emergencyInfo`), with no fields on this page. The stored text still appears on the hacker Schedule and Emergency contact pages (F14). |
-| Teams (v0.7) | **Team forming open** and **Tracks released** switches. Tracks can be renamed and deleted here (teams that chose a deleted track have none). Tracks are created through `POST /api/admin/:slug/tracks` (v0.11.1: no add box on the page). Teams: create (name, track), rename, change the track, delete (members move out; v0.11.25: through `delete_team()`, which locks the members before the team, the same order as the hacker functions, so it can't deadlock with a member leaving), each with its join code and members (status shown when not accepted); remove a member, or add an accepted person without a team (those looking for one are marked). The 4-member limit applies to organizers too. Audit `team.*`, `track.*`, `event.teams` with ids, counts and flags only. |
+| Teams (v0.7) | **Team forming open** and **Tracks released** switches. Tracks can be renamed and deleted here (teams that chose a deleted track have none). Tracks are added one at a time with the **Add a track** field and its **Add track** button (Enter works too; the field clears and keeps focus for the next one; v0.11.32, owner's request; v0.11.1 to v0.11.31 had no add field on the page), which calls `POST /api/admin/:slug/tracks`. Teams: create (name, track), rename, change the track, delete (members move out; v0.11.25: through `delete_team()`, which locks the members before the team, the same order as the hacker functions, so it can't deadlock with a member leaving), each with its join code and members (status shown when not accepted); remove a member, or add an accepted person without a team (those looking for one are marked). The 4-member limit applies to organizers too. Audit `team.*`, `track.*`, `event.teams` with ids, counts and flags only. |
 | Tools (v0.11.22) | **Import CSV** only: applicants from a CSV export of the Sheet, only rows whose Status is Yes/Accepted or Waitlist (v0.11.27: always, no option), previewed before import (F10). No badge writing or linking here (v0.11.4: that moved to Link badge). |
 | Export | CSVs: participants (v0.9: with overnight, team status, allergies and severity), scans (live only, with a voided toggle), per-checkpoint summary. |
 
@@ -1646,6 +1646,8 @@ Each slice ends with its tests green in CI and a short demo.
 ---
 
 ## 20. Changelog
+
+- **v0.11.32 (2026-10-31)** — The admin Teams page can add tracks again (owner's request; removed in v0.11.1): a one-line **Add a track** field, one track at a time. §11; T-TEAM-07 adds its tracks with it.
 
 - **v0.11.31 (2026-10-31)** — Venue-scale per-machine limits (owner's decision): PR #11's per-IP ceilings (30 sign-ins / 15 min, 10 reset emails / h) would lock out a campus behind one IP at check-in; they are now 600 / 15 min and 200 / h, ceilings against bulk abuse, while the per-account limits (10 sign-ins / 15 min per email, 3 reset emails / h per address) keep stopping password guessing. §15; covered by the browser suite, which signs in far more than 30 times from one machine.
 

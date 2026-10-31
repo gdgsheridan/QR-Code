@@ -79,10 +79,19 @@ test('T-TEAM-09: below My team, a chart of teams per track appears once tracks a
 
 test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joins with its code, A picks the released track', async ({ page, browser }) => {
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/teams`);
-  const tracks = await page.request.post(`/api/admin/${f.slug}/tracks`, {
-    data: { text: 'Best AI/ML Project\nBest Hardware Project' },
-  });
-  expect(tracks.ok()).toBe(true);
+  // v0.11.32: organizers add tracks from the page again, one at a time: type, Enter, the next one.
+  const addTrack = page.getByLabel('Add a track');
+  await addTrack.fill('Best AI/ML Project');
+  await page.getByRole('button', { name: 'Add track', exact: true }).click();
+  await expect(page.getByText('✓ Added Best AI/ML Project.')).toBeVisible();
+  await expect(addTrack).toHaveValue('');
+  await expect(addTrack).toBeFocused(); // ready for the next one
+  await addTrack.fill('Best Hardware Project');
+  await addTrack.press('Enter');
+  await expect(page.getByText('✓ Added Best Hardware Project.')).toBeVisible();
+  await expect(page.getByLabel('Name of Best AI/ML Project')).toHaveValue('Best AI/ML Project');
+  await expect(page.getByLabel('Name of Best Hardware Project')).toHaveValue('Best Hardware Project');
+  await expect(addTrack).toHaveValue(''); // cleared after adding
 
   // Before forming opens, the Team page says so and offers nothing.
   const a = await hacker(browser, f.p.A);
