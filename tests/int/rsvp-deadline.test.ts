@@ -178,7 +178,7 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
     const [reminder] = sentTo(mail.sent, r1.email);
     if (!reminder) throw new Error('no reminder email');
-    expect(reminder.subject).toMatch(/^Reminder: reply by .+ — Deadline open$/);
+    expect(reminder.subject).toMatch(/^Reminder: reply by .+ for Deadline open$/);
     expect(reminder.text).toContain('11:59 PM');
     const newToken = rsvpTokenFromEmail(reminder);
     expect((await call({ token: newToken })).status).toBe(200);

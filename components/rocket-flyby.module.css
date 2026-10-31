@@ -1,0 +1,21 @@
+.rocket {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: -3;
+  width: 120px;
+  aspect-ratio: 360 / 329;
+  /* public/rocket-sprite.webp: 8 frames of 360x329 side by side; steps land exactly on each frame. */
+  background: no-repeat 0 0 / 800% 100%;
+  animation: rocket-flame 0.8s steps(8, jump-none) infinite;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.85;
+  transform: translate3d(-100vw, -100vh, 0);
+  will-change: transform;
+}
+
+@keyframes rocket-flame { to { background-position: 100% 0; } }
+
+@media (min-width: 640px) { .rocket { width: 160px; } }
+@media (min-width: 1280px) { .rocket { width: 200px; } }

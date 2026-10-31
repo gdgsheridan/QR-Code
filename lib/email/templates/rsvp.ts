@@ -66,7 +66,7 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
   ].join('\n');
 
   const subject = input.reminder && by
-    ? `Reminder: reply by ${by.split(' · ')[0] ?? by} — ${input.event.name}`
+    ? `Reminder: reply by ${by.split(' · ')[0] ?? by} for ${input.event.name}`
     : `You're invited: ${input.event.name}`;
   return { subject, html, text, inlineImages: [] };
 }

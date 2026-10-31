@@ -153,20 +153,37 @@ test('T-UI-03: Atom floats beside attendee content only when there is room, and 
   const email = await emailOf(f.p.N);
   await createAccount(email);
   await signIn(page, email, '/me');
-  const atom = page.locator('img[data-atom]');
+  const atom = page.locator('[data-atom]');
   await expect(atom).toBeVisible();
-  await expect(atom).toHaveAttribute('alt', '');
+  await expect(atom).toHaveCSS('background-image', /atom-wave\.webp/); // the wave sprite, frame 1 at rest (T-UI-06)
   await expect(atom).toHaveAttribute('aria-hidden', 'true');
-  await expect(atom).toHaveCSS('pointer-events', 'none');
-  await expect.poll(() => atom.evaluate((img) => img instanceof HTMLImageElement && img.complete && img.naturalWidth === 640)).toBe(true);
+  await expect(atom).toHaveCSS('pointer-events', 'auto'); // draggable (T-UI-05)
+  await expect(atom.locator('xpath=..')).toHaveCSS('pointer-events', 'none');
+  await expect.poll(() => atom.evaluate(async (el) => {
+    const sprite = new Image();
+    sprite.src = getComputedStyle(el).backgroundImage.slice(5, -2);
+    await sprite.decode();
+    return [sprite.naturalWidth, sprite.naturalHeight];
+  })).toEqual([8 * 480, 480]);
 
   const besideContent = async () => {
     const image = await atom.boundingBox();
     const main = await page.getByRole('main').boundingBox();
     if (!image || !main) throw new Error('Atom and the main column must have bounding boxes');
-    expect(image.x).toBeGreaterThan(main.x + main.width);
+    // Beside the content on either side, never over it (v0.11.30: he goes around it).
+    expect(image.x >= main.x + main.width || image.x + image.width <= main.x || image.y >= main.y + main.height || image.y + image.height <= main.y).toBe(true);
   };
   await besideContent();
+  // v0.11.30: he drifts. Two seconds later he has moved, and is still clear of the content.
+  const at = async () => { const box = await atom.boundingBox(); if (!box) throw new Error('Atom has no box'); return box; };
+  const before = await at();
+  await page.waitForTimeout(2000);
+  const after = await at();
+  expect(Math.abs(after.x - before.x) + Math.abs(after.y - before.y)).toBeGreaterThan(1);
+  await besideContent();
+  // A fresh load places him somewhere new.
+  await page.reload();
+  await expect.poll(async () => { const b = await at(); return Math.abs(b.x - after.x) + Math.abs(b.y - after.y); }).toBeGreaterThan(1);
   // Include the tightest gutter, and both wider attendee columns at their own thresholds.
   for (const [route, width] of [['/me', 1060], ['/me/schedule', 1700], ['/me/hackers', 1900]] as const) {
     await page.setViewportSize({ width, height: 900 });
@@ -181,24 +198,91 @@ test('T-UI-03: Atom floats beside attendee content only when there is room, and 
   for (const viewport of [{ width: 1024, height: 800 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     await expect(atom).toBeHidden();
-    await expect(atom).toHaveCSS('display', 'none');
+    await expect(atom.locator('xpath=..')).toHaveCSS('display', 'none'); // his drift lane isn't rendered
     // Without room beside the column, a small Atom waves from the hero card's corner, clear of its heading.
-    const corner = page.locator('img[data-atom-corner]');
+    const corner = page.locator('[data-atom-corner]');
     await expect(corner).toBeVisible();
     await expect(corner).toHaveAttribute('aria-hidden', 'true');
     const [img, heading] = await Promise.all([corner.boundingBox(), page.getByRole('heading', { level: 1 }).boundingBox()]);
     expect(img && heading && heading.x + heading.width <= img.x).toBe(true);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(page.locator('img[data-atom-corner]')).toBeHidden();
+  await expect(page.locator('[data-atom-corner]')).toBeHidden();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(atom).toBeVisible();
-  await expect(atom).toHaveCSS('animation-name', 'none');
+  await page.reload();
+  await expect(atom).toHaveCSS('opacity', '1');
+  const placedStill = await at();
+  await page.waitForTimeout(1500);
+  expect(await at()).toEqual(placedStill); // placed, then still
+  await besideContent();
   await page.goto('/p');
   await expect(page.getByRole('main')).toBeVisible();
   await expect(atom).toHaveCount(0);
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
   await expect(page.getByRole('navigation', { name: 'Admin' })).toBeVisible();
   await expect(atom).toHaveCount(0);
+});
+
+test('T-UI-04: the background rocket flies straight where its nose points, a new heading each load, on attendee pages, and is absent with reduced motion, on passes and for staff', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const email = await emailOf(f.p.Rv);
+  await createAccount(email);
+  await signIn(page, email, '/me');
+  await page.reload(); // Start a fresh flight rather than sampling near the end of the login page's flight.
+  const rocket = page.locator('[data-rocket]');
+  await expect(rocket).toHaveCount(1);
+  await expect(rocket).toHaveAttribute('aria-hidden', 'true');
+  await expect(rocket).toHaveCSS('pointer-events', 'none');
+  // The flame flickers through the 8-frame sprite, a running CSS animation separate from the flight's transform.
+  await expect(rocket).toHaveCSS('background-image', /\/rocket-sprite\.webp/);
+  expect(await rocket.evaluate((el) => el.getAnimations().some((a) => a.playState === 'running'))).toBe(true);
+  expect(await page.evaluate(() => fetch('/rocket-sprite.webp').then((r) => r.ok))).toBe(true);
+  const at = async () => {
+    const box = await rocket.boundingBox();
+    if (!box) throw new Error('Rocket must have a bounding box, including while entering off-screen');
+    return box;
+  };
+  // v0.11.30: a random heading each load, flown in a straight line with the nose leading. The image's own nose is
+  // -46.08° (screen degrees, y down), so the nose's heading is its CSS turn plus that.
+  const heading = async () => {
+    const turn = await rocket.evaluate((el) => {
+      const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+      return Math.atan2(m.b, m.a) * 180 / Math.PI;
+    });
+    const before = await at();
+    await page.waitForTimeout(1500);
+    const after = await at();
+    const moved = Math.atan2(after.y - before.y, after.x - before.x) * 180 / Math.PI;
+    const nose = turn - 46.08431892835742;
+    const off = Math.abs(((moved - nose) % 360 + 540) % 360 - 180);
+    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(40); // ~45 px/s
+    expect(off).toBeLessThan(5); // flying where its nose points
+    return moved;
+  };
+  const first = await heading();
+  const mid = await at();
+  await page.waitForTimeout(1500);
+  const later = await at();
+  // Straight: the next 1.5 s go the same way.
+  expect(Math.abs(((Math.atan2(later.y - mid.y, later.x - mid.x) * 180 / Math.PI - first) % 360 + 540) % 360 - 180)).toBeLessThan(3);
+  // Another load, another heading.
+  await page.reload();
+  await expect(rocket).toHaveCount(1);
+  expect(Math.abs(((await heading()) - first + 540) % 360 - 180)).toBeGreaterThan(0.5);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await expect(page.getByRole('main')).toBeVisible();
+  await expect(rocket).toHaveCount(0);
+  // Route exclusions must also hold when motion is allowed.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(rocket).toHaveCount(1);
+  await page.goto('/p');
+  await expect(page.getByRole('main')).toBeVisible();
+  await expect(rocket).toHaveCount(0);
+  await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
+  await expect(page.getByRole('navigation', { name: 'Admin' })).toBeVisible();
+  await expect(rocket).toHaveCount(0);
 });

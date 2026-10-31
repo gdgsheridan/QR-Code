@@ -83,7 +83,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
   ].join('\n');
 
   return {
-    subject: `You're in: ${input.event.name} — your check-in pass`,
+    subject: `You're in: your check-in pass for ${input.event.name}`,
     html,
     text,
     inlineImages: [{ cid: 'qr', filename: 'station-qr.png', contentType: 'image/png', content: input.qrPng }],

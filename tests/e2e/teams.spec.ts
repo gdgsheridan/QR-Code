@@ -24,7 +24,7 @@ async function hacker(browser: Browser, participantId: string) {
   return { context, page };
 }
 
-test('T-TEAM-09: Tracks hides unreleased names, then shows teams and counts; link tabs work without JavaScript', async ({ browser }) => {
+test('T-TEAM-09: below My team, a chart of teams per track appears once tracks are released; it reads without JavaScript and a tap shows the team', async ({ browser }) => {
   const track = async (eventId: string, name: string) => {
     const { rows } = await f.pool.query<{ id: string }>('insert into tracks (event_id, name) values ($1, $2) returning id', [eventId, name]);
     return rows[0]!.id;
@@ -40,34 +40,30 @@ test('T-TEAM-09: Tracks hides unreleased names, then shows teams and counts; lin
   );
   await f.pool.query('update participants set team_id = $1 where id = any($2)', [rows[0]!.id, [f.p.A, f.p.B]]);
   const a = await hacker(browser, f.p.A);
-  // Use the signed-in cookies in a script-free context: these tabs must be ordinary links.
+  // Use the signed-in cookies in a script-free context: the chart must read without JavaScript.
   const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: await a.context.storageState(), ...NO_JS });
   const page = await context.newPage();
   try {
-    await page.goto('/me/team?tab=tracks');
-    const tabs = page.getByRole('navigation', { name: 'Team sections' });
-    await expect(tabs.getByRole('link', { name: 'Tracks', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(page.getByText('Tracks are announced at the hackathon.')).toBeVisible();
-    await expect(page.getByText(/Best AI|Best Hardware|Data Wizards|Undecided/)).toHaveCount(0);
+    await page.goto('/me/team');
+    await expect(page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Teams per track' })).toHaveCount(0); // nothing before release
     await f.pool.query('update events set tracks_released = true where id = $1', [f.e1.id]);
     await page.reload();
-    // v0.11.29: a stacked bar chart; each block is a team, a button with a spoken name (no JavaScript needed to read it).
-    const aiCard = page.getByRole('group', { name: 'Best AI: 2 teams · 2 hackers' });
+    // v0.11.30: one page, My team then the chart; a bar counts a track's teams, each block a named button.
+    await expect(page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
+    await expect(page.getByText('Ada Fixture')).toBeVisible();
+    const chart = page.getByRole('region', { name: 'Teams per track' });
+    const aiCard = chart.getByRole('group', { name: 'Best AI: 2 teams' });
     await expect(aiCard.getByRole('button')).toHaveCount(2);
     await expect(aiCard.getByRole('button', { name: 'Data Wizards · 2 members (your team)', exact: true })).toBeVisible();
     await expect(aiCard.getByRole('button', { name: 'Zebras · 0 members', exact: true })).toBeVisible();
-    await expect(page.getByRole('group', { name: 'Best Hardware: No teams yet' })).toContainText('No teams yet');
-    await expect(page.getByRole('group', { name: 'No track yet: 1 team · 0 hackers' }).getByRole('button', { name: 'Undecided · 0 members' })).toBeVisible();
-    await expect(page.getByText(/Other event track|Other event team|Ada Fixture|Ben Fixture|DDDD-DDDD/)).toHaveCount(0);
-    await tabs.getByRole('link', { name: 'My team', exact: true }).click();
-    await expect(page).toHaveURL(`${E2E_ORIGIN}/me/team`);
-    await expect(tabs.getByRole('link', { name: 'My team', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
-    await expect(page.getByText('Ada Fixture')).toBeVisible();
-    await tabs.getByRole('link', { name: 'Tracks', exact: true }).click();
-    await expect(aiCard).toBeVisible();
+    await expect(chart.getByRole('group', { name: 'Best Hardware: No teams yet' })).toContainText('No teams yet');
+    await expect(chart.getByRole('group', { name: 'No track yet: 1 team' }).getByRole('button', { name: 'Undecided · 0 members' })).toBeVisible();
+    await expect(chart).not.toContainText(/hacker/i);
+    await expect(chart.getByText(/Other event track|Other event team|Ada Fixture|Ben Fixture|DDDD-DDDD/)).toHaveCount(0);
+    await expect(page.getByText(/Other event track|Other event team/)).toHaveCount(0);
     // With JavaScript, tapping a block shows its team.
-    await a.page.goto('/me/team?tab=tracks');
+    await a.page.goto('/me/team');
     await a.page.getByRole('button', { name: 'Data Wizards · 2 members (your team)' }).click();
     const tip = a.page.getByRole('tooltip');
     await expect(tip).toContainText('Data Wizards');

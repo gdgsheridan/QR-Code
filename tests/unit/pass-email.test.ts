@@ -13,7 +13,7 @@ const base = {
 describe('pass email template (SPEC §12)', () => {
   it('T-MAIL-07: contains name, event, local time with TZ abbreviation, venue, cid QR, /p# link, plain-text part', () => {
     const m = renderPassEmail(base);
-    expect(m.subject).toBe("You're in: Hack Day 2026 — your check-in pass");
+    expect(m.subject).toBe("You're in: your check-in pass for Hack Day 2026");
     for (const part of [m.html, m.text]) {
       expect(part).toContain('Ada');
       expect(part).toContain('Hack Day 2026');

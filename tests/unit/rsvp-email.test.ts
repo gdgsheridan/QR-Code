@@ -47,7 +47,7 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
       expect(part).toContain('Please reply by Tue, Nov 3 · 11:59 PM EST.');
       expect(part).toContain('Invitations close Sat, Nov 7 · 11:59 PM EST; no reply by then counts as a no, and your spot goes to someone on the waitlist.');
     }
-    expect(renderRsvpEmail({ ...base, closesAt: '2026-11-08T04:59:00.000Z', replyBy, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 — Datathon');
+    expect(renderRsvpEmail({ ...base, closesAt: '2026-11-08T04:59:00.000Z', replyBy, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 for Datathon');
     // A reply-by date with no deadline: asked for, but nothing ever counts as a no.
     const soft = renderRsvpEmail({ ...base, closesAt: null, replyBy });
     for (const part of [soft.html, soft.text]) {
@@ -65,7 +65,7 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
   });
 
   it('T-RSVP-11: a reminder says so in the subject; no deadline, no deadline line; names are escaped', () => {
-    expect(renderRsvpEmail({ ...base, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 — Datathon');
+    expect(renderRsvpEmail({ ...base, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 for Datathon');
     const open = renderRsvpEmail({ ...base, closesAt: null });
     expect(open.text).not.toContain('Reply by');
     expect(open.text).not.toContain('counts as a no');

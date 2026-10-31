@@ -14,7 +14,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const SPAN = 0.86;
 const STRIPES = '[background-image:repeating-linear-gradient(135deg,transparent_0_3px,rgb(0_0_0/0.35)_3px_5px)]';
 
-// v0.11.29 (owner's request): Team page Tracks, a stacked bar chart. A bar is a track's hackers; each block is a team,
+// v0.11.30 (owner's request): the Team page's tracks chart. A bar is a track's teams, one block each,
 // and hovering, tapping or focusing a block shows that team. Blocks are buttons with spoken names, so the data
 // still reads (and the server HTML carries it) without JavaScript.
 export function TracksChart({ tracks }: { tracks: ChartTrack[] }) {
@@ -29,8 +29,7 @@ export function TracksChart({ tracks }: { tracks: ChartTrack[] }) {
     return () => { document.removeEventListener('keydown', close); document.removeEventListener('pointerdown', close); };
   }, [active]);
 
-  const hackers = (track: ChartTrack) => track.teams.reduce((n, team) => n + team.members, 0);
-  const most = Math.max(1, ...tracks.map(hackers));
+  const most = Math.max(1, ...tracks.map((track) => track.teams.length));
   const step = most <= 8 ? 1 : most <= 20 ? 2 : most <= 50 ? 5 : 10;
   const ticks = Array.from({ length: Math.floor(most / step) + 1 }, (_, i) => i * step);
   const x = (n: number) => `${(n / most) * SPAN * 100}%`;
@@ -38,11 +37,10 @@ export function TracksChart({ tracks }: { tracks: ChartTrack[] }) {
   return (
     <div className="grid select-none grid-cols-[minmax(4.5rem,9rem)_1fr] gap-x-3">
       {tracks.map((track, row) => {
-        const total = hackers(track);
-        let before = 0;
+        const total = track.teams.length;
         return (
           <div key={track.key} role="group" className="col-span-2 grid grid-cols-subgrid items-center"
-            aria-label={`${track.name}: ${track.teams.length === 0 ? 'No teams yet' : `${plural(track.teams.length, 'team')} · ${plural(total, 'hacker')}`}`}>
+            aria-label={`${track.name}: ${track.teams.length === 0 ? 'No teams yet' : plural(total, 'team')}`}>
             <span className={`min-w-0 break-words text-sm font-semibold ${track.unassigned ? 'text-muted-foreground' : ''}`}>{track.name}</span>
             <div className="relative flex min-h-12 items-center">
               {/* Gridlines: recessive hairlines behind the bars, one per tick. */}
@@ -54,20 +52,18 @@ export function TracksChart({ tracks }: { tracks: ChartTrack[] }) {
               ) : (
                 <>
                   <span className="track-bar relative flex h-5 gap-[2px]" style={{ width: `max(${x(total)}, ${track.teams.length * 18}px)`, transitionDelay: `${row * 50}ms` }}>
-                    {track.teams.map((team) => {
+                    {track.teams.map((team, index) => {
                       const id = `${track.key}:${team.id}`;
-                      const centre = (before + team.members / 2) / most;
-                      before += team.members;
+                      const centre = (index + 0.5) / most;
                       const label = `${team.name} · ${plural(team.members, 'member')}${team.mine ? ' (your team)' : ''}`;
                       const align = centre < 0.25 ? 'left-0' : centre > 0.6 ? 'right-0' : 'left-1/2 -translate-x-1/2';
                       return (
                         <button key={team.id} type="button" data-team-block="" aria-label={label} aria-describedby={active === id ? `tip-${id}` : undefined}
-                          style={{ flexGrow: team.members }}
                           onPointerEnter={(e) => { if (e.pointerType === 'mouse') setActive(id); }}
                           onPointerLeave={(e) => { if (e.pointerType === 'mouse') setActive((a) => (a === id ? null : a)); }}
                           onFocus={() => setActive(id)} onBlur={() => setActive((a) => (a === id ? null : a))}
                           onClick={() => setActive(id)}
-                          className={`group relative -my-3 min-w-4 basis-0 cursor-pointer appearance-none border-0 bg-transparent px-0 py-3 last:[&>span]:rounded-r-[4px] focus-visible:outline-none
+                          className={`group relative -my-3 min-w-4 flex-1 basis-0 cursor-pointer appearance-none border-0 bg-transparent px-0 py-3 last:[&>span]:rounded-r-[4px] focus-visible:outline-none
                             [&:focus-visible>span]:outline-2 [&:focus-visible>span]:outline-offset-2 [&:focus-visible>span]:outline-fg`}>
                           <span className={`block h-5 transition-[filter] duration-150 group-hover:brightness-125 ${track.unassigned ? 'bg-muted-foreground/60' : 'bg-accent'}
                             ${team.mine ? STRIPES : ''} ${active === id ? 'brightness-125' : ''}`} />
@@ -97,7 +93,7 @@ export function TracksChart({ tracks }: { tracks: ChartTrack[] }) {
           <span key={tick} className="absolute top-0.5 -translate-x-1/2" style={{ left: x(tick) }}>{tick}</span>
         ))}
       </div>
-      <p aria-hidden="true" className="col-start-2 m-0 mt-1 text-[11px] text-muted-foreground">hackers</p>
+      <p aria-hidden="true" className="col-start-2 m-0 mt-1 text-[11px] text-muted-foreground">teams</p>
       <p className="col-span-2 m-0 mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-3 w-3 rounded-[2px] bg-accent" />A team</span>
         <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`h-3 w-3 rounded-[2px] bg-accent ${STRIPES}`} />Your team</span>

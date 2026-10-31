@@ -76,9 +76,8 @@ async function saveLooking(user: { id: string; email: string | null }, participa
   return looking === 'SAVED' ? setTrackInterests(db(), user, participantId, tracks) : looking;
 }
 
-export default async function TeamPage(props: { searchParams: Promise<{ r?: string; tab?: string | string[]; code?: string }> }) {
-  const { r, tab: requestedTab, code: typedCode } = await props.searchParams;
-  const tab = requestedTab === 'tracks' ? 'tracks' : 'team';
+export default async function TeamPage(props: { searchParams: Promise<{ r?: string; code?: string }> }) {
+  const { r, code: typedCode } = await props.searchParams;
   const { me: m, now } = await loadMyEvent('/me/team');
   return (
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
@@ -92,32 +91,25 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
         <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
       <h1>Team</h1>
-      <nav aria-label="Team sections" className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden">
-        {([['team', 'My team'], ['tracks', 'Tracks']] as const).map(([value, label]) => (
-          <a key={value} href={value === 'tracks' ? '/me/team?tab=tracks' : '/me/team'} aria-current={tab === value ? 'page' : undefined}
-            className="inline-flex min-h-12 shrink-0 items-center whitespace-nowrap rounded-t-lg border-b-2 border-transparent px-3 text-sm font-semibold text-muted-foreground no-underline hover:bg-accent/6 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-3 aria-[current=page]:border-accent aria-[current=page]:bg-accent/8 aria-[current=page]:text-accent aria-[current=page]:font-bold">
-            {label}
-          </a>
-        ))}
-      </nav>
-      {tab === 'tracks' ? <TracksContent me={m} /> : <MyTeamContent me={m} now={now} r={r} typedCode={typedCode} />}
+      <MyTeamContent me={m} now={now} r={r} typedCode={typedCode} />
+      <TracksContent me={m} />
+      <Link href="/me/hackers?looking=1" className="inline-flex min-h-11 items-center">Find teammates in the Hacker directory →</Link>
     </main></Entrance>
   );
 }
 
 async function TracksContent({ me }: { me: MyEvent }) {
   const tracks = await tracksWithTeams(db(), me);
-  if (tracks === null) return <p className="copy">Tracks are announced at the hackathon.</p>;
-  if (tracks.length === 0) return <p className="copy">No tracks yet.</p>;
+  if (tracks === null || tracks.length === 0) return null;
   return (
-    <Card className="grid gap-3 [&>p]:m-0">
-      <h2 className="m-0 text-lg">Teams per track</h2>
-      <p className="text-sm text-muted-foreground">Hackers on each track. Each block is a team: hover or tap it.</p>
+    <Card asChild className="grid gap-3 [&>p]:m-0"><section aria-labelledby="teams-per-track">
+      <h2 id="teams-per-track" className="m-0 text-lg">Teams per track</h2>
+      <p className="text-sm text-muted-foreground">Teams on each track. Hover or tap a block to see the team.</p>
       <TracksChart tracks={tracks.map((track) => ({
         key: track.id ?? 'unassigned', name: track.name, unassigned: track.id === null,
         teams: track.teams.map((team) => ({ id: team.id, name: team.name, members: team.memberCount, mine: team.id === me.teamId })),
       }))} />
-    </Card>
+    </section></Card>
   );
 }
 
@@ -331,7 +323,6 @@ async function MyTeamContent({ me: m, now, r, typedCode }: { me: MyEvent; now: D
           </section></Card>
         </>
       )}
-      <Link href="/me/hackers?looking=1" className="inline-flex min-h-11 items-center">Find teammates in the Hacker directory →</Link>
     </>
   );
 }

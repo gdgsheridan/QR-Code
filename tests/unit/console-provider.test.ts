@@ -15,7 +15,7 @@ function message(overrides: Partial<EmailMessage> = {}): EmailMessage {
   return {
     to: 'ada@example.com',
     from: 'Station <passes@example.com>',
-    subject: "You're in: Hack Day — your check-in pass",
+    subject: "You're in: your check-in pass for Hack Day",
     html: '<p>Hi Ada</p><img src="cid:qr">',
     text: 'Hi Ada',
     inlineImages: [{ cid: 'qr', filename: 'station-qr.png', contentType: 'image/png', content: png }],
