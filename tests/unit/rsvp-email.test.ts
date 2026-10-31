@@ -53,7 +53,7 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
 
   it('T-RSVP-11: the drainer cancels a kind it doesn\'t know instead of issuing a pass', async () => {
     const calls: Array<{ fn: string; args: unknown }> = [];
-    const row = { id: 'o1', participant_id: 'p1', kind: 'mystery', attempts: 1 };
+    const row = { id: 'o1', participant_id: 'p1', kind: 'mystery', attempts: 1, claim_token: 'c1' };
     const participant = { first_name: 'Ada', email: 'ada@example.test', status: 'accepted', deleted_at: null, events: { ...base.event, starts_at: base.event.startsAt } };
     const fake = {
       rpc: async (fn: string, args: unknown) => {
@@ -72,7 +72,7 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
     });
     expect(result).toMatchObject({ claimed: 1, cancelled: 1, sent: 0 });
     expect(calls.map((c) => c.fn)).toEqual(['claim_outbox', 'finish_outbox']);
-    expect(calls[1]?.args).toEqual({ p_id: 'o1', p_status: 'cancelled' });
+    expect(calls[1]?.args).toEqual({ p_id: 'o1', p_status: 'cancelled', p_claim_token: 'c1' });
     expect(sent).toEqual([]);
   });
 });
