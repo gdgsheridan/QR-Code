@@ -109,24 +109,25 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await expect(p.getByRole('heading', { name: 'The event', exact: true })).toBeFocused();
   await expect(p.getByLabel('Not sure yet')).toBeChecked();
   await p.getByRole('button', { name: 'Next', exact: true }).click();
-  await p.getByLabel('Allergies (optional)').fill('Peanuts');
+  await p.getByLabel('Allergies', { exact: true }).fill('Peanuts');
   // An allergy without its severity is caught in the browser: nothing is sent, so nothing typed is lost.
   await p.getByRole('button', { name: 'Save profile' }).click();
   expect(await p.getByLabel('How severe?').evaluate((el) => (el as HTMLSelectElement).validity.valueMissing)).toBe(true);
-  await expect(p.getByLabel('Allergies (optional)')).toHaveValue('Peanuts');
+  await expect(p.getByLabel('Allergies', { exact: true })).toHaveValue('Peanuts');
   await p.getByLabel('How severe?').selectOption('severe');
-  await p.getByLabel('Accessibility needs (optional)').fill('Step-free access');
+  await p.getByLabel('Accessibility needs').fill('Step-free access');
   await p.getByRole('button', { name: 'Save profile' }).click();
   await expect(p.getByText('✓ Saved. Your profile is set up.')).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Hacker profile' })).toBeVisible();
-  await expect(p.getByText('Step 3 of 3: Networking (optional)')).toBeVisible();
+  await expect(p.getByText('Step 3 of 3: Networking')).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Networking', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(p.getByRole('heading', { name: 'Health and access', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Save profile', exact: true }).click();
   await p.getByRole('button', { name: 'Save links', exact: true }).click();
-  await expect(p.getByText('✓ Saved.', { exact: true })).toBeVisible();
-  await p.getByRole('link', { name: 'Add your emergency contact →' }).click();
+  // Finishing the walkthrough lands on the hacker menu.
+  await p.waitForURL(/\/me$/);
+  await p.getByRole('link', { name: 'Emergency contact' }).click();
   await p.waitForURL('**/me/emergency');
   await p.getByLabel('Name').fill('Sam Rsvp');
   await p.getByLabel('Phone').fill('416 555 0100');

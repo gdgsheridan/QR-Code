@@ -16,6 +16,7 @@ import { QR_OPTIONS } from '@/lib/qr/options';
 interface ActivePass {
   state: 'active';
   firstName: string;
+  lastName: string;
   event: { name: string; venue: string; startsAt: string; timezone: string };
   profile: { public: boolean; hasLinkedin: boolean };
 }
@@ -177,7 +178,7 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-ticket shadow-panel" aria-labelledby="pass-name">
         <div className="grid [justify-items:center] gap-[4px] p-[24px_20px_20px] text-center [:where(&)_>_*]:m-0">
           <h1 id="pass-name" className="text-[32px] leading-[1.15] [overflow-wrap:anywhere]">
-            {pass.firstName}
+            {`${pass.firstName} ${pass.lastName}`.trim()}
           </h1>
           <canvas ref={canvas} className="block w-[min(100%,_300px)] h-auto [background:rgb(255,_255,_255)] rounded-md
 
@@ -243,7 +244,7 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
           [border-left-color:var(--line)] rounded-card p-[20px] shadow-panel [:where(&)_>_*]:m-0
 
           [&_h2]:text-[18px]" asChild><section  aria-labelledby="profile-heading">
-      <h2 id="profile-heading">Badge profile (optional)</h2>
+      <h2 id="profile-heading">Badge profile</h2>
       <Label className="flex gap-[12px] items-center min-h-[44px] font-semibold [&_input]:w-[22px] [&_input]:h-[22px]
 
           [&_input]:[flex:0_0_auto] [&_input]:[accent-color:var(--accent)]">

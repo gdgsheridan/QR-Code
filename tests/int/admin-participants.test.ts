@@ -157,12 +157,9 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     expect((await c.call('resendPass', org, { slug: f.slug, id: f.p.C }, { method: 'POST' })).body).toEqual({ code: 'NOT_ACCEPTED' });
   });
 
-  it('§11: revoke (manual) cancels the active pass; mark test flags the participant', async () => {
+  it('§11: revoke (manual) cancels the active pass', async () => {
     expect((await c.call('revokePass', org, { slug: f.slug, id: f.p.Rv }, { method: 'POST' })).body).toEqual({ code: 'REVOKED' });
     expect(await f.scan({ cp: f.cp.D, staff: f.staff.vol1, token: f.token.Rv })).toMatchObject({ code: 'REVOKED', revokeReason: 'manual' });
-    expect((await c.call('markTest', org, { slug: f.slug, id: f.p.N }, { body: { isTest: true } })).status).toBe(200);
-    const { rows } = await f.pool.query<{ is_test: boolean }>('select is_test from participants where id = $1', [f.p.N]);
-    expect(rows[0]?.is_test).toBe(true);
   });
 
   it('§11: list filters by status and no-shows; detail includes scan history with voided scans', async () => {
@@ -170,7 +167,7 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     expect((obj(waitlisted.body).participants as Array<{ id: string }>).map((p) => p.id)).toEqual([f.p.C]);
     expect(Object.keys((obj(waitlisted.body).participants as Array<object>)[0] ?? {}).sort()).toEqual([
       'applicantId', 'checkedIn', 'dietaryNotes', 'email', 'firstName', 'hasBadge', 'id',
-      'isTest', 'lastName', 'liveScans', 'passState', 'rsvpSentAt', 'source', 'status',
+      'isTest', 'lastName', 'liveScans', 'passState', 'rsvpSentAt', 'sheetStatus', 'source', 'status',
     ].sort());
     const scan = await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.T });
     await f.voidScan(scan.scanId ?? '', f.staff.org1);

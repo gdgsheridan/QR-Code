@@ -21,7 +21,7 @@ test('T-PASS-01: /p#token shows name, event and a QR of exactly APP_ORIGIN/p#tok
   page.on('request', (r) => seen.push({ url: r.url(), method: r.method(), body: r.postData() }));
 
   await page.goto(`/p#${token}`);
-  await expect(page.getByRole('heading', { name: 'Ada' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ada Fixture', exact: true })).toBeVisible();
   await expect(page.getByText(f.e1.name)).toBeVisible();
   await expect(page.getByText('Fixture Hall')).toBeVisible();
   const qr = page.getByRole('img', { name: 'Your check-in QR code' });

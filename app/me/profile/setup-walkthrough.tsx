@@ -4,7 +4,7 @@ import { createContext, useContext, useLayoutEffect, useRef, useState, useSyncEx
 import { Button } from '@/components/ui/button';
 
 const subscribe = () => () => {};
-const TITLES = ['The event', 'Health and access', 'Networking (optional)'];
+const TITLES = ['The event', 'Health and access', 'Networking'];
 const Walkthrough = createContext<{ step: number; move: (step: number) => void; active: boolean; enabled: boolean }>({ step: 1, move: () => {}, active: false, enabled: false });
 
 export function SetupWalkthrough({ enabled, initialStep, children }: { enabled: boolean; initialStep: number; children: ReactNode }) {

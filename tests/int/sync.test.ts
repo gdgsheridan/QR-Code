@@ -42,9 +42,11 @@ describe('Sync now (SPEC F10)', () => {
       dryRun: true,
       total: 4,
       skipped: 0,
-      // v0.4: Status is ignored (Withdrawn changes nothing); only the new first name is an update.
-      counts: { UNCHANGED: 1, UPDATED: 1, CREATED: 1, 'INVALID:email': 1 },
+      // v0.4: Status never changes anyone's status (Withdrawn changes nothing). v0.11.26: Sync records the Sheet's
+      // decision, so `existing` (Accepted; the Apps Script path stored none) is an update too.
+      counts: { UPDATED: 2, CREATED: 1, 'INVALID:email': 1 },
       changes: [
+        { external_id: existing.external_id, result: 'UPDATED' },
         { external_id: renamed.external_id, result: 'UPDATED' },
         { external_id: newcomer.external_id, result: 'CREATED' },
         { external_id: 'id-x', result: 'INVALID:email' },
@@ -63,5 +65,10 @@ describe('Sync now (SPEC F10)', () => {
 
     const again = await syncSheet(serviceClient(), f.e1.id, { dryRun: true, readSheet });
     expect(again.changes).toEqual([{ external_id: 'id-x', result: 'INVALID:email' }]);
+    const { rows: people } = await f.pool.query<{ status: string; sheet_status: string | null }>(
+      'select status, sheet_status from participants where event_id = $1 and external_id = any($2) order by external_id = $3 desc',
+      [f.e1.id, [existing.external_id, renamed.external_id], existing.external_id],
+    );
+    expect(people).toEqual([{ status: 'pending', sheet_status: 'accepted' }, { status: 'pending', sheet_status: null }]);
   });
 });

@@ -5,7 +5,7 @@ import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
+import { PaceSlider } from '@/components/pace-slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { DISCORD_PATTERN, LINKEDIN_PATTERN, WEBSITE_PATTERN } from '@/lib/domain/badge';
-import { PACE, type ProfileInput } from '@/lib/domain/profile';
+import type { ProfileInput } from '@/lib/domain/profile';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AllergyFields } from './allergy-fields';
@@ -123,7 +123,9 @@ async function saveNetworking(formData: FormData) {
   if (formData.get('walkthrough') !== '1') {
     redirect(`/me/profile?tab=networking&${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
   }
-  redirect(`/me/profile?${result === 'SAVED' ? `saved=1${formData.get('walkthrough') === '1' ? '&step=links' : ''}` : `error=${result}${formData.get('walkthrough') === '1' ? '&step=links' : ''}`}`);
+  // The walkthrough's last step: done, so back to the hacker menu (owner's request); a refusal stays on the step.
+  if (result === 'SAVED') redirect('/me');
+  redirect(`/me/profile?error=${result}&step=links`);
 }
 
 export default async function HackerProfilePage(props: {
@@ -225,7 +227,7 @@ export default async function HackerProfilePage(props: {
                 [border-style:solid] [border-top-color:var(--field)] [border-right-color:var(--field)]
                 [border-bottom-color:var(--field)] [border-left-color:var(--field)] rounded-control
                 [&:is(select)]:min-w-0 [&:is(select)]:w-full`} hintClass={" m-0 text-muted-foreground text-[14px]"} />
-          <Label htmlFor="accessibility">Accessibility needs (optional)</Label>
+          <Label htmlFor="accessibility">Accessibility needs</Label>
           <Textarea id="accessibility" name="accessibility" maxLength={500} placeholder="Anything that would make the event easier for you" defaultValue={m.accessibility ?? ''} className="min-h-12 w-full" />
 
           <Button type="submit">Save profile</Button>
@@ -262,7 +264,7 @@ export default async function HackerProfilePage(props: {
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
           <input type="hidden" name="walkthrough" value={walkthrough ? '1' : '0'} />
-          <Label htmlFor="linkedin">LinkedIn (optional)</Label>
+          <Label htmlFor="linkedin">LinkedIn</Label>
           <Input
             id="linkedin"
             name="linkedin"
@@ -275,7 +277,7 @@ export default async function HackerProfilePage(props: {
             defaultValue={m.linkedinUrl ?? ''}
             className="min-h-12 w-full"
           />
-          <Label htmlFor="discord">Discord username (optional)</Label>
+          <Label htmlFor="discord">Discord username</Label>
           <Input
             id="discord"
             name="discord"
@@ -290,7 +292,7 @@ export default async function HackerProfilePage(props: {
             defaultValue={m.discordUsername ?? ''}
             className="min-h-12 w-full"
           />
-          <Label htmlFor="website">Website (optional)</Label>
+          <Label htmlFor="website">Website</Label>
           <Input
             id="website"
             name="website"
@@ -303,13 +305,9 @@ export default async function HackerProfilePage(props: {
             defaultValue={m.websiteUrl ?? ''}
             className="min-h-12 w-full"
           />
-          <Label htmlFor="bio">Bio (optional)</Label>
+          <Label htmlFor="bio">Bio</Label>
           <Textarea id="bio" name="bio" maxLength={280} rows={4} defaultValue={m.bio ?? ''} placeholder="What do you enjoy building? Who would you like to meet?" className="min-h-24 w-full" />
-          <Label htmlFor="profilePace">Your pace (optional)</Label>
-          <NativeSelect id="profilePace" name="pace" defaultValue={m.pace ?? ''} className="min-h-12 w-full">
-            <option value="">No pace set</option>
-            {Object.entries(PACE).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </NativeSelect>
+          <PaceSlider key={m.pace ?? ''} value={m.pace ?? ''} />
           <Label className="flex min-h-11 items-center gap-3">
             <input type="checkbox" name="directoryOptIn" defaultChecked={m.directoryOptIn} className="size-[22px] shrink-0" />
             List me in the Hacker directory

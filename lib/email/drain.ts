@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { toFileLabel } from '@/lib/domain/file-label';
+import { shownReplyBy } from '@/lib/domain/rsvp';
 import { nextAttempt, sanitizeError } from '@/lib/domain/outbox';
 import { generateToken, passToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
@@ -39,6 +40,7 @@ export interface DrainResult {
 
 // SPEC F4. Safe to run concurrently: rows are claimed with FOR UPDATE SKIP LOCKED.
 export async function drainOutbox(opts: DrainOptions): Promise<DrainResult> {
+  if (opts.provider.holdQueue) return { claimed: 0, sent: 0, retrying: 0, failed: 0, cancelled: 0 };
   const { data: rows, error } = await opts.db.rpc('claim_outbox', { p_limit: opts.limit ?? 20 });
   if (error) throw new Error(`claim_outbox failed (${error.code})`);
   const result: DrainResult = { claimed: rows.length, sent: 0, retrying: 0, failed: 0, cancelled: 0 };
@@ -109,7 +111,7 @@ async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Out
   if (participantId === null) return null;
   const { data: p, error } = await opts.db
     .from('participants')
-    .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, events(slug, name, venue, starts_at, timezone)')
+    .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, events(slug, name, venue, starts_at, timezone, rsvp_reply_by)')
     .eq('id', participantId)
     .single();
   if (error) throw new Error(`participant load failed (${error.code})`);
@@ -129,7 +131,9 @@ async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Out
     const closes = z.object({ closesAt: z.string().nullable() }).safeParse(stored);
     if (!closes.success) return null;
     const closesAt = closes.data.closesAt && new Date(closes.data.closesAt).toISOString();
-    email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt, reminder: row.kind === 'rsvp_reminder' });
+    // v0.11.27: they're asked to reply by the event's reply-by date while it's ahead; the invitation closes later.
+    const replyBy = p.events.rsvp_reply_by && new Date(p.events.rsvp_reply_by).toISOString();
+    email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt: shownReplyBy(replyBy, closesAt, opts.now?.() ?? new Date()), reminder: row.kind === 'rsvp_reminder' });
   } else if (row.kind === 'team_invite') {
     const { data: invite, error: inviteError } = await opts.db.from('team_invites')
       .select('teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')

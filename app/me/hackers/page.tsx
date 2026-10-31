@@ -7,7 +7,8 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { NativeSelect } from '@/components/ui/native-select';
+import { PaceSlider } from '@/components/pace-slider';
+import { directoryPace } from '@/components/pace-options';
 import { db } from '@/lib/db/server';
 import { PACE } from '@/lib/domain/profile';
 import { hackerDirectory } from '@/lib/me/hackers';
@@ -42,7 +43,7 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
   const params = await searchParams;
   const { me, user, now } = await loadMyEvent('/me/hackers');
   const looking = params.looking === '1';
-  const pace = params.pace && Object.hasOwn(PACE, params.pace) ? params.pace : '';
+  const pace = directoryPace(params.pace);
   const [people, { team }] = await Promise.all([
     hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace }),
     myTeam(db(), me),
@@ -57,16 +58,12 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
     </div>
     <h1>Hackers</h1>
     <Link href="/me/profile#networking" className="inline-flex min-h-11 items-center self-start">Edit my directory profile →</Link>
-    <form className="grid items-end gap-4 sm:grid-cols-[1fr_1fr_auto]" aria-label="Filter hackers" action="/me/hackers">
-      <div className="grid gap-2"><Label htmlFor="search">Search by name</Label><Input id="search" name="q" type="search" defaultValue={params.q ?? ''} className="min-h-12 w-full" /></div>
-      <div className="grid gap-2"><Label htmlFor="pace">Pace</Label><NativeSelect id="pace" name="pace" aria-describedby="pace-legend" defaultValue={pace} className="min-h-12 w-full">
-        <option value="">All paces</option>{Object.entries(PACE).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </NativeSelect></div>
-      <Button type="submit">Apply filters</Button>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 sm:col-span-3">
-        <Label className="flex min-h-11 items-center gap-3"><input className="size-[22px]" type="checkbox" name="looking" value="1" defaultChecked={looking} />Looking for a team</Label>
-        <p id="pace-legend" className="m-0 text-xs text-muted-foreground">Pace bar: learn → win · 1–3 segments</p>
-      </div>
+    {/* Owner's request: the filters stack in one column. */}
+    <form className="grid max-w-[640px] gap-4" aria-label="Filter hackers" action="/me/hackers">
+      <div className="grid min-w-0 gap-2"><Label htmlFor="search">Search by name</Label><Input id="search" name="q" type="search" defaultValue={params.q ?? ''} className="min-h-12 w-full" /></div>
+      <PaceSlider key={pace} value={pace} filter />
+      <Label className="flex min-h-11 items-center gap-3"><input className="size-[22px]" type="checkbox" name="looking" value="1" defaultChecked={looking} />Looking for a team</Label>
+      <Button type="submit" className="justify-self-start">Apply filters</Button>
     </form>
     {notice && <p role={params.r === 'INVITED' ? 'status' : 'alert'}>{notice}</p>}
     {looking && !team && <p className="copy m-0 text-muted-foreground">Create a team to invite them. <Link href="/me/team">Open Team →</Link></p>}

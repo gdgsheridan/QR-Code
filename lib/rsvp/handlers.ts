@@ -6,6 +6,7 @@ import { parseProfileInput } from '@/lib/domain/profile';
 import { sha256hex } from '@/lib/domain/token';
 import { profileArgs } from '@/lib/me/profile';
 import { emailKey, ipKey, withinLimit } from '@/lib/pass/handlers';
+import { shownReplyBy } from '@/lib/domain/rsvp';
 
 type Db = SupabaseClient<Database>;
 
@@ -35,6 +36,8 @@ const lookupSchema = z.object({
   // v0.9: when the invitation stops taking a Yes, and whether it has (never for the accepted).
   closesAt: z.string().nullable().transform((at) => at && new Date(at).toISOString()),
   closed: z.boolean(),
+  // v0.11.27: the date they're asked to reply by (the invitation closes at closesAt).
+  replyBy: z.string().nullable().transform((at) => at && new Date(at).toISOString()),
 });
 
 const field = z.string().max(1000).optional(); // lengths are checked by parseProfileInput
@@ -85,7 +88,7 @@ export function createRsvpHandler(deps: RsvpDeps) {
     const { going, password = '' } = body.data;
     if (going === undefined) {
       // The prefill holds the Sheet's dietary notes and LinkedIn, never the email or the emergency contact.
-      return json({ firstName: found.firstName, event: found.event, status: found.status, hasAccount: found.hasAccount, profile: found.profile, closesAt: found.closesAt, closed: found.closed });
+      return json({ firstName: found.firstName, event: found.event, status: found.status, hasAccount: found.hasAccount, profile: found.profile, closesAt: found.closesAt, closed: found.closed, replyBy: shownReplyBy(found.replyBy, found.closesAt, new Date()) });
     }
     // Past the deadline (F13, v0.9): refused before any account is made or signed into.
     if (going && found.closed) return json({ error: 'closed' }, 409);

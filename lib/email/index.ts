@@ -1,6 +1,6 @@
 import 'server-only';
 import { env } from '@/lib/env';
-import { createConsoleProvider } from './console';
+import { createConsoleProvider, isLocalDatabase } from './console';
 import type { EmailProvider } from './provider';
 import { createResendProvider } from './resend';
 
@@ -11,7 +11,8 @@ export function getProvider(): EmailProvider {
     if (process.env.NODE_ENV === 'test') throw new Error('EMAIL_PROVIDER=resend is not allowed in tests');
     return createResendProvider({ apiKey: e.RESEND_API_KEY ?? '' });
   }
-  return createConsoleProvider();
+  // v0.11.26: a dev server on the live database must not "send" its emails to ./.mail; the deployed cron sends them.
+  return createConsoleProvider({ holdQueue: !isLocalDatabase(e.NEXT_PUBLIC_SUPABASE_URL) });
 }
 
 export function emailFrom(): string {

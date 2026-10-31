@@ -16,31 +16,39 @@ test.afterAll(async () => {
 const emailOf = async (participantId: string) =>
   (await f.pool.query<{ email: string }>('select email from participants where id = $1', [participantId])).rows[0]?.email ?? '';
 
-test('T-ADM-08: Info edits only the RSVP deadline; schedule and emergency info are set through the API', async ({ page }) => {
+test('T-ADM-08: Info edits only the RSVP dates (reply by, close); schedule and emergency info are set through the API', async ({ page }) => {
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
   const info = { schedule: 'Sat 9:00  Doors\nSat 12:00  Lunch', emergencyInfo: 'Call Ade: 416 555 0199' };
   const saved = await page.request.patch(`/api/admin/${f.slug}/event`, { data: info });
   expect(saved.ok()).toBe(true);
   await page.getByRole('link', { name: 'Info', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Event info' })).toBeVisible();
-  const deadline = page.getByLabel(/RSVP deadline/);
+  // v0.11.27: the RSVP deadline is "RSVPs close"; "Reply by" is the earlier date invitees are shown.
+  const deadline = page.getByLabel(/^RSVPs close/);
+  const replyBy = page.getByLabel(/^Reply by/);
   await expect(deadline).toBeVisible();
   await expect(page.getByLabel('Schedule', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Emergency info', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Emergency information' })).toHaveCount(0);
   await expect(page.locator('textarea')).toHaveCount(0);
+  await replyBy.fill('2099-11-05T12:00');
   await deadline.fill('2099-11-01T12:00');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Reply by no later than RSVPs close' })).toBeVisible();
+  await replyBy.fill('2099-10-28T23:59');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('✓ Saved.', { exact: true })).toBeVisible();
   await page.reload();
   await expect(deadline).toHaveValue('2099-11-01T12:00');
+  await expect(replyBy).toHaveValue('2099-10-28T23:59');
   expect(await (await page.request.get(`/api/admin/${f.slug}/event`)).json()).toMatchObject(info);
   await deadline.fill('');
+  await replyBy.fill('');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('✓ Saved.', { exact: true })).toBeVisible();
   await page.reload();
   await expect(deadline).toHaveValue('');
-  expect(await (await page.request.get(`/api/admin/${f.slug}/event`)).json()).toMatchObject({ ...info, rsvpDeadline: null });
+  expect(await (await page.request.get(`/api/admin/${f.slug}/event`)).json()).toMatchObject({ ...info, rsvpDeadline: null, rsvpReplyBy: null });
 });
 
 test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and emergency contact, reads the schedule; others see the badge as before', async ({ browser }) => {
@@ -93,7 +101,7 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   await page.getByLabel('Phone').fill('12');
   expect(await page.getByLabel('Phone').evaluate((el) => (el as HTMLInputElement).validity.valid)).toBe(false);
   await page.getByLabel('Phone').fill('+1 (416) 555-0100');
-  await page.getByLabel('Relationship (optional)').fill('Brother');
+  await page.getByLabel('Relationship').fill('Brother');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
   const { rows } = await f.pool.query('select dietary_notes, emergency_name, emergency_phone, emergency_relation from participants where id = $1', [f.p.A]);
@@ -361,7 +369,7 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
       ['/me/profile?tab=networking', '/me/profile?tab=event', '/me/profile?tab=health']);
     await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toHaveAttribute('aria-current', 'page');
     await expect(profile.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
-    await expect(profile.getByLabel('LinkedIn (optional)')).toHaveCount(0);
+    await expect(profile.getByLabel('LinkedIn', { exact: true })).toHaveCount(0);
     // The emergency contact has its own page: no fields here, only a link while it's missing.
     await expect(profile.getByLabel('Emergency contact name')).toHaveCount(0);
     await expect(profile.getByRole('link', { name: 'Add your emergency contact →' })).toHaveAttribute('href', '/me/emergency');
@@ -377,19 +385,44 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     await expect(profile.getByRole('link', { name: 'Add your emergency contact →' })).toBeVisible();
     await nav.getByRole('link', { name: 'Health and access', exact: true }).click();
     before = await stored();
-    await profile.getByLabel('Allergies (optional)').fill('Peanuts');
+    await profile.getByLabel('Allergies', { exact: true }).fill('Peanuts');
     await profile.getByLabel('How severe?').selectOption('severe');
-    await profile.getByLabel('Accessibility needs (optional)').fill('Step-free access');
+    await profile.getByLabel('Accessibility needs').fill('Step-free access');
     await profile.getByRole('button', { name: 'Save profile' }).click();
     await expect(profile).toHaveURL(/tab=health&saved=1/);
     expect(await stored()).toEqual({ ...before, allergies: 'Peanuts', allergy_severity: 'severe', accessibility: 'Step-free access' });
     await nav.getByRole('link', { name: 'Networking', exact: true }).click();
     before = await stored();
-    await profile.getByLabel('Bio (optional)', { exact: true }).fill('Data and maps');
-    await profile.getByLabel('Your pace (optional)').selectOption('balanced');
+    await profile.getByLabel('Bio', { exact: true }).fill('Data and maps');
+    await profile.getByRole('radio', { name: 'Balanced', exact: true }).check();
     await profile.getByRole('button', { name: 'Save links' }).click();
     await expect(profile).toHaveURL(/tab=networking&saved=1/);
     expect(await stored()).toEqual({ ...before, bio: 'Data and maps', pace: 'balanced' });
+    await profile.getByRole('radio', { name: 'Prefer not to say', exact: true }).check();
+    await profile.getByRole('button', { name: 'Save links' }).click();
+    await expect(profile).toHaveURL(/tab=networking&saved=1/);
+    expect(await stored()).toEqual({ ...before, bio: 'Data and maps', pace: null });
+    await page.goto('/me/profile?tab=networking');
+    await page.getByLabel('Prefer not to say', { exact: true }).uncheck();
+    const pace = page.getByRole('slider', { name: 'Your pace', exact: true });
+    await pace.press('Home');
+    await expect(pace).toHaveValue('1');
+    await expect(pace).toHaveAttribute('aria-valuetext', 'Here to learn and meet people');
+    await pace.press('ArrowRight');
+    await expect(pace).toHaveAttribute('aria-valuetext', 'Balanced');
+    await expect(pace).toHaveValue('2');
+    expect((await pace.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await pace.evaluate((input) => getComputedStyle(input).outlineStyle)).toBe('solid');
+    await page.getByRole('button', { name: 'Save links' }).click();
+    await expect(page).toHaveURL(/tab=networking&saved=1/);
+    await expect.poll(stored).toEqual({ ...before, bio: 'Data and maps', pace: 'balanced' });
+    await page.getByLabel('Prefer not to say', { exact: true }).check();
+    await expect(pace).toBeDisabled();
+    await expect(pace).toHaveAttribute('aria-valuetext', 'No pace set');
+    await expect(page.locator('input[type="hidden"][name="pace"]')).toHaveValue('');
+    await page.getByRole('button', { name: 'Save links' }).click();
+    await expect(page).toHaveURL(/tab=networking&saved=1/);
+    await expect.poll(stored).toEqual({ ...before, bio: 'Data and maps', pace: null });
     for (const [width, height] of [[390, 844], [1280, 800]] as const) {
       await profile.setViewportSize({ width, height });
       for (const tab of ['event', 'health', 'networking']) {
@@ -403,7 +436,7 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     }
     await profile.goto('/me/profile?tab=health');
     before = await stored();
-    await profile.getByLabel('Allergies (optional)').fill('Shellfish');
+    await profile.getByLabel('Allergies', { exact: true }).fill('Shellfish');
     await profile.getByLabel('How severe?').selectOption('');
     await profile.locator('form').evaluate(form => { (form as HTMLFormElement).noValidate = true; });
     await profile.getByRole('button', { name: 'Save profile' }).click();

@@ -78,7 +78,7 @@ export default async function EmergencyPage(props: { searchParams: Promise<{ sav
             defaultValue={m.emergency?.phone ?? ''}
             className="min-h-12 w-full"
           />
-          <Label htmlFor="emergencyRelation">Relationship (optional)</Label>
+          <Label htmlFor="emergencyRelation">Relationship</Label>
           <Input
             id="emergencyRelation"
             name="emergencyRelation"

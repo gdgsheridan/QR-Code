@@ -32,16 +32,18 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await page.getByRole('button', { name: 'Save profile', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible();
   await page.getByLabel('List me in the Hacker directory').check();
-  await page.getByLabel('Your pace (optional)').selectOption('competitive');
-  await page.getByLabel('Bio (optional)', { exact: true }).fill('I enjoy data visualisation.\n<b>Plain text</b>');
+  await page.getByLabel('Prefer not to say', { exact: true }).uncheck();
+  await page.getByRole('slider', { name: 'Your pace', exact: true }).press('End');
+  await expect(page.getByRole('slider', { name: 'Your pace', exact: true })).toHaveAttribute('aria-valuetext', 'Going for the win');
+  await page.getByLabel('Bio', { exact: true }).fill('I enjoy data visualisation.\n<b>Plain text</b>');
   mkdirSync(screenshots, { recursive: true });
   for (const [width, height] of [[390, 844], [1280, 800]]) {
     await page.setViewportSize({ width: width!, height: height! });
     await page.screenshot({ path: `${screenshots}/directory-networking-${width}.png`, fullPage: true });
   }
   await page.getByRole('button', { name: 'Save links', exact: true }).click();
-  await expect(page.getByText('✓ Saved.', { exact: true })).toBeVisible();
-  await page.goto('/me');
+  // Finishing the walkthrough lands on the hacker menu.
+  await expect(page).toHaveURL(/\/me$/);
   await page.getByRole('link', { name: 'Hackers' }).click();
   await expect(page).toHaveURL(/\/me\/hackers$/);
   // Start a fresh document: client navigation retains the previous menu's bootstrap scripts (own email).
@@ -98,6 +100,19 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(nativeBen.getByText('Building with open data.', { exact: false })).not.toBeVisible();
   await nativeBen.locator('summary').click();
   await expect(nativeBen.getByText('Building with open data.', { exact: false })).toBeVisible();
+  await nativePage.getByRole('slider', { name: 'Pace', exact: true }).press('Home');
+  await nativePage.getByRole('slider', { name: 'Pace', exact: true }).press('ArrowRight');
+  await nativePage.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(nativePage).toHaveURL(/pace=1/);
+  await expect(nativePage.getByRole('slider', { name: 'Pace', exact: true })).toHaveAttribute('aria-valuetext', 'Here to learn and meet people');
+  await expect(nativePage.getByRole('slider', { name: 'Pace', exact: true })).toHaveValue('1');
+  await expect(nativePage.getByRole('article', { name: 'Nia Fixture', exact: true })).toBeVisible();
+  await expect(nativeBen).toHaveCount(0);
+  await nativePage.getByRole('slider', { name: 'Pace', exact: true }).press('Home');
+  await nativePage.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(nativePage).toHaveURL(/pace=0/);
+  await expect(nativePage.getByRole('slider', { name: 'Pace', exact: true })).toHaveAttribute('aria-valuetext', 'Any pace');
+  await expect(nativeBen).toBeVisible();
   await noJs.close();
   const html = await page.content();
   for (const secret of [email, 'Private contact sentinel', '4165550123', 'Another event private bio', 'Hidden legacy bio', 'hidden.discord']) expect(html).not.toContain(secret);
@@ -117,8 +132,15 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(directory.getByRole('article', { name: 'Legacy Fixture', exact: true }).getByRole('img', { name: 'Pace not shared (0 of 3)', exact: true })).toBeVisible();
   await expect(directory).not.toContainText('Hidden legacy bio');
   await expect(directory.getByText('Ben Fixture')).toHaveCount(0);
-  await page.getByLabel('Pace', { exact: true }).selectOption('casual');
+  await page.getByRole('slider', { name: 'Pace', exact: true }).press('Home');
+  await page.getByRole('slider', { name: 'Pace', exact: true }).press('ArrowRight');
+  await expect(page.getByRole('slider', { name: 'Pace', exact: true })).toHaveAttribute('aria-valuetext', 'Here to learn and meet people');
+  await expect(page.getByRole('slider', { name: 'Pace', exact: true })).toHaveValue('1');
   await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(directory.getByText('Nia Fixture')).toBeVisible();
+  await expect(directory.getByText('Legacy Fixture')).toHaveCount(0);
+  await page.goto('/me/hackers?looking=1&pace=casual');
+  await expect(page.getByRole('slider', { name: 'Pace', exact: true })).toHaveValue('1');
   await expect(directory.getByText('Nia Fixture')).toBeVisible();
   await expect(directory.getByText('Legacy Fixture')).toHaveCount(0);
   await page.goto('/me/hackers');

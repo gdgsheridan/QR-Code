@@ -78,7 +78,12 @@ describe('sheet rows (SPEC F3, §9.2)', () => {
       { external_id: 'id-1', email: 'ada@example.com', first_name: 'Ada', last_name: '', dietary_notes: '', linkedin_url: '', status: 'Accepted' },
       { external_id: 'id-2', email: 'ben@example.com', first_name: 'Ben', last_name: '', dietary_notes: '', linkedin_url: '', status: '' },
     ]);
-    expect(() => mapSheetValues([['Email Address', 'First Name']])).toThrow(/Applicant ID/);
+    expect(() => mapSheetValues([['Applicant ID', 'First Name']])).toThrow('Missing header: Email Address');
+    expect(() => mapSheetValues([['Applicant ID', 'Email Address']])).toThrow('Missing header: First Name');
+    // v0.11.25: without an Applicant ID column the email is the key; headers match in any case; "LinkedIn" is LinkedIn URL.
+    expect(mapSheetValues([['STATUS', 'email address', 'First Name', 'LinkedIn'], ['Yes', ' Ada@Example.COM ', 'Ada', 'linkedin.com/in/ada']])).toEqual([
+      { external_id: 'ada@example.com', email: 'Ada@Example.COM', first_name: 'Ada', last_name: '', dietary_notes: '', linkedin_url: 'linkedin.com/in/ada', status: 'Yes' },
+    ]);
     // v0.4: a Sheet without a Status column imports fine.
     expect(mapSheetValues([['Applicant ID', 'Email Address', 'First Name'], ['id-3', 'cy@example.com', 'Cy']])).toEqual([
       { external_id: 'id-3', email: 'cy@example.com', first_name: 'Cy', last_name: '', dietary_notes: '', linkedin_url: '', status: '' },

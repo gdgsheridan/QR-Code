@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/db/types.gen';
-import { validateRow, type SheetRowInput } from '@/lib/domain/sheet';
+import { sheetDecision, validateRow, type SheetRowInput } from '@/lib/domain/sheet';
 
 type Db = SupabaseClient<Database>;
 
@@ -26,21 +26,22 @@ export async function ingestRows(
   db: Db,
   eventId: string,
   rows: SheetRowInput[],
-  opts: { dryRun: boolean; concurrency?: number },
+  // sheetStatus (v0.11.26): store the row's Sheet decision. Only Import CSV / Sync now; the Apps Script path doesn't.
+  opts: { dryRun: boolean; concurrency?: number; sheetStatus?: boolean },
 ): Promise<RowResult[]> {
   const results: RowResult[] = new Array<RowResult>(rows.length);
   let next = 0;
   const worker = async () => {
     for (let i = next++; i < rows.length; i = next++) {
       const input = rows[i] ?? {};
-      results[i] = { external_id: input.external_id ?? '', result: await ingestOne(db, eventId, input, opts.dryRun) };
+      results[i] = { external_id: input.external_id ?? '', result: await ingestOne(db, eventId, input, opts.dryRun, opts.sheetStatus ?? false) };
     }
   };
   await Promise.all(Array.from({ length: Math.min(opts.concurrency ?? 8, rows.length) }, worker));
   return results;
 }
 
-async function ingestOne(db: Db, eventId: string, input: SheetRowInput, dryRun: boolean): Promise<IngestResult> {
+async function ingestOne(db: Db, eventId: string, input: SheetRowInput, dryRun: boolean, sheetStatus: boolean): Promise<IngestResult> {
   const v = validateRow(input);
   if (!v.ok) return v.result;
   const { data, error } = await db.rpc('ingest_sheet_row', {
@@ -53,6 +54,7 @@ async function ingestOne(db: Db, eventId: string, input: SheetRowInput, dryRun: 
     p_dietary_notes: v.row.dietaryNotes ?? undefined,
     p_linkedin_url: v.row.linkedinUrl ?? undefined,
     p_dry_run: dryRun,
+    p_sheet_status: (sheetStatus && sheetDecision(input.status)) || undefined,
   });
   if (error) throw new Error(`ingest_sheet_row failed (${error.code})`);
   if (!isDbResult(data)) throw new Error('ingest_sheet_row returned an unknown result');

@@ -101,11 +101,45 @@ describe('Import CSV (SPEC F10, v0.11.22) through the admin API', () => {
     }
   });
 
-  it('T-ING-28: a CSV without the Applicant ID column is 422 naming it; a bad body is 400', async () => {
-    const res = await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true, csv: 'Email Address,First Name\nx@y.co,X\n' } });
+  it('T-ING-28: a CSV without the Email Address column is 422 naming it; a bad body is 400', async () => {
+    const res = await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true, csv: 'Applicant ID,First Name\nid-x,X\n' } });
     expect(res.status).toBe(422);
-    expect(res.body).toEqual({ error: 'BAD_SHEET', message: 'Missing header: Applicant ID' });
+    expect(res.body).toEqual({ error: 'BAD_SHEET', message: 'Missing header: Email Address' });
     expect((await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true, csv: 42 } })).status).toBe(400);
     expect((await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true, csv: '', extra: 1 } })).status).toBe(400);
+  });
+
+  it('T-ING-28: the organizers\' Sheet as exported (v0.11.25): STATUS Yes/Waitlist, no Applicant ID, LinkedIn; keyed by email', async () => {
+    const [yes, wait, deny] = ['Yes', 'Waitlist', 'Deny'].map((status) => sheetRow(f.slug, { first_name: `Sheet${status}`, status }));
+    const csv = toCsv(
+      ['STATUS', 'Timestamp', 'Email Address', 'First Name', 'Last Name', 'LinkedIn', 'Notes'],
+      [yes!, wait!, deny!].map((r) => [r.status, '10/5/2026 8:53:12', ` ${r.email.toUpperCase()} `, r.first_name, 'Sheet', 'https://www.linkedin.com/in/sheet-person', '']),
+    );
+    const body = { dryRun: false, csv, statuses: ['accepted', 'waitlisted'] };
+    expect((await c.call('syncSheet', org, { slug: f.slug }, { body })).body).toMatchObject({ total: 2, skipped: 1, counts: { CREATED: 2 } });
+    const { rows } = await f.pool.query<{ external_id: string; email: string; status: string; linkedin_url: string }>(
+      'select external_id, email, status, linkedin_url from participants where event_id = $1 and first_name like $2 order by first_name',
+      [f.e1.id, 'Sheet%'],
+    );
+    expect(rows).toEqual([wait!, yes!].map((r) => ({ external_id: r.email.toLowerCase(), email: r.email.toLowerCase(), status: 'pending', linkedin_url: 'https://www.linkedin.com/in/sheet-person' })));
+    expect((await c.call('syncSheet', org, { slug: f.slug }, { body: { ...body, dryRun: true } })).body).toMatchObject({ counts: { UNCHANGED: 2 } });
+
+    // v0.11.26: the Sheet's decision is kept apart from their status, listed, and filterable.
+    const listed = async (sheet?: string) => {
+      const res = await c.call('listParticipants', org, { slug: f.slug }, { query: { q: 'sheet', ...(sheet && { sheet }) } });
+      return (res.body as { participants: Array<{ firstName: string; status: string; sheetStatus: string | null }> }).participants
+        .filter((p) => p.firstName.startsWith('Sheet')).map((p) => [p.firstName, p.status, p.sheetStatus]);
+    };
+    expect(await listed()).toEqual([['SheetWaitlist', 'pending', 'waitlisted'], ['SheetYes', 'pending', 'accepted']]);
+    expect(await listed('accepted')).toEqual([['SheetYes', 'pending', 'accepted']]);
+    expect(await listed('waitlisted')).toEqual([['SheetWaitlist', 'pending', 'waitlisted']]);
+    expect((await c.call('listParticipants', org, { slug: f.slug }, { query: { sheet: 'rejected' } })).status).toBe(400);
+    // Moved off the waitlist in the Sheet: UPDATED, still pending; a Status the filter skips leaves it as it was.
+    const moved = csv.replace('"Waitlist"', '"Yes"');
+    expect((await c.call('syncSheet', org, { slug: f.slug }, { body: { ...body, csv: moved } })).body).toMatchObject({ counts: { UPDATED: 1, UNCHANGED: 1 } });
+    expect(await listed('waitlisted')).toEqual([]);
+    // Unfiltered, the Yes person now marked Deny keeps their decision; the Deny applicant comes in with none.
+    expect((await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: false, csv: moved.replace('"Yes"', '"Deny"') } })).body).toMatchObject({ counts: { UNCHANGED: 2, CREATED: 1 } });
+    expect(await listed('accepted')).toEqual([['SheetWaitlist', 'pending', 'accepted'], ['SheetYes', 'pending', 'accepted']]);
   });
 });

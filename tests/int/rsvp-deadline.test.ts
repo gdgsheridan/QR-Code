@@ -322,4 +322,30 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     }
     await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = any($1) and status = 'pending'`, [ids]);
   });
+  it('T-RSVP-13: a reply-by date earlier than the close (v0.11.27): shown, reminded on, but answers still count until the close', async () => {
+    const soft = async (slug: string, replyBy: string) => (await f.pool.query<{ id: string }>(
+      `insert into events (slug, name, venue, starts_at, ends_at, rsvp_deadline, rsvp_reply_by)
+       values ($1, 'Soft deadline', 'Hall', now() + interval '20 days', now() + interval '21 days', ${ahead(10)}, ${replyBy}) returning id`,
+      [`${f.slug}-${slug}`],
+    )).rows[0]?.id ?? '';
+    // Past the reply-by date but before the close: still open, not a no, and Yes is accepted.
+    const passed = await soft('soft-passed', `now() - interval '1 day'`);
+    const late = await invitee(passed);
+    const looked = (await f.pool.query<{ r: { replyBy: string; closesAt: string; closed: boolean } }>('select rsvp_lookup($1) as r', [sha256hex(late.token)])).rows[0]?.r;
+    expect(looked?.closed).toBe(false);
+    expect(Date.parse(looked?.replyBy ?? '')).toBeLessThan(Date.parse(looked?.closesAt ?? ''));
+    await jobs();
+    expect((await row(late.id))?.status).toBe('pending');
+    expect(await respond(late.token, true)).toBe('GOING');
+    // Reminders fall on the reply-by day (10:00 local), not the close's.
+    const ahead5 = await soft('soft-ahead', ahead(5));
+    const waiting = await invitee(ahead5);
+    const { rows } = await f.pool.query<{ at: Date }>(
+      `select ((((rsvp_reply_by at time zone timezone)::date) + time '10:00') at time zone timezone) as at from events where id = $1`, [ahead5]);
+    await jobs((rows[0]?.at ?? new Date(0)).toISOString());
+    expect((await outbox(waiting.id)).map((o) => o.kind)).toContain('rsvp_reminder');
+    // Never after the close.
+    await expect(f.pool.query(`update events set rsvp_reply_by = rsvp_deadline + interval '1 minute' where id = $1`, [ahead5]))
+      .rejects.toThrow(/events_reply_by_not_after_deadline/);
+  });
 });

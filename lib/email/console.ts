@@ -7,10 +7,11 @@ import type { EmailMessage, EmailProvider, InlineImage } from './provider';
 
 // Dev/test provider (SPEC §12): writes an .eml file you can open in a mail client, plus each inline
 // image (the QR code) as its own file in <dir>/qr/, named "<Event>-<First>.png" (T-MAIL-13). No network.
-export function createConsoleProvider(opts: { dir?: string } = {}): EmailProvider {
+export function createConsoleProvider(opts: { dir?: string; holdQueue?: boolean } = {}): EmailProvider {
   const dir = opts.dir ?? join(process.cwd(), '.mail');
   return {
     name: 'console',
+    holdQueue: opts.holdQueue ?? false,
     async send(message) {
       const id = `console-${randomUUID()}`;
       await mkdir(dir, { recursive: true });
@@ -24,6 +25,15 @@ export function createConsoleProvider(opts: { dir?: string } = {}): EmailProvide
       return { id };
     },
   };
+}
+
+/** Only a Supabase on this machine is local; anything else is shared with the deployed app (v0.11.26). */
+export function isLocalDatabase(url: string): boolean {
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
 }
 
 function extensionFor(img: InlineImage): string {

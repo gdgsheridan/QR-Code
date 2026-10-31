@@ -21,7 +21,7 @@ export async function syncSheet(
   opts: { dryRun: boolean; readSheet: () => Promise<string[][]>; actorUserId?: string; statuses?: SheetStatus[] },
 ): Promise<SyncReport> {
   const { rows, skipped } = filterSheetValues(await opts.readSheet(), opts.statuses);
-  const results = await ingestRows(db, eventId, rows, { dryRun: opts.dryRun });
+  const results = await ingestRows(db, eventId, rows, { dryRun: opts.dryRun, sheetStatus: true });
   const counts: Record<string, number> = {};
   for (const r of results) counts[r.result] = (counts[r.result] ?? 0) + 1;
   const report: SyncReport = {

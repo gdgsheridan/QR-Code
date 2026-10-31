@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterSheetValues, mapSheetValues } from '@/lib/domain/sheet';
+import { filterSheetValues, mapSheetValues, sheetDecision } from '@/lib/domain/sheet';
 
 const values = [
   ['Applicant ID', 'Email Address', 'First Name', ' Status '],
@@ -32,6 +32,18 @@ describe('CSV and Sheet Status filtering (SPEC F10)', () => {
     const before = structuredClone(reordered);
     expect(filterSheetValues(reordered, ['accepted'])).toEqual({ rows: mapSheetValues(values).slice(0, 1), skipped: 4 });
     expect(reordered).toEqual(before);
-    expect(() => filterSheetValues([['Status'], ['Rejected']], ['accepted'])).toThrow('Missing header: Applicant ID');
+    expect(() => filterSheetValues([['Status'], ['Rejected']], ['accepted'])).toThrow('Missing header: Email Address');
+  });
+
+  it('T-ING-28: the organizers\' Sheet (v0.11.25): a STATUS header, Yes as accepted, Waitlist as waitlisted, everything else skipped', () => {
+    const sheet = [
+      ['STATUS', 'Email Address', 'First Name'],
+      ...['Yes', ' yes ', 'Waitlist', 'Deny', 'Duplicate', 'Test', ''].map((status, i) => [status, `${i}@example.test`, 'Applicant']),
+    ];
+    const rows = mapSheetValues(sheet);
+    expect(filterSheetValues(sheet, ['accepted', 'waitlisted'])).toEqual({ rows: rows.slice(0, 3), skipped: 4 });
+    expect(filterSheetValues(sheet, ['accepted'])).toEqual({ rows: rows.slice(0, 2), skipped: 5 });
+    expect(['Yes', ' ACCEPTED ', 'Waitlist', 'waitlisted', 'Deny', 'Duplicate', '', undefined].map(sheetDecision))
+      .toEqual(['accepted', 'accepted', 'waitlisted', 'waitlisted', null, null, null, null]);
   });
 });

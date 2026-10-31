@@ -13,7 +13,7 @@ export function AllergyFields(props: { allergies: string; severity: string; inpu
   const typed = text.trim() !== '';
   return (
     <>
-      <Label htmlFor="allergies">Allergies (optional)</Label>
+      <Label htmlFor="allergies">Allergies</Label>
       <Input
         id="allergies"
         name="allergies"

@@ -67,9 +67,13 @@ export function createPassHandler(deps: { db: Db }) {
     if (state !== 'active') return json({ state });
 
     const { participant, event } = found;
+    // v0.11.27 (owner's request): the pass shows their full name. pass_lookup has only the first name.
+    const { data: names, error } = await deps.db.from('participants').select('last_name').eq('id', participant.id).single();
+    if (error) throw new Error(`pass name lookup failed (${error.code})`);
     return json({
       state,
       firstName: participant.firstName,
+      lastName: names.last_name,
       event,
       profile: { public: participant.profilePublic, hasLinkedin: participant.hasLinkedin },
     });

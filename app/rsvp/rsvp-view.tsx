@@ -23,6 +23,8 @@ interface Invite {
   profile: { dietaryNotes: string | null; linkedinUrl: string | null; profilePublic: boolean };
   /** v0.9: the reply-by time (null: no deadline), and whether it has passed for them. */
   closesAt: string | null;
+  /** v0.11.27: the date to reply by (what's shown while it's open); the invitation closes at closesAt. */
+  replyBy: string | null;
   closed: boolean;
 }
 
@@ -162,8 +164,8 @@ export function RsvpView() {
                   Hi {view.invite.firstName}, will you be there?
                   {view.invite.status === 'accepted' && ' (You said yes.)'}
                   {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
-                  {view.invite.status !== 'accepted' && view.invite.closesAt && (
-                    <strong> Reply by {formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)}.</strong>
+                  {view.invite.status !== 'accepted' && view.invite.replyBy && (
+                    <strong> Reply by {formatEventDateTime(view.invite.replyBy, view.invite.event.timezone)}.</strong>
                   )}
                 </>
               )}
