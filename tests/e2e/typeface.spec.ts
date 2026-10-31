@@ -96,6 +96,9 @@ test('T-UI-01: the invitation from the email (/rsvp#token) uses only Fira Code a
   const q = await no.newPage();
   await q.goto(`/rsvp#${await invitee('Noor')}`);
   await q.getByRole('button', { name: /No, give my spot away/ }).click();
+  await check(q, 'no confirm');
+  await q.getByLabel('Type “give away” to confirm').fill('give away');
+  await q.getByRole('button', { name: 'Give my spot away' }).click();
   await expect(q.getByText(/waitlist/).first()).toBeVisible();
   await check(q, 'no');
   await q.goto(`/p#${f.token.A}`);

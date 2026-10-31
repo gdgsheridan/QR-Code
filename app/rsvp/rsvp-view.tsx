@@ -28,7 +28,7 @@ interface Invite {
 
 type View =
   | { kind: 'loading' | 'not_found' | 'rate_limited' | 'error' | 'not_going' | 'going' }
-  | { kind: 'invite'; invite: Invite; yesForm: boolean }
+  | { kind: 'invite'; invite: Invite; yesForm: boolean; confirmNo?: boolean }
   | { kind: 'signed_in'; firstName: string };
 
 function readToken(): string {
@@ -46,6 +46,27 @@ async function post(body: object): Promise<{ status: number; data: Record<string
   } catch {
     return { status: 0, data: {} };
   }
+}
+
+const GIVE_AWAY = 'give away';
+
+// v0.11.25: giving a spot away can't be undone after the deadline (and cancels an accepted hacker's pass),
+// so it takes the words typed, not one tap.
+function GiveAwayConfirm({ accepted, busy, onConfirm, onCancel }: { accepted: boolean; busy: boolean; onConfirm: () => void; onCancel: () => void }) {
+  const [typed, setTyped] = useState('');
+  const ok = typed.trim().toLowerCase() === GIVE_AWAY;
+  return (
+    <form className="grid gap-[12px] [&_h2]:m-0 [&_h2]:text-[18px] [&>p]:m-0" onSubmit={(e) => { e.preventDefault(); if (ok) onConfirm(); }}>
+      <h2>Give your spot away?</h2>
+      <p className="copy text-muted-foreground text-[14px]">
+        {accepted ? 'Your pass stops working and your spot goes to someone on the waitlist.' : 'Your spot goes to someone on the waitlist.'}
+      </p>
+      <Label htmlFor="give-away" className="text-[14px] font-medium">Type “{GIVE_AWAY}” to confirm</Label>
+      <Input id="give-away" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} className="min-h-12 w-full" />
+      <Button type="submit" variant="destructive" disabled={!ok || busy}>{busy ? 'Saving…' : 'Give my spot away'}</Button>
+      <Button type="button" variant="link" className="font-normal" disabled={busy} onClick={onCancel}>Keep my spot</Button>
+    </form>
+  );
 }
 
 // SPEC F13: answer the invitation by its deadline (v0.9). Yes asks only for a password (v0.7.2: a new one
@@ -145,7 +166,22 @@ export function RsvpView() {
             <p className="copy">Your spot goes to someone on the waitlist. Changed your mind? Until the RSVP deadline, open the invitation link again to say yes.</p>
           </>
         )}
-        {view.kind === 'invite' && (
+        {view.kind === 'invite' && view.confirmNo && (
+          <GiveAwayConfirm accepted={view.invite.status === 'accepted'} busy={busy}
+            onConfirm={() => void respond(false)} onCancel={() => setView({ ...view, confirmNo: false })} />
+        )}
+        {view.kind === 'invite' && !view.confirmNo && view.invite.status === 'accepted' && (
+          // v0.11.25: hackers reopen the invitation to find their pass; they're in, so say so.
+          <div className="grid gap-[16px] [&>p]:m-0">
+            <h1>You’re in, {view.invite.firstName}</h1>
+            <p className="copy">Your check-in pass is in your email and on your menu.</p>
+            <Button asChild><a href="/me">Open my pass and menu</a></Button>
+            <Button type="button" variant="link" className="font-normal" disabled={busy} onClick={() => setView({ ...view, confirmNo: true })}>
+              Can’t make it anymore?
+            </Button>
+          </div>
+        )}
+        {view.kind === 'invite' && !view.confirmNo && view.invite.status !== 'accepted' && (
           <>
             <Typewriter heading={view.invite.event.name} details={
               <p className="m-0 text-muted-foreground text-[14px]">
@@ -160,9 +196,8 @@ export function RsvpView() {
               ) : (
                 <>
                   Hi {view.invite.firstName}, will you be there?
-                  {view.invite.status === 'accepted' && ' (You said yes.)'}
                   {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
-                  {view.invite.status !== 'accepted' && view.invite.closesAt && (
+                  {view.invite.closesAt && (
                     <strong> Reply by {formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)}.</strong>
                   )}
                 </>
@@ -178,7 +213,7 @@ export function RsvpView() {
           [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
 
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
-                  <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => void respond(false)}>
+                  <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => setView({ ...view, confirmNo: true })}>
                     No, give my spot away
                   </Button>
                 </div>
@@ -242,7 +277,7 @@ export function RsvpView() {
                 <Button type="button" disabled={busy} onClick={() => setView({ ...view, yesForm: true })}>
                   Yes, I’m coming
                 </Button>
-                <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => void respond(false)}>
+                <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => setView({ ...view, confirmNo: true })}>
                   No, give my spot away
                 </Button>
               </div>

@@ -239,7 +239,40 @@ test('T-RSVP-08 (E): past the deadline the link says so and only offers to give 
   await expect(p.getByText(/The RSVP deadline \(.+\) has passed/)).toBeVisible();
   await expect(p.getByRole('button', { name: 'Yes, I’m coming' })).toHaveCount(0);
   await p.getByRole('button', { name: 'No, give my spot away' }).click();
+  await p.getByLabel('Type “give away” to confirm').fill('give away');
+  await p.getByRole('button', { name: 'Give my spot away' }).click();
   await expect(p.getByRole('heading', { name: 'Thanks for letting us know' })).toBeVisible();
   expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'withdrawn' }]);
   await attendee.close();
+});
+
+test('T-RSVP-05 (E): an accepted hacker reopening the invitation sees they are in; giving the spot away needs “give away” typed', async ({ browser }) => {
+  const token = generateToken();
+  const email = `reo-${f.slug}@example.test`;
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, search_text, status, source, rsvp_token_hash, rsvp_sent_at)
+     values ($1, $2, 'Reo', 'reo', 'accepted', 'sheet', $3, now() - interval '1 day')`,
+    [f.e1.id, email, sha256hex(token)],
+  );
+  const ctx = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const p = await ctx.newPage();
+  await p.goto(`/rsvp#${token}`);
+  await expect(p.getByRole('heading', { name: 'You’re in, Reo' })).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Open my pass and menu' })).toHaveAttribute('href', '/me');
+  await expect(p.getByRole('button', { name: 'Yes, I’m coming' })).toHaveCount(0);
+  await p.getByRole('button', { name: 'Can’t make it anymore?' }).click();
+  await expect(p.getByText('Your pass stops working and your spot goes to someone on the waitlist.')).toBeVisible();
+  const give = p.getByRole('button', { name: 'Give my spot away' });
+  await expect(give).toBeDisabled();
+  await p.getByLabel('Type “give away” to confirm').fill('give');
+  await expect(give).toBeDisabled();
+  await p.getByRole('button', { name: 'Keep my spot' }).click();
+  await expect(p.getByRole('heading', { name: 'You’re in, Reo' })).toBeVisible();
+  expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'accepted' }]);
+  await p.getByRole('button', { name: 'Can’t make it anymore?' }).click();
+  await p.getByLabel('Type “give away” to confirm').fill('  Give Away ');
+  await give.click();
+  await expect(p.getByRole('heading', { name: 'Thanks for letting us know' })).toBeVisible();
+  expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'withdrawn' }]);
+  await ctx.close();
 });
