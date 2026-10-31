@@ -152,12 +152,13 @@ async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Out
     email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt, reminder: row.kind === 'rsvp_reminder' });
   } else if (row.kind === 'team_invite') {
     if (p.team_id !== null) return null; // joined a team since (v0.11.25): the invite no longer applies
-    const { data: invite, error: inviteError } = await opts.db.from('team_invites')
+    const { data: invites, error: inviteError } = await opts.db.from('team_invites')
       .select('teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')
-      .eq('participant_id', participantId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      .eq('participant_id', participantId).order('created_at', { ascending: false });
     if (inviteError) throw new Error(`invite load failed (${inviteError.code})`);
+    const invite = invites[0];
     if (!invite) return null;
-    email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin });
+    email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin, count: invites.length });
   } else if (row.kind === 'profile_reminder') {
     // F14 (v0.9): only while their profile still isn't finished.
     if (p.emergency_name !== null && p.overnight !== null && p.team_status !== null) return null;

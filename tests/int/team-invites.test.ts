@@ -68,6 +68,8 @@ it('T-TEAM-05: opt-in directory, invite and email, consent and cleanup; own rows
   expect((await f.pool.query('select looking_for_team from participants where id = $1', [f.p.N])).rows).toEqual([{ looking_for_team: false }]);
   expect(await setLooking(db, n, f.p.N, true)).toBe('NOT_FOUND');
   const sent = sentTo(mail.sent, n.email).length;
+  // v0.11.25: the second invite's email waits an hour after the first; once due it's cancelled (N joined a team).
+  await f.pool.query(`update email_outbox set next_attempt_at = now() where participant_id = $1 and status = 'pending'`, [f.p.N]);
   await drain();
   expect(sentTo(mail.sent, n.email)).toHaveLength(sent);
   expect((await f.pool.query('select status from email_outbox where participant_id = $1 order by created_at', [f.p.N])).rows).toEqual([{ status: 'sent' }, { status: 'cancelled' }]);
@@ -90,7 +92,8 @@ it('T-TEAM-05: decline is own-invite only; one in-flight email, newest invite, f
   expect(await inviteTeammate(db, b, f.p.B, f.p.T)).toBe('INVITED');
   expect((await f.pool.query('select kind from email_outbox where participant_id = $1', [f.p.T])).rows).toEqual([{ kind: 'team_invite' }]);
   await drain();
-  expect(onlyEmailTo(mail.sent, t.email).subject).toContain('Ben invited you to join Other Team');
+  // v0.11.25: one email covers every invite waiting (here both teams').
+  expect(onlyEmailTo(mail.sent, t.email).subject).toContain('2 teams invited you to join them');
   expect(await declineInvite(db, a, f.p.T, teamId)).toBe('NOT_FOUND');
   expect(await declineInvite(db, t, f.p.T, teamId)).toBe('DECLINED');
   expect(await invites(f.p.T)).toEqual([{ team_id: other }]);
@@ -208,10 +211,38 @@ it('T-TEAM-05 (v0.11.25): an invite racing a join never survives it, and no invi
   // A team-invite email already queued for someone who joined a team since is cancelled, not sent.
   const joined = await f.addParticipant(f.e1.id, { withPass: false });
   await f.pool.query(`update participants set team_id = (select team_id from participants where id = $2) where id = $1`, [joined.id, inviter.id]);
-  await f.pool.query(`insert into team_invites (team_id, participant_id, event_id) select t.id, $1, t.event_id from teams t where t.name = 'Join target 0'`, [joined.id]);
+  await f.pool.query(`insert into team_invites (team_id, participant_id, event_id) select t.id, $1, t.event_id from teams t where t.name = 'Join target 0' and t.event_id = $2`, [joined.id, f.e1.id]);
   await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'team_invite')`, [joined.id]);
   const mail = mockProvider();
   await drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://station.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
   expect(sentTo(mail.sent, await emailOf(joined.id))).toEqual([]);
   expect((await f.pool.query(`select status from email_outbox where participant_id = $1`, [joined.id])).rows).toEqual([{ status: 'cancelled' }]);
+});
+
+it('T-TEAM-05 (v0.11.25): invite emails go out at most once an hour per person, counting what is waiting', async () => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const target = await f.addParticipant(f.e1.id, { withPass: false });
+  await f.pool.query('update participants set looking_for_team = true where id = $1', [target.id]);
+  const address = (await as(target.id)).email;
+  const inviters = await Promise.all(Array.from({ length: 3 }, () => f.addParticipant(f.e1.id, { withPass: false })));
+  for (const [i, inv] of inviters.entries()) expect(await createTeam(db, await as(inv.id), inv.id, `Hourly ${i}`)).toBe('CREATED');
+  const mail = mockProvider();
+  const drainNow = () => drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://station.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
+
+  expect(await inviteTeammate(db, await as(inviters[0]!.id), inviters[0]!.id, target.id)).toBe('INVITED');
+  await drainNow();
+  expect(sentTo(mail.sent, address)).toHaveLength(1);
+  // Two more within the hour: stored and shown on the Team page, emailed once, an hour after the first.
+  expect(await inviteTeammate(db, await as(inviters[1]!.id), inviters[1]!.id, target.id)).toBe('INVITED');
+  expect(await inviteTeammate(db, await as(inviters[2]!.id), inviters[2]!.id, target.id)).toBe('INVITED');
+  await drainNow();
+  expect(sentTo(mail.sent, address)).toHaveLength(1);
+  const { rows: [waiting] } = await f.pool.query<{ wait_m: number }>(
+    `select extract(epoch from next_attempt_at - now()) / 60 as wait_m from email_outbox where participant_id = $1 and status = 'pending'`, [target.id]);
+  expect(Number(waiting?.wait_m)).toBeGreaterThan(55);
+  await f.pool.query(`update email_outbox set next_attempt_at = now() where participant_id = $1 and status = 'pending'`, [target.id]);
+  await drainNow();
+  const emails = sentTo(mail.sent, address);
+  expect(emails).toHaveLength(2);
+  expect(emails[1]?.subject).toMatch(/^3 teams invited you/);
 });
