@@ -28,8 +28,9 @@ export async function signIn(_prev: LoginState, form: FormData): Promise<LoginSt
   if (!email.success || !password.success) return { error: 'credentials' };
   // Slows password guessing on one account: 10 tries per 15 min.
   if (!(await withinLimit(db(), emailKey('signin', email.data), 900, 10))) return { error: 'credentials' };
-  // ... and on one machine across accounts: 30 tries per 15 min. Same generic error, nothing enumerable.
-  if (!(await withinLimit(db(), clientIpKey(await headers(), 'signin'), 900, 30))) return { error: 'credentials' };
+  // ... and on one machine across accounts: 600 per 15 min, a ceiling against bulk credential stuffing. Venue scale
+  // (v0.11.30, owner's decision): a campus's Wi-Fi is one IP, and 175 hackers sign in at check-in. Same generic error.
+  if (!(await withinLimit(db(), clientIpKey(await headers(), 'signin'), 900, 600))) return { error: 'credentials' };
   const { data, error } = await (await supabaseForRequest()).auth.signInWithPassword({ email: email.data, password: password.data });
   if (error || !data.user) return { error: 'credentials' };
   redirect(await landingAfterSignIn(db(), data.user, nextOf(form), env().ADMIN_EMAILS));
@@ -43,8 +44,8 @@ export async function sendPasswordLink(_prev: LoginState, form: FormData): Promi
   if (!email.success) return { sent: true };
   // At most 3 emails per address per hour, so nobody can flood someone's inbox; over the limit looks the same.
   if (!(await withinLimit(db(), emailKey('pwlink', email.data), 3600, 3))) return { sent: true };
-  // ... and 10 per hour per machine across addresses; over the limit looks the same.
-  if (!(await withinLimit(db(), clientIpKey(await headers(), 'pwlink'), 3600, 10))) return { sent: true };
+  // ... and 200 per hour per machine across addresses (venue scale: a campus is one IP); over the limit looks the same.
+  if (!(await withinLimit(db(), clientIpKey(await headers(), 'pwlink'), 3600, 200))) return { sent: true };
   const { data: found, error } = await db().rpc('password_link_kind', { p_email: email.data });
   if (error) throw new Error(`password_link_kind failed (${error.code})`);
   const kind = found === 'none' && isAdminEmail(email.data, env().ADMIN_EMAILS) ? 'invite' : found;

@@ -110,7 +110,7 @@ test('T-AUTH-03: inviting a new address emails a link to set a password, then on
   await page.getByLabel('Role').selectOption('organizer');
   const started = Date.now();
   await page.getByRole('button', { name: 'Invite', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('✓ Invited. We emailed them a link to set their password.');
+  await expect(page.getByRole('status')).toHaveText('✓ Done. We emailed them a link to sign in, or to set a password if they don’t have an account yet.');
 
   // Inviting someone who already has an account adds them straight away. The auth server sends nothing,
   // so the app emails them a link to sign in (v0.11.12).
@@ -118,7 +118,7 @@ test('T-AUTH-03: inviting a new address emails a link to set a password, then on
   await page.getByLabel('Role').selectOption('volunteer');
   const existingStarted = Date.now();
   await page.getByRole('button', { name: 'Invite', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('✓ Added. We emailed them a link to sign in.');
+  await expect(page.getByRole('status')).toHaveText('✓ Done. We emailed them a link to sign in, or to set a password if they don’t have an account yet.');
   expect(await consoleMailText(f.staffEmail.vol3, 'Sign in: ')).toContain(`Sign in: ${E2E_ORIGIN}/login?next=/scan/${f.slug}`);
   expect(await countMailTo(f.staffEmail.vol3, existingStarted)).toBe(0);
 
@@ -210,7 +210,7 @@ test('T-AUTH-03 (E): a hacker with an account added as staff signs in from the e
   await page.getByLabel('Email').fill(a);
   await page.getByLabel('Role').selectOption('volunteer');
   await page.getByRole('button', { name: 'Invite', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('✓ Added. We emailed them a link to sign in.');
+  await expect(page.getByRole('status')).toHaveText('✓ Done. We emailed them a link to sign in, or to set a password if they don’t have an account yet.');
   const url = /Sign in: (\S+)/.exec(await consoleMailText(a, 'Sign in: '))?.[1] ?? '';
   expect(url).toBe(`${E2E_ORIGIN}/login?next=/scan/${f.slug}`);
 
