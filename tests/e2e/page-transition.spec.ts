@@ -147,3 +147,50 @@ test('T-UI-02: the profile setup step bar fills as you go forward and back; redu
     await expect(secondFill).toHaveCSS('transform', 'matrix(0, 0, 0, 1, 0, 0)');
   }
 });
+
+test('T-UI-03: Atom floats beside attendee content only when there is room, and stays off pass and staff pages', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const email = await emailOf(f.p.N);
+  await createAccount(email);
+  await signIn(page, email, '/me');
+  const atom = page.locator('img[data-atom]');
+  await expect(atom).toBeVisible();
+  await expect(atom).toHaveAttribute('alt', '');
+  await expect(atom).toHaveAttribute('aria-hidden', 'true');
+  await expect(atom).toHaveCSS('pointer-events', 'none');
+  await expect.poll(() => atom.evaluate((img) => img instanceof HTMLImageElement && img.complete && img.naturalWidth === 640)).toBe(true);
+
+  const besideContent = async () => {
+    const image = await atom.boundingBox();
+    const main = await page.getByRole('main').boundingBox();
+    if (!image || !main) throw new Error('Atom and the main column must have bounding boxes');
+    expect(image.x).toBeGreaterThan(main.x + main.width);
+  };
+  await besideContent();
+  // Include the tightest gutter, and both wider attendee columns at their own thresholds.
+  for (const [route, width] of [['/me', 1200], ['/me/schedule', 1840], ['/me/hackers', 2040]] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(route);
+    await expect(atom).toBeVisible();
+    await besideContent();
+    await page.setViewportSize({ width: width - 1, height: 900 });
+    await expect(atom).toBeHidden();
+  }
+
+  await page.goto('/me');
+  for (const viewport of [{ width: 1024, height: 800 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await expect(atom).toBeHidden();
+    await expect(atom).toHaveCSS('display', 'none');
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(atom).toBeVisible();
+  await expect(atom).toHaveCSS('animation-name', 'none');
+  await page.goto('/p');
+  await expect(page.getByRole('main')).toBeVisible();
+  await expect(atom).toHaveCount(0);
+  await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
+  await expect(page.getByRole('navigation', { name: 'Admin' })).toBeVisible();
+  await expect(atom).toHaveCount(0);
+});
