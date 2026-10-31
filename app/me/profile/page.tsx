@@ -314,9 +314,9 @@ export default async function HackerProfilePage(props: {
             <input type="checkbox" name="directoryOptIn" defaultChecked={m.directoryOptIn} className="size-[22px] shrink-0" />
             List me in the Hacker directory
           </Label>
-          <Label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
-            <input type="checkbox" name="public" defaultChecked={m.profilePublic} style={{ width: 22, height: 22 }} />
-            Show my name and these links to anyone who taps my badge
+          <Label className="flex min-h-11 items-center gap-3">
+            <input type="checkbox" name="public" defaultChecked={m.profilePublic} className="size-[22px] shrink-0" />
+            Share my name and links on my badge
           </Label>
           {error && (!walkthrough || networkingError || notices.step === 'links') && (
             <Alert className="text-bad" asChild><p role="alert" >

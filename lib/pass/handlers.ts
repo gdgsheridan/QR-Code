@@ -67,11 +67,19 @@ export function createPassHandler(deps: { db: Db }) {
     if (state !== 'active') return json({ state });
 
     const { participant, event } = found;
+    // v0.11.25: the pass is about its holder. Anyone who scans the QR opens this page, so links show only
+    // when they share them on their badge (§6.5), and never dietary notes, allergies or email.
+    const { data: me, error } = await deps.db.from('participants')
+      .select('last_name, profile_public, linkedin_url, discord_username, website_url, teams(name, tracks(name))')
+      .eq('id', participant.id).single();
+    if (error) throw new Error(`pass holder load failed (${error.code})`);
     return json({
       state,
       firstName: participant.firstName,
+      lastName: me.last_name,
       event,
-      profile: { public: participant.profilePublic, hasLinkedin: participant.hasLinkedin },
+      team: me.teams ? { name: me.teams.name, track: me.teams.tracks?.name ?? null } : null,
+      links: me.profile_public ? { linkedinUrl: me.linkedin_url, discord: me.discord_username, websiteUrl: me.website_url } : null,
     });
   };
 }

@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe('POST /api/pass (SPEC F5)', () => {
-  it('T-PASS-01: an active token returns first name and event; nothing else about the person', async () => {
+  it('T-PASS-01: an active token returns the pass holder, event, team and shared links; never dietary notes or email', async () => {
     const res = await c.lookup({ token: f.token.A });
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
@@ -23,11 +23,30 @@ describe('POST /api/pass (SPEC F5)', () => {
     expect(body).toEqual({
       state: 'active',
       firstName: 'Ada',
+      lastName: 'Fixture',
       event: { name: f.e1.name, venue: 'Fixture Hall', startsAt: expect.any(String), timezone: 'America/Toronto' },
-      profile: { public: true, hasLinkedin: false }, // §6.5 badge profile: on by default since v0.9
+      team: null,
+      links: { linkedinUrl: null, discord: null, websiteUrl: null }, // shared: badge profile on by default since v0.9
     });
     await f.checkIn(f.p.A, f.token.A);
     expect(await (await c.lookup({ token: f.token.A })).json()).toEqual(body);
+
+    // v0.11.25: the pass shows their team and track, and the links they share on their badge.
+    const { rows: [track] } = await f.pool.query<{ id: string }>(`insert into tracks (event_id, name) values ($1, 'Best AI') returning id`, [f.e1.id]);
+    const { rows: [team] } = await f.pool.query<{ id: string }>(
+      `insert into teams (event_id, name, join_code, track_id) values ($1, 'Byte Club', 'ABCDEFGH', $2) returning id`, [f.e1.id, track?.id]);
+    await f.pool.query(
+      `update participants set team_id = $2, linkedin_url = 'https://www.linkedin.com/in/ada', discord_username = 'ada.codes',
+              website_url = 'https://ada.dev/', dietary_notes = 'Vegan' where id = $1`, [f.p.A, team?.id]);
+    const shared = await (await c.lookup({ token: f.token.A })).json();
+    expect(shared).toMatchObject({
+      team: { name: 'Byte Club', track: 'Best AI' },
+      links: { linkedinUrl: 'https://www.linkedin.com/in/ada', discord: 'ada.codes', websiteUrl: 'https://ada.dev/' },
+    });
+    expect(JSON.stringify(shared)).not.toMatch(/Vegan|@/);
+    // Not shared on the badge: no links, since anyone who scans the QR opens this page.
+    await f.pool.query('update participants set profile_public = false where id = $1', [f.p.A]);
+    expect(await (await c.lookup({ token: f.token.A })).json()).toMatchObject({ team: { name: 'Byte Club' }, links: null });
   });
 
   it('T-PASS-02: a garbage token and an unknown well-formed token get the identical generic response', async () => {

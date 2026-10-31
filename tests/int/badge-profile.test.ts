@@ -209,9 +209,11 @@ describe('PATCH /api/pass (SPEC §9.3)', () => {
       [f.p.B],
     );
     expect(audit.rows).toEqual([{ actor_kind: 'participant', actor_user_id: null, detail: { public: true } }]);
-    expect(await (await c.lookup({ token: f.token.B })).json()).toMatchObject({ profile: { public: true, hasLinkedin: false } });
+    // v0.11.25: the pass page shows their links only while they share them.
+    expect(await (await c.lookup({ token: f.token.B })).json()).toMatchObject({ links: { linkedinUrl: null } });
 
     expect(await (await c.patch({ token: f.token.B, profilePublic: false })).json()).toEqual({ profile: { public: false, hasLinkedin: false } });
+    expect(await (await c.lookup({ token: f.token.B })).json()).toMatchObject({ links: null });
   });
 
   it('T-NFC-13: replaced, cancelled and unknown tokens → 404 and nothing changes; a bad body → 400', async () => {

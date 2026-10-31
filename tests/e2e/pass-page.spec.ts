@@ -20,8 +20,18 @@ test('T-PASS-01: /p#token shows name, event and a QR of exactly APP_ORIGIN/p#tok
   const seen: Array<{ url: string; method: string; body: string | null }> = [];
   page.on('request', (r) => seen.push({ url: r.url(), method: r.method(), body: r.postData() }));
 
+  // v0.11.25: the pass is about its holder: the QR first, then their team, track and shared links.
+  const { rows: [track] } = await f.pool.query<{ id: string }>(`insert into tracks (event_id, name) values ($1, 'Best AI') returning id`, [f.e1.id]);
+  const { rows: [team] } = await f.pool.query<{ id: string }>(
+    `insert into teams (event_id, name, join_code, track_id) values ($1, 'Byte Club', 'ABCDEFGH', $2) returning id`, [f.e1.id, track?.id]);
+  await f.pool.query(`update participants set team_id = $2, linkedin_url = 'https://www.linkedin.com/in/ada', discord_username = 'ada.codes' where id = $1`, [f.p.A, team?.id]);
+
   await page.goto(`/p#${token}`);
-  await expect(page.getByRole('heading', { name: 'Ada' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
+  await expect(page.getByText('Byte Club')).toBeVisible();
+  await expect(page.getByText('Best AI')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'LinkedIn' })).toHaveAttribute('href', 'https://www.linkedin.com/in/ada');
+  await expect(page.getByText('@ada.codes')).toBeVisible();
   await expect(page.getByText(f.e1.name)).toBeVisible();
   await expect(page.getByText('Fixture Hall')).toBeVisible();
   const qr = page.getByRole('img', { name: 'Your check-in QR code' });
