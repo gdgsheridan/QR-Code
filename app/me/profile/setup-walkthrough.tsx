@@ -68,7 +68,7 @@ export function SetupPanel({ networking = false, children }: { networking?: bool
     {children}
     {enabled && networking && <div className="flex flex-wrap gap-3">
       {active && <Button type="button" variant="outline" onClick={() => move(LAST_FORM_STEP)}>Back</Button>}
-      <Button asChild variant="ghost"><a href="/me">Done</a></Button>
+      <Button asChild variant="ghost"><a href="/me">Skip for now</a></Button>
     </div>}
   </div>;
 }

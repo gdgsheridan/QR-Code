@@ -118,3 +118,21 @@ test('T-TEAM-07: N opts into the directory, A invites by email, N accepts and bo
   await aContext.close();
   await n.context.close();
 });
+
+test('T-TEAM-07 (v0.11.25): Leave team asks first; Cancel keeps the team, OK leaves it', async ({ browser }) => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const a = await hacker(browser, f.p.A);
+  await a.page.goto('/me/team');
+  await a.page.getByLabel('Team name').fill('Leave Me');
+  await a.page.getByRole('button', { name: 'Create team' }).click();
+  await expect(a.page.getByRole('button', { name: 'Leave team' })).toBeVisible();
+  let asked = '';
+  a.page.once('dialog', (d) => { asked = d.message(); void d.dismiss(); });
+  await a.page.getByRole('button', { name: 'Leave team' }).click();
+  expect(asked).toContain('only member');
+  await expect(a.page.getByRole('button', { name: 'Leave team' })).toBeVisible();
+  a.page.once('dialog', (d) => void d.accept());
+  await a.page.getByRole('button', { name: 'Leave team' }).click();
+  await expect(a.page.getByRole('button', { name: 'Create team' })).toBeVisible();
+  await a.context.close();
+});

@@ -42,9 +42,8 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
     await page.setViewportSize({ width: width!, height: height! });
     await page.screenshot({ path: `${screenshots}/directory-networking-${width}.png`, fullPage: true });
   }
-  await page.getByRole('button', { name: 'Save links', exact: true }).click();
-  await expect(page.getByText('✓ Saved.', { exact: true })).toBeVisible();
-  await page.goto('/me');
+  await page.getByRole('button', { name: 'Save and finish', exact: true }).click();
+  await page.waitForURL(/\/me$/);
   await page.getByRole('link', { name: 'Hackers' }).click();
   await expect(page).toHaveURL(/\/me\/hackers$/);
   // Start a fresh document: client navigation retains the previous menu's bootstrap scripts (own email).

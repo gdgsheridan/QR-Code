@@ -71,7 +71,7 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
       </div>
     </form>
     {notice && <p role={params.r === 'INVITED' ? 'status' : 'alert'}>{notice}</p>}
-    {looking && !team && <p className="copy m-0 text-muted-foreground">Create a team to invite them. <Link href="/me/team">Open Team →</Link></p>}
+    {looking && !team && <p className="copy m-0 text-muted-foreground">Create a team to invite them. <Link className="inline-flex min-h-11 items-center" href="/me/team">Open Team →</Link></p>}
     <section aria-label="Hacker directory" className="grid items-start gap-3 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 min-[1440px]:grid-cols-4">
       {people.length === 0 && <p className="copy text-muted-foreground col-span-full">No hackers match these filters.</p>}
       {people.map((person) => {

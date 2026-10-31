@@ -129,7 +129,8 @@ async function saveNetworking(formData: FormData) {
   if (formData.get('walkthrough') !== '1') {
     redirect(`/me/profile?tab=networking&${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
   }
-  redirect(`/me/profile?${result === 'SAVED' ? `saved=1${formData.get('walkthrough') === '1' ? '&step=links' : ''}` : `error=${result}${formData.get('walkthrough') === '1' ? '&step=links' : ''}`}`);
+  if (result === 'SAVED') redirect('/me');
+  redirect(`/me/profile?error=${result}&step=links`);
 }
 
 export default async function HackerProfilePage(props: {
@@ -168,7 +169,7 @@ export default async function HackerProfilePage(props: {
       <h1>{setupDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
       {!setupDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
       {!m.emergency && !walkthrough && <Alert role="note" asChild><p>
-        We still need your emergency contact. <Link className="font-semibold text-accent" href="/me/emergency">Add your emergency contact →</Link>
+        We still need your emergency contact. <Link className="inline-flex min-h-11 items-center font-semibold text-accent" href="/me/emergency">Add your emergency contact →</Link>
       </p></Alert>}
 
       {!walkthrough && <nav aria-label="Profile sections" className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden">
@@ -353,7 +354,8 @@ export default async function HackerProfilePage(props: {
               ✓ Saved.
             </p></Alert>
           )}
-          <Button type="submit">Save links</Button>
+          {/* v0.11.25: in the walkthrough the last step saves and finishes, so nothing typed is lost to a "Done" link. */}
+          <Button type="submit">{walkthrough ? 'Save and finish' : 'Save links'}</Button>
         </form>
       </section></Card>
       </SetupPanel>}

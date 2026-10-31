@@ -130,8 +130,9 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(p.getByRole('heading', { name: 'Emergency contact', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Save profile', exact: true }).click();
-  await p.getByRole('button', { name: 'Save links', exact: true }).click();
-  await expect(p.getByText('✓ Saved.', { exact: true })).toBeVisible();
+  // v0.11.25: the last step saves and finishes on the menu.
+  await p.getByRole('button', { name: 'Save and finish', exact: true }).click();
+  await p.waitForURL(/\/me$/);
   await p.goto('/me/profile');
   await expect(p.getByRole('link', { name: 'Add your emergency contact →' })).toHaveCount(0);
 

@@ -5,6 +5,7 @@ import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { ConfirmSubmit } from '@/components/confirm-submit';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Input } from '@/components/ui/input';
 import type { Metadata } from 'next';
@@ -218,9 +219,9 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
 
           [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
               <input type="hidden" name="op" value="leave" />
-              <Button type="submit" variant="outline">
+              <ConfirmSubmit variant="outline" message={team.members.length === 1 ? 'Leave and delete your team? You’re its only member.' : `Leave ${team.name}?`}>
                 Leave team
-              </Button>
+              </ConfirmSubmit>
             </form>
           )}
         </section></Card>
