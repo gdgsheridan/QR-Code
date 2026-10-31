@@ -51,13 +51,9 @@ const reserveSchema = z.object({ allowed: z.boolean(), reservation_id: z.number(
 // scan_attempts row and NOT_FOUND rows keep feeding the 5-minute budget as before.
 // The authoritative scan outcome still comes from record_scan() (I-2).
 async function reserveScanAttempt(db: Db, staffId: string): Promise<{ allowed: boolean; reservationId: number | null }> {
-  // lib/db/types.gen.ts is owned by the outbox worker: call the new function through a typed
-  // wrapper cast until `pnpm db:types` is regenerated.
-  const call = db.rpc as unknown as (
-    fn: 'scan_rate_reserve',
-    args: { p_staff_user_id: string; p_per_minute_limit: number; p_not_found_limit: number },
-  ) => Promise<{ data: unknown; error: { code: string } | null }>;
-  const { data, error } = await call('scan_rate_reserve', {
+  // Typed in lib/db/types.gen.ts (hand-generated until `pnpm db:types` can run against a local stack).
+  // Call it as a method: extracting `db.rpc` loses `this` and fails at runtime.
+  const { data, error } = await db.rpc('scan_rate_reserve', {
     p_staff_user_id: staffId,
     p_per_minute_limit: SCANS_PER_MINUTE,
     p_not_found_limit: NOT_FOUND_PER_5_MIN,

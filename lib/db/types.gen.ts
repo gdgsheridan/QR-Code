@@ -561,6 +561,9 @@ isOneToOne: false
 "record_badge_scan":
 { Args: { "p_badge_uid": string,"p_checkpoint_id": string,"p_client_scan_id": string,"p_client_scanned_at": string,"p_staff_user_id": string }; Returns: Json
                            },
+"record_ingest_request":
+{ Args: { "p_key": string }; Returns: boolean
+                           },
 "record_scan":
 { Args: { "p_checkpoint_id": string,"p_client_scan_id": string,"p_client_scanned_at": string,"p_method": Database["public"]['Enums']["scan_method"],"p_participant_id": string,"p_staff_user_id": string,"p_token_hash": string }; Returns: Json
                            },
@@ -587,6 +590,9 @@ isOneToOne: false
                            },
 "save_hacker_profile":
 { Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_bio"?: string,"p_dietary_notes"?: string,"p_directory_opt_in"?: boolean,"p_discord"?: string,"p_email": string,"p_emergency_name"?: string,"p_emergency_phone"?: string,"p_emergency_relation"?: string,"p_linkedin_url"?: string,"p_overnight"?: string,"p_pace"?: string,"p_participant_id": string,"p_public"?: boolean,"p_team_status"?: string,"p_user_id": string,"p_website"?: string }; Returns: boolean
+                           },
+"scan_rate_reserve":
+{ Args: { "p_not_found_limit": number,"p_per_minute_limit": number,"p_staff_user_id": string }; Returns: Json
                            },
 "search_participants":
 { Args: { "p_checkpoint_id"?: string,"p_event_id": string,"p_query": string }; Returns: {

@@ -316,8 +316,12 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     ];
     const results = await Promise.allSettled(tasks);
     expect(results.filter((r) => r.status === 'rejected')).toEqual([]);
-    const reminded = (await f.pool.query<{ n: number }>(`select count(*)::int as n from email_outbox where participant_id = any($1) and kind = 'rsvp_reminder'`, [ids])).rows[0]?.n;
-    expect(reminded).toBeGreaterThan(0); // the reminders really raced too
+    // The reminder pass must really have raced: one of the three concurrent run_rsvp_jobs() calls fired
+    // the day's reminder run. Surviving email_outbox rows are not a valid assertion here, because every
+    // answer cancels that person's pending reminder (Yes queues the pass, No cancels everything) — whether
+    // any are left over depends purely on which transaction commits last.
+    const rsvpRuns = (await f.pool.query<{ n: number }>('select count(*)::int as n from reminder_runs where event_id = $1 and kind = $2', [ev, 'rsvp'])).rows[0]?.n;
+    expect(rsvpRuns).toBeGreaterThan(0);
     for (const [i, p] of people.entries()) {
       if (i % 2 !== 0) continue;
       expect(await row(p.id)).toMatchObject({ status: 'accepted' });

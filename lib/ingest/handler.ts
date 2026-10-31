@@ -53,13 +53,8 @@ export function createIngestHandler(deps: IngestDeps) {
     // L2: reject a replayed (timestamp, signature) pair before any upsert. Verified above, so both are
     // present. A re-signed re-ingest carries a fresh timestamp and signature, so it is a new key and
     // still works (F3 idempotency: replaying an identical request changes nothing).
-    // lib/db/types.gen.ts is owned by another worker: call the new function through a typed wrapper
-    // cast until `pnpm db:types` is regenerated (same pattern as scan_rate_reserve in lib/scan/handlers.ts).
-    const recordSeen = deps.db.rpc as unknown as (
-      fn: 'record_ingest_request',
-      args: { p_key: string },
-    ) => Promise<{ data: boolean | null; error: { code: string } | null }>;
-    const { data: fresh, error: replayError } = await recordSeen('record_ingest_request', {
+    // Typed in lib/db/types.gen.ts; call it as a method so `this` (the PostgREST client) is bound.
+    const { data: fresh, error: replayError } = await deps.db.rpc('record_ingest_request', {
       p_key: ingestReplayKey(timestamp ?? '', signature ?? ''),
     });
     if (replayError) throw new Error(`record_ingest_request failed (${replayError.code})`);

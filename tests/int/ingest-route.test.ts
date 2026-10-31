@@ -107,14 +107,20 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
     expect((await c.post(body, { ts: now + 301 })).status).toBe(401);
   });
 
-  it('T-ING-04: the same signed request twice → every row UNCHANGED; no duplicate participants, passes or outbox', async () => {
+  it('T-ING-04: an exact replay is refused (L2); a re-signed re-ingest is UNCHANGED; no duplicates', async () => {
     const body = { event_slug: f.slug, rows: [sheetRow(f.slug), sheetRow(f.slug, { status: 'Waitlisted' }), sheetRow(f.slug, { status: '' })] };
     const ts = Math.floor(Date.now() / 1000);
     const first = await c.post(body, { ts });
     expect(first.status).toBe(200);
     const mid = await eventCounts(f.e1.id);
-    const second = await c.post(body, { ts });
-    const results = ((await second.json()) as { results: Array<{ result: string }> }).results.map((r) => r.result);
+    // Same (timestamp, signature) pair: refused before any write, so a captured webhook cannot replay.
+    const replay = await c.post(body, { ts });
+    expect(replay.status).toBe(401);
+    expect(await eventCounts(f.e1.id)).toEqual(mid);
+    // A re-signed re-ingest (fresh timestamp, hence a new signature) is a new request and stays idempotent.
+    const resigned = await c.post(body, { ts: ts + 1 });
+    expect(resigned.status).toBe(200);
+    const results = ((await resigned.json()) as { results: Array<{ result: string }> }).results.map((r) => r.result);
     expect(results).toEqual(['UNCHANGED', 'UNCHANGED', 'UNCHANGED']);
     expect(await eventCounts(f.e1.id)).toEqual(mid);
   });
@@ -355,7 +361,9 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
 
   it('T-ING-24: the same row posted 5× concurrently → 1 participant, no outbox row', async () => {
     const r = sheetRow(f.slug);
-    const responses = await Promise.all(Array.from({ length: 5 }, () => c.post({ event_slug: f.slug, rows: [r] })));
+    // Each request carries its own signature (L2 refuses an exact replay); the rows still collide.
+    const base = Math.floor(Date.now() / 1000);
+    const responses = await Promise.all(Array.from({ length: 5 }, (_, i) => c.post({ event_slug: f.slug, rows: [r] }, { ts: base + i })));
     expect(responses.map((x) => x.status)).toEqual([200, 200, 200, 200, 200]);
     const results = await Promise.all(responses.map(async (x) => ((await x.json()) as { results: Array<{ result: string }> }).results[0]?.result));
     expect(results.filter((x) => x === 'CREATED')).toHaveLength(1);
