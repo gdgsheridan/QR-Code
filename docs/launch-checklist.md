@@ -43,6 +43,7 @@ The live app runs on Vercel (Pro), and `vercel.json` schedules both jobs as Verc
 - [ ] Add the columns `Applicant ID`, `Status` (with data validation) and `Sync Status`.
 - [ ] Paste `apps-script/Code.gs`, set the script properties `ENDPOINT=<origin>/api/ingest/sheet`, `EVENT_SLUG` and `INGEST_SECRET` (= `SHEET_INGEST_SECRET`), and add the two installable triggers.
 - [ ] For Sync now: share the Sheet (view only) with the service-account email, then link it on `/admin/<slug>/sync`.
+- [ ] Scope that service account to only this event's Sheet (and poster files, if it reads those): it can read anything shared with it or visible in your Drive, so a leaked Sheet ID from another event would sync cross-tenant data (L14). Share nothing else with it.
 
 ---
 
