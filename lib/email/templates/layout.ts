@@ -32,6 +32,12 @@ export function button(href: string, text: string, kind: 'primary' | 'secondary'
   return `<table role="none" border="0"${centred('8px')}"><tr><td style="padding:3px;border:1.5px solid ${C.accentRing};border-radius:9px"><table role="none" border="0" style="border-spacing:0"><tr><td bgcolor="${bg}" style="padding:0;background:${bg};border:2px solid ${border};border-radius:6px"><a href="${href}" style="display:inline-block;min-width:220px;padding:16px 32px;font-family:${FONT};font-size:16px;font-weight:700;line-height:1.2;text-align:center;color:${fg};text-decoration:none">${text}</a></td></tr></table></td></tr></table>`;
 }
 
+/** v0.11.28 (owner's request): a centred row of small outlined links, each with an 18 px PNG icon (mail apps block
+ *  SVG; alt="" since the label says it all). They wrap on a narrow phone and stay 44 px tall. */
+export const smallLinks = (items: [href: string, text: string, icon: string][]) =>
+  `<p style="margin:4px 0 20px;text-align:center;line-height:1">${items.map(([href, text, icon]) =>
+    `<a href="${href}" style="display:inline-block;margin:4px;padding:12px 14px;border:1.5px solid ${C.accentEdge};border-radius:6px;font-family:${FONT};font-size:14px;font-weight:700;line-height:20px;color:${C.accent};text-decoration:none;white-space:nowrap"><img src="${icon}" width="18" height="18" alt="" style="display:inline-block;width:18px;height:18px;border:0;margin:0 8px 0 0;vertical-align:-4px">${text}</a>`).join('')}</p>`;
+
 /** When/Where rows in a raised box with a green edge, like the site's cards. */
 export const details = (rows: [string, string][]) =>
   `<table role="none" width="100%" border="0" style="border-spacing:0;margin:0 0 20px"><tr><td bgcolor="${C.raised}" style="background:${C.raised};border:1px solid ${C.line};border-left:4px solid ${C.accent};border-radius:6px;padding:12px 16px">${rows

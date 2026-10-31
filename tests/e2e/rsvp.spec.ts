@@ -95,43 +95,44 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.waitForURL('**/me/profile?setup=1');
   await expect(p.getByRole('navigation', { name: 'Profile sections' })).toHaveCount(0); // RSVP keeps the guided walkthrough.
   await expect(p.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
-  // The emergency contact has its own page: the profile links there while it's missing.
-  await expect(p.getByLabel('Emergency contact name')).toHaveCount(0);
-  await expect(p.getByText('Step 1 of 3: The event')).toBeVisible();
-  await expect(p.getByRole('link', { name: 'Add your emergency contact →' })).toHaveAttribute('href', '/me/emergency');
+  // v0.11.25: the emergency contact is step 3 of the walkthrough, so no link away from it.
+  await expect(p.getByText('Step 1 of 4: The event')).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Add your emergency contact →' })).toHaveCount(0);
   await p.getByRole('button', { name: 'Next', exact: true }).click();
   expect(await p.getByLabel('Not sure yet').evaluate((el) => (el as HTMLInputElement).validity.valueMissing)).toBe(true);
   await p.getByLabel('Not sure yet').check();
-  await p.getByLabel('I’m looking for a team (lists my name in the Hacker directory)').check();
+  await p.getByLabel('I’m looking for a team (shows me under Looking for a team in the Hacker directory)').check();
   await p.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(p.getByRole('heading', { name: 'Health and access', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(p.getByRole('heading', { name: 'The event', exact: true })).toBeFocused();
   await expect(p.getByLabel('Not sure yet')).toBeChecked();
   await p.getByRole('button', { name: 'Next', exact: true }).click();
-  await p.getByLabel('Allergies (optional)').fill('Peanuts');
+  await p.getByLabel('Allergies', { exact: true }).fill('Peanuts');
   // An allergy without its severity is caught in the browser: nothing is sent, so nothing typed is lost.
-  await p.getByRole('button', { name: 'Save profile' }).click();
+  await p.getByRole('button', { name: 'Next', exact: true }).click();
   expect(await p.getByLabel('How severe?').evaluate((el) => (el as HTMLSelectElement).validity.valueMissing)).toBe(true);
-  await expect(p.getByLabel('Allergies (optional)')).toHaveValue('Peanuts');
+  await expect(p.getByLabel('Allergies', { exact: true })).toHaveValue('Peanuts');
   await p.getByLabel('How severe?').selectOption('severe');
-  await p.getByLabel('Accessibility needs (optional)').fill('Step-free access');
+  await p.getByLabel('Accessibility needs').fill('Step-free access');
+  await p.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(p.getByText('Step 3 of 4: Emergency contact')).toBeVisible();
+  await expect(p.getByRole('heading', { name: 'Emergency contact', exact: true })).toBeFocused();
+  await p.getByRole('button', { name: 'Save profile' }).click();
+  expect(await p.getByLabel('Emergency contact name').evaluate((el) => (el as HTMLInputElement).validity.valueMissing)).toBe(true);
+  await p.getByLabel('Emergency contact name').fill('Sam Rsvp');
+  await p.getByLabel('Emergency contact phone').fill('416 555 0100');
   await p.getByRole('button', { name: 'Save profile' }).click();
   await expect(p.getByText('✓ Saved. Your profile is set up.')).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Hacker profile' })).toBeVisible();
-  await expect(p.getByText('Step 3 of 3: Networking (optional)')).toBeVisible();
+  await expect(p.getByText('Step 4 of 4: Networking')).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Networking', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(p.getByRole('heading', { name: 'Health and access', exact: true })).toBeFocused();
+  await expect(p.getByRole('heading', { name: 'Emergency contact', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Save profile', exact: true }).click();
-  await p.getByRole('button', { name: 'Save links', exact: true }).click();
-  await expect(p.getByText('✓ Saved.', { exact: true })).toBeVisible();
-  await p.getByRole('link', { name: 'Add your emergency contact →' }).click();
-  await p.waitForURL('**/me/emergency');
-  await p.getByLabel('Name').fill('Sam Rsvp');
-  await p.getByLabel('Phone').fill('416 555 0100');
-  await p.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(p.getByText('✓ Saved.', { exact: true })).toBeVisible();
+  // v0.11.25: the last step saves and finishes on the menu.
+  await p.getByRole('button', { name: 'Save and finish', exact: true }).click();
+  await p.waitForURL(/\/me$/);
   await p.goto('/me/profile');
   await expect(p.getByRole('link', { name: 'Add your emergency contact →' })).toHaveCount(0);
 
@@ -237,9 +238,65 @@ test('T-RSVP-08 (E): past the deadline the link says so and only offers to give 
   const p = await attendee.newPage();
   await p.goto(`/rsvp#${token}`);
   await expect(p.getByText(/The RSVP deadline \(.+\) has passed/)).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Ask the organizers on Discord' })).toHaveAttribute('href', /discord/);
   await expect(p.getByRole('button', { name: 'Yes, I’m coming' })).toHaveCount(0);
   await p.getByRole('button', { name: 'No, give my spot away' }).click();
+  await p.getByLabel('Type “give away” to confirm').fill('give away');
+  await p.getByRole('button', { name: 'Give my spot away' }).click();
   await expect(p.getByRole('heading', { name: 'Thanks for letting us know' })).toBeVisible();
   expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'withdrawn' }]);
   await attendee.close();
+});
+
+test('T-RSVP-05 (E): an accepted hacker reopening the invitation sees they are in; giving the spot away needs “give away” typed', async ({ browser }) => {
+  const token = generateToken();
+  const email = `reo-${f.slug}@example.test`;
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, search_text, status, source, rsvp_token_hash, rsvp_sent_at)
+     values ($1, $2, 'Reo', 'reo', 'accepted', 'sheet', $3, now() - interval '1 day')`,
+    [f.e1.id, email, sha256hex(token)],
+  );
+  const ctx = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const p = await ctx.newPage();
+  await p.goto(`/rsvp#${token}`);
+  await expect(p.getByRole('heading', { name: 'You’re in, Reo' })).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Open my pass and menu' })).toHaveAttribute('href', '/me');
+  await expect(p.getByRole('button', { name: 'Yes, I’m coming' })).toHaveCount(0);
+  await p.getByRole('button', { name: 'Can’t make it anymore?' }).click();
+  await expect(p.getByText('Your pass stops working and your spot goes to someone on the waitlist.')).toBeVisible();
+  const give = p.getByRole('button', { name: 'Give my spot away' });
+  await expect(give).toBeDisabled();
+  await p.getByLabel('Type “give away” to confirm').fill('give');
+  await expect(give).toBeDisabled();
+  await p.getByRole('button', { name: 'Keep my spot' }).click();
+  await expect(p.getByRole('heading', { name: 'You’re in, Reo' })).toBeVisible();
+  expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'accepted' }]);
+  await p.getByRole('button', { name: 'Can’t make it anymore?' }).click();
+  await p.getByLabel('Type “give away” to confirm').fill('  Give Away ');
+  await give.click();
+  await expect(p.getByRole('heading', { name: 'Thanks for letting us know' })).toBeVisible();
+  expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'withdrawn' }]);
+  await ctx.close();
+});
+
+test('v0.11.25: no dead ends: a dead link offers sign-in, a passed deadline offers the Discord, a waitlisted hacker sees why /me is empty, a new link in the same tab loads', async ({ browser }) => {
+  const ctx = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const p = await ctx.newPage();
+  await p.goto(`/rsvp#${generateToken()}`);
+  await expect(p.getByRole('heading', { name: 'This invitation link doesn’t work' })).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login?next=%2Fme');
+  // Another invitation opened in the same tab (mail apps reuse tabs) loads instead of keeping the old screen.
+  const token = generateToken();
+  const email = `tab-${f.slug}@example.test`;
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, search_text, status, source, rsvp_token_hash, rsvp_sent_at)
+     values ($1, $2, 'Tab', 'tab', 'pending', 'sheet', $3, now())`, [f.e1.id, email, sha256hex(token)]);
+  await p.evaluate((t) => { window.location.hash = t; }, token);
+  await expect(p.getByText('Hi Tab, will you be there?')).toBeVisible();
+  // Waitlisted: /me says so instead of "No upcoming events yet".
+  const c = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.C])).rows[0]!.email;
+  await createAccount(c);
+  await signIn(p, c, '/me');
+  await expect(p.getByText(`You’re on the waitlist for ${f.e1.name}. We’ll email you if a spot opens.`)).toBeVisible();
+  await ctx.close();
 });

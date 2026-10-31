@@ -117,4 +117,17 @@ describe('event info for hackers (SPEC §11 Info, v0.6)', () => {
     expect((await patch({ rsvpDeadline: null })).body).toEqual({ rsvpDeadline: null });
     expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ rsvpDeadline: null });
   });
+
+  it('T-ADM-08: the reply-by date (v0.11.28) is set and cleared like the deadline, and never after it', async () => {
+    const day = 86_400_000;
+    const [replyBy, closes] = [Date.now() + 4 * day, Date.now() + 8 * day].map((t) => new Date(t).toISOString());
+    expect(await patch({ rsvpReplyBy: replyBy, rsvpDeadline: closes })).toMatchObject({ status: 200, body: { rsvpReplyBy: replyBy, rsvpDeadline: closes } });
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ rsvpReplyBy: replyBy, rsvpDeadline: closes });
+    // After the close, or a close moved before it: refused, nothing changed.
+    expect((await patch({ rsvpReplyBy: new Date(Date.now() + 9 * day).toISOString() })).status).toBe(400);
+    expect((await patch({ rsvpDeadline: new Date(Date.now() + 2 * day).toISOString() })).status).toBe(400);
+    expect((await patch({ rsvpReplyBy: new Date(Date.now() - 60_000).toISOString() })).status).toBe(400);
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ rsvpReplyBy: replyBy, rsvpDeadline: closes });
+    expect((await patch({ rsvpReplyBy: null, rsvpDeadline: null })).body).toEqual({ rsvpReplyBy: null, rsvpDeadline: null });
+  });
 });

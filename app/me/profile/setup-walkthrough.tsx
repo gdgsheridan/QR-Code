@@ -4,7 +4,10 @@ import { createContext, useContext, useLayoutEffect, useRef, useState, useSyncEx
 import { Button } from '@/components/ui/button';
 
 const subscribe = () => () => {};
-const TITLES = ['The event', 'Health and access', 'Networking (optional)'];
+// v0.11.25: the emergency contact is a step again (required for a finished profile). Steps 1–3 are one form.
+const TITLES = ['The event', 'Health and access', 'Emergency contact', 'Networking'];
+export const LAST_FORM_STEP = 3;
+const NETWORKING_STEP = 4;
 const Walkthrough = createContext<{ step: number; move: (step: number) => void; active: boolean; enabled: boolean }>({ step: 1, move: () => {}, active: false, enabled: false });
 
 export function SetupWalkthrough({ enabled, initialStep, children }: { enabled: boolean; initialStep: number; children: ReactNode }) {
@@ -32,7 +35,7 @@ export function SetupForm({ action, className, children }: { action: (data: Form
     for (const field of fields) {
       if (!field.reportValidity()) { event.preventDefault(); return; }
     }
-    if (step < 2) { event.preventDefault(); move(step + 1); }
+    if (step < LAST_FORM_STEP) { event.preventDefault(); move(step + 1); }
   }}>{children}</form>;
 }
 
@@ -49,7 +52,7 @@ export function SetupStep({ number, children }: { number: number; children: Reac
     {children}
     {active && <div className="flex gap-3 [&>*]:flex-1">
       {number > 1 && <Button type="button" variant="outline" onClick={() => move(number - 1)}>Back</Button>}
-      {number < 2 && <Button type="submit">Next</Button>}
+      {number < LAST_FORM_STEP && <Button type="submit">Next</Button>}
     </div>}
   </section>;
 }
@@ -58,14 +61,14 @@ export function SetupPanel({ networking = false, children }: { networking?: bool
   const { active, step, move, enabled } = useContext(Walkthrough);
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (active && networking && step === 3) ref.current?.querySelector<HTMLElement>('h2')?.focus();
+    if (active && networking && step === NETWORKING_STEP) ref.current?.querySelector<HTMLElement>('h2')?.focus();
   }, [active, networking, step]);
-  const hidden = active && (networking ? step !== 3 : step === 3);
+  const hidden = active && (networking ? step !== NETWORKING_STEP : step === NETWORKING_STEP);
   return <div ref={ref} hidden={hidden} className={hidden ? 'hidden' : 'contents'}>
     {children}
     {enabled && networking && <div className="flex flex-wrap gap-3">
-      {active && <Button type="button" variant="outline" onClick={() => move(2)}>Back</Button>}
-      <Button asChild variant="ghost"><a href="/me">Done</a></Button>
+      {active && <Button type="button" variant="outline" onClick={() => move(LAST_FORM_STEP)}>Back</Button>}
+      <Button asChild variant="ghost"><a href="/me">Skip for now</a></Button>
     </div>}
   </div>;
 }

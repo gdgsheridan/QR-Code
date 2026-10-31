@@ -66,7 +66,8 @@ export function validateRow(input: SheetRowInput): RowValidation {
 // Appendix A: the form's response tab and header names.
 export const SHEET_TAB = 'Form Responses 1';
 
-// Appendix A header names. Rows are found by header, never by column position (T-GAS-07).
+// Appendix A header names, matched ignoring case and outer spaces. Rows are found by header, never by column
+// position (T-GAS-07).
 export const SHEET_HEADERS = {
   external_id: 'Applicant ID',
   email: 'Email Address',
@@ -77,33 +78,49 @@ export const SHEET_HEADERS = {
   status: 'Status',
 } as const satisfies Record<keyof SheetRowInput, string>;
 
-const REQUIRED: Array<keyof SheetRowInput> = ['external_id', 'email', 'first_name'];
+// v0.11.26: the organizers' applications Sheet heads its LinkedIn column "LinkedIn".
+const ALIASES: Partial<Record<keyof SheetRowInput, string[]>> = { linkedin_url: ['LinkedIn'] };
+
+const REQUIRED: Array<keyof SheetRowInput> = ['email', 'first_name'];
 
 export function mapSheetValues(values: string[][]): Array<Required<SheetRowInput>> {
   const [header = [], ...data] = values;
-  const index = new Map(header.map((h, i) => [String(h).trim(), i]));
-  for (const key of REQUIRED) {
-    if (!index.has(SHEET_HEADERS[key])) throw new Error(`Missing header: ${SHEET_HEADERS[key]}`);
-  }
+  const index = new Map(header.map((h, i) => [String(h).trim().toLowerCase(), i]));
   const keys = Object.keys(SHEET_HEADERS) as Array<keyof SheetRowInput>;
+  const column = new Map(keys.map((k) => [k, [SHEET_HEADERS[k], ...(ALIASES[k] ?? [])].map((h) => index.get(h.toLowerCase())).find((i) => i !== undefined)]));
+  for (const key of REQUIRED) {
+    if (column.get(key) === undefined) throw new Error(`Missing header: ${SHEET_HEADERS[key]}`);
+  }
+  // v0.11.26 (owner's decision, relaxes I-14): an export without an Applicant ID column is keyed by its email.
+  const byEmail = column.get('external_id') === undefined;
   const cell = (row: string[], key: keyof SheetRowInput) => {
-    const i = index.get(SHEET_HEADERS[key]);
+    const i = column.get(key);
     return i === undefined ? '' : String(row[i] ?? '').trim();
   };
   return data
-    .map((row) => Object.fromEntries(keys.map((k) => [k, cell(row, k)])) as Required<SheetRowInput>)
+    .map((row) => {
+      const r = Object.fromEntries(keys.map((k) => [k, cell(row, k)])) as Required<SheetRowInput>;
+      return byEmail ? { ...r, external_id: normalizeEmail(r.email) } : r;
+    })
     .filter((r) => keys.some((k) => r[k] !== ''));
 }
 
 export type SheetStatus = 'accepted' | 'waitlisted';
 
+// The Sheet's own words: organizers mark accepted applicants "Yes" and waitlisted ones "Waitlist".
+const STATUS_WORDS: Record<string, SheetStatus> = { accepted: 'accepted', yes: 'accepted', waitlisted: 'waitlisted', waitlist: 'waitlisted' };
+
+/** What a Sheet Status cell decided, or null for anything else (Deny, Duplicate, blank…). */
+export const sheetDecision = (status: string | undefined): SheetStatus | null => STATUS_WORDS[(status ?? '').trim().toLowerCase()] ?? null;
+
 export function filterSheetValues(values: string[][], statuses?: SheetStatus[]) {
-  if (statuses?.length && !values[0]?.some((header) => header.trim() === SHEET_HEADERS.status)) throw new Error(`Missing header: ${SHEET_HEADERS.status}`);
+  const status = SHEET_HEADERS.status.toLowerCase();
+  if (statuses?.length && !values[0]?.some((header) => header.trim().toLowerCase() === status)) throw new Error(`Missing header: ${SHEET_HEADERS.status}`);
   const rows = mapSheetValues(values);
   if (!statuses?.length) return { rows, skipped: 0 };
   const selected = rows.filter((row) => {
-    const status = row.status.trim().toLowerCase();
-    return statuses.some((selected) => selected === (status === 'waitlist' ? 'waitlisted' : status));
+    const decision = sheetDecision(row.status);
+    return decision !== null && statuses.includes(decision);
   });
   return { rows: selected, skipped: rows.length - selected.length };
 }

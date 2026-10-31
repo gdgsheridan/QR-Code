@@ -21,6 +21,9 @@ const IMPORT_LINES: Array<[key: string, label: string]> = [
   ['INVALID', 'skipped: missing or invalid Applicant ID, email or name'],
 ];
 const MAX_CSV_BYTES = 2_000_000;
+// Owner's request (v0.11.27): every import takes only the people the Sheet accepted or waitlisted; no choice to make.
+const STATUSES: SheetStatus[] = ['accepted', 'waitlisted'];
+
 type Report = { total: number; skipped: number; counts: Record<string, number> };
 
 function importLines(counts: Record<string, number>, skipped: number): string[] {
@@ -30,7 +33,7 @@ function importLines(counts: Record<string, number>, skipped: number): string[] 
     merged[key] = (merged[key] ?? 0) + n;
   }
   const lines = IMPORT_LINES.filter(([k]) => merged[k]).map(([k, label]) => `${merged[k]} ${label}`);
-  if (skipped > 0) lines.push(`${skipped} skipped: Status not selected`);
+  if (skipped > 0) lines.push(`${skipped} skipped: Status isn’t Yes or Waitlist`);
   return lines;
 }
 
@@ -40,7 +43,6 @@ export function ImportCsv({ slug }: { slug: string }) {
   const api = useApi();
   const [csv, setCsv] = useState<string | null>(null);
   const [preview, setPreview] = useState<Report | null>(null);
-  const [statuses, setStatuses] = useState<SheetStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,15 +50,15 @@ export function ImportCsv({ slug }: { slug: string }) {
   const [inputKey, setInputKey] = useState(0);
   const writes = preview ? (preview.counts.CREATED ?? 0) + (preview.counts.UPDATED ?? 0) + (preview.counts.PASS_QUEUED ?? 0) : 0;
 
-  function sync(text: string, dryRun: boolean, selected: SheetStatus[]) {
-    return api<Report>(adminUrl(slug, '/sync'), { method: 'POST', body: { dryRun, csv: text, statuses: selected } });
+  function sync(text: string, dryRun: boolean) {
+    return api<Report>(adminUrl(slug, '/sync'), { method: 'POST', body: { dryRun, csv: text, statuses: STATUSES } });
   }
 
-  async function check(text: string, selected: SheetStatus[]) {
+  async function check(text: string) {
     setPreview(null);
     setError(null);
     setBusy(true);
-    const r = await sync(text, true, selected);
+    const r = await sync(text, true);
     setBusy(false);
     if (!r.ok) return setError(r.status === 400 ? 'That file couldn’t be read as a CSV.' : errorText(r));
     setPreview(r.data);
@@ -71,19 +73,13 @@ export function ImportCsv({ slug }: { slug: string }) {
     if (file.size > MAX_CSV_BYTES) return setError('That file is over 2 MB. Is it the right one?');
     const text = await file.text();
     setCsv(text);
-    await check(text, statuses);
-  }
-
-  function selectStatus(status: SheetStatus, checked: boolean) {
-    const selected = checked ? [...statuses, status] : statuses.filter((s) => s !== status);
-    setStatuses(selected);
-    if (csv !== null) void check(csv, selected);
+    await check(text);
   }
 
   async function apply() {
     if (csv === null) return;
     setBusy(true);
-    const r = await sync(csv, false, statuses);
+    const r = await sync(csv, false);
     setBusy(false);
     if (!r.ok) return setError(errorText(r));
     setCsv(null);
@@ -103,25 +99,13 @@ export function ImportCsv({ slug }: { slug: string }) {
         <div>
           <h2 id="import-csv" className="m-0 text-[1.08rem] tracking-[-0.02em]">Import CSV</h2>
           <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.88rem] leading-[1.65]">
-            Download the Sheet as CSV (File → Download → Comma-separated values). People are matched by Applicant ID. New people are added as not RSVPed yet and aren’t emailed.
+            Download the Sheet as CSV (File → Download → Comma-separated values). People are matched by Applicant ID, or by email when the file has no Applicant ID column. Only rows whose Status is Yes (or Accepted) or Waitlist come in. New people are added as not RSVPed yet and aren’t emailed.
           </p>
         </div>
         <Label className="tw-admin-field grid gap-2 text-sm text-muted-foreground">
           CSV file
           <Input key={inputKey} className="tw-admin-input w-full" type="file" accept=".csv,text/csv" disabled={busy} onChange={(e) => void choose(e.target.files?.[0])} />
         </Label>
-        <fieldset className="m-0 border-0 p-0 text-[13px]" disabled={busy}>
-          <legend>Only rows whose Status is</legend>
-          <div className="flex flex-wrap gap-x-[16px]">
-            <Label className="tw-admin-check inline-flex min-h-[44px] items-center gap-[9px] px-[4px]">
-              <input type="checkbox" checked={statuses.includes('accepted')} onChange={(e) => selectStatus('accepted', e.target.checked)} /> Accepted
-            </Label>
-            <Label className="tw-admin-check inline-flex min-h-[44px] items-center gap-[9px] px-[4px]">
-              <input type="checkbox" checked={statuses.includes('waitlisted')} onChange={(e) => selectStatus('waitlisted', e.target.checked)} /> Waitlisted
-            </Label>
-          </div>
-          <p className="m-0 text-[12px] text-muted-foreground">Leave both unchecked to import all rows.</p>
-        </fieldset>
         {busy && !preview && <p role="status">Checking the file…</p>}
         {preview && (
           <div role="status">

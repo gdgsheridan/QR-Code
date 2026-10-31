@@ -8,12 +8,16 @@ export interface TeamInviteEmailInput {
   team: string;
   event: string;
   appOrigin: string;
+  /** v0.11.25: how many invites are waiting (one email an hour covers them all). */
+  count?: number;
 }
 
 // SPEC F15 / §12 (S11b): consent happens on the Team page; no join code or token travels in email.
 export function renderTeamInviteEmail(input: TeamInviteEmailInput): RenderedEmail {
   const url = `${input.appOrigin}/me/team`;
-  const sentence = `${input.inviter} invited you to join ${input.team} at ${input.event}`;
+  const sentence = (input.count ?? 1) > 1
+    ? `${input.count} teams invited you to join them at ${input.event}`
+    : `${input.inviter} invited you to join ${input.team} at ${input.event}`;
   const html = emailPage(input.appOrigin, 'Team invite', [
     p(`Hi ${escapeHtml(input.firstName)},`),
     p(`${escapeHtml(sentence)}.`, HEADLINE),

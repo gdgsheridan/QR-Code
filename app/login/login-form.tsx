@@ -17,9 +17,14 @@ export function LoginForm({ next }: { next: string }) {
 
   if (forgot && linkState && 'sent' in linkState) {
     return (
-      <Alert className="text-ok" asChild role="status"><p role="status" >
-        ✓ Check your email. If that address can sign in here, we sent a link to set your password.
-      </p></Alert>
+      <div className="grid gap-[12px]">
+        <Alert className="text-ok" asChild role="status"><p role="status" >
+          ✓ Check your email. If that address can sign in here, we sent a link to set your password.
+        </p></Alert>
+        <Button type="button" variant="link" className="whitespace-normal font-normal" onClick={() => setForgot(false)}>
+          Back to sign-in
+        </Button>
+      </div>
     );
   }
   if (forgot) {

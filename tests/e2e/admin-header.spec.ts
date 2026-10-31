@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 import { authStatePath, saveSignedInState } from '../fixtures/e2e';
 
+// One worker for the file: each worker's beforeAll would overwrite the shared sign-in state.
+test.describe.configure({ mode: 'serial' });
 const ORG = authStatePath('admin-header-org');
 test.use({ storageState: ORG });
 let f: StandardFixture;

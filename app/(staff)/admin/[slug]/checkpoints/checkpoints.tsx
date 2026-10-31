@@ -274,14 +274,14 @@ function CheckpointForm(props: { slug: string; timezone: string; initial: Checkp
           </NativeSelect>
         </Label>
         <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
-          Capacity (optional)
+          Capacity
           <Input className="tw-admin-input w-full" inputMode="numeric" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
         </Label>
         <Label className="tw-admin-check">
           <input type="checkbox" checked={isDoor ? false : requiresCheckin} disabled={isDoor} onChange={(e) => setRequiresCheckin(e.target.checked)} /> Requires door check-in first
         </Label>
         <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
-          Starts ({props.timezone}, optional)
+          Starts ({props.timezone})
           <Input className="tw-admin-input w-full" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
         </Label>
         <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">

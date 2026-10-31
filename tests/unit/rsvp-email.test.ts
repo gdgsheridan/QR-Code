@@ -5,6 +5,7 @@ import { drainOutbox } from '@/lib/email/drain';
 import type { EmailMessage } from '@/lib/email/provider';
 import { renderRsvpEmail } from '@/lib/email/templates/rsvp';
 import { emailEventName } from '@/lib/email/links';
+import { shownReplyBy } from '@/lib/domain/rsvp';
 
 const base = {
   firstName: 'Ada',
@@ -22,6 +23,17 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
       expect(part).toContain('No reply by then counts as a no');
       expect(part).toContain(base.rsvpUrl);
     }
+  });
+
+  it('T-RSVP-13: the reply-by date is shown while it is ahead; past it (a late invite) or unset, the real close (v0.11.28)', () => {
+    const now = new Date('2026-11-01T12:00:00Z');
+    const replyBy = '2026-11-04T04:59:00.000Z'; // Tue, Nov 3, 11:59 PM EST
+    const closes = '2026-11-08T04:59:00.000Z'; // Sat, Nov 7, 11:59 PM EST
+    expect(shownReplyBy(replyBy, closes, now)).toBe(replyBy);
+    expect(shownReplyBy(replyBy, closes, new Date('2026-11-05T12:00:00Z'))).toBe(closes);
+    expect(shownReplyBy(null, closes, now)).toBe(closes);
+    expect(shownReplyBy(null, null, now)).toBeNull();
+    expect(renderRsvpEmail({ ...base, closesAt: shownReplyBy(replyBy, closes, now) }).text).toContain('Please reply by Tue, Nov 3 · 11:59 PM EST');
   });
 
   it('T-RSVP-11: emails give the datathon its full name (v0.11.23); other events keep theirs', () => {

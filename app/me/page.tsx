@@ -10,8 +10,10 @@ import type { ReactNode } from 'react';
 import { db } from '@/lib/db/server';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { env } from '@/lib/env';
+import { venueMapUrl } from '@/lib/email/links';
 import { myPasses } from '@/lib/pass/mine';
 import { ChevronIcon, EmergencyIcon, ProfileIcon, QrIcon, ScheduleIcon, TeamIcon } from './icons';
+import { normalizeEmail } from '@/lib/domain/normalize';
 import { loadMe, menuMetadata } from './load';
 
 export const metadata: Metadata = menuMetadata('Menu');
@@ -20,16 +22,30 @@ export const metadata: Metadata = menuMetadata('Menu');
 // (v0.4.1). The pass link carries the token only in the fragment (I-3), and the page never sends a referrer.
 export default async function MePage() {
   const { user, now, me: m } = await loadMe('/me');
-  const pass = m ? (await myPasses(db(), user.email ?? '', env().PASS_TOKEN_SECRET, new Date())).find((p) => p.participantId === m.participantId)?.pass : undefined;
-  // v0.4.1: staff get links to their events (the admin and scanner pages check the role again).
-  const { data: roles, error } = await db()
-    .from('event_staff')
-    .select('role, events!inner(slug, name, starts_at)')
-    .eq('user_id', user.id)
-    .order('starts_at', { referencedTable: 'events', ascending: false });
+  // v0.11.25: the pass and the staff roles (v0.4.1: links to their events; the admin and scanner pages check
+  // the role again) don't depend on each other, so they load together.
+  const [passes, { data: roles, error }] = await Promise.all([
+    m ? myPasses(db(), user.email ?? '', env().PASS_TOKEN_SECRET, new Date()) : Promise.resolve([]),
+    db().from('event_staff').select('role, events!inner(slug, name, starts_at)').eq('user_id', user.id)
+      .order('starts_at', { referencedTable: 'events', ascending: false }),
+  ]);
   if (error) throw new Error(`event_staff lookup failed (${error.code})`);
+  const pass = m ? passes.find((p) => p.participantId === m.participantId)?.pass : undefined;
+  // v0.11.25: someone not (yet) accepted learns why the menu is empty instead of "No upcoming events yet".
+  let waiting: string | null = null;
+  if (!m) {
+    const { data: rows, error: statusError } = await db().from('participants')
+      .select('status, rsvp_sent_at, events!inner(name, ends_at)').eq('email', normalizeEmail(user.email ?? ''))
+      .is('deleted_at', null).gt('events.ends_at', now.toISOString()).order('created_at', { ascending: false }).limit(1);
+    if (statusError) throw new Error(`status lookup failed (${statusError.code})`);
+    const row = rows[0];
+    if (row?.status === 'pending' && row.rsvp_sent_at) waiting = `Your invitation to ${row.events.name} is in your email. Answer it there.`;
+    else if (row?.status === 'pending' || row?.status === 'waitlisted') waiting = `You’re on the waitlist for ${row.events.name}. We’ll email you if a spot opens.`;
+    else if (row?.status === 'withdrawn') waiting = `You gave your spot at ${row.events.name} away. Changed your mind? Open your invitation link again before the RSVP deadline.`;
+  }
 
   const live = m ? Date.parse(m.event.endsAt) > now.getTime() : false;
+  const mapUrl = m ? venueMapUrl(m.event.venue) : null;
   // The emergency contact has its own menu item and warning; this hint is about the profile page's own answers.
   const profileSetUp = !!m && m.overnight !== null && m.teamStatus !== null;
   const teamHint = !m ? '' : m.teamId ? 'You’re in a team' : !live ? '' : m.event.teamsOpen ? 'Create or join a team' : 'Opens on hackathon day';
@@ -110,7 +126,7 @@ export default async function MePage() {
             <p>Hi {m.firstName}.</p>
             <h1>{m.event.name}</h1>
             <p>{formatEventDateTime(m.event.startsAt, m.event.timezone)}</p>
-            <p>{m.event.venue}</p>
+            <p>{mapUrl ? <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline focus-visible:outline-2 focus-visible:outline-offset-2">{m.event.venue}</a> : m.event.venue}</p>
           </header>
           <nav aria-label="Hacker menu" className="tw-me-nav grid gap-[16px]">
             {typeof pass === 'object' ? (
@@ -235,7 +251,8 @@ export default async function MePage() {
           ))}
         </section></Entrance>
       )}
-      {!m && roles.length === 0 && <p className="copy">No upcoming events yet. When you answer Yes to an invitation, your event shows up here.</p>}
+      {!m && waiting && <p className="copy">{waiting}</p>}
+      {!m && !waiting && roles.length === 0 && <p className="copy">No upcoming events yet.</p>}
       <footer className="tw-me-footer flex flex-wrap items-center justify-between gap-[12px] pt-[24px] [border-top-width:1px]
 
           [border-top-style:solid] [border-top-color:var(--line)] text-muted-foreground text-[14px] [&_p]:m-0 [&_p]:min-w-0

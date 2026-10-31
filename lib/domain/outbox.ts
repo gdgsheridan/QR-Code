@@ -3,10 +3,18 @@
 const BACKOFF_SECONDS = [60, 5 * 60, 25 * 60, 2 * 60 * 60] as const;
 const MAX_BACKOFF_SECONDS = 2 * 60 * 60;
 export const MAX_ATTEMPTS = 5;
+// v0.11.25: a provider's 429 isn't a failed attempt. Only this many rate-limited tries in a row give up.
+export const MAX_RATE_LIMIT_RETRIES = 20;
+const RATE_LIMIT_WAIT_SECONDS = 60;
 
 export type NextAttempt = { status: 'pending'; at: Date } | { status: 'failed' };
 
-export function nextAttempt(input: { attempts: number; now: Date; retryAfterSeconds?: number }): NextAttempt {
+/** `rateLimitHits` is set only for a 429: the row's rate-limited tries, this one included. */
+export function nextAttempt(input: { attempts: number; now: Date; retryAfterSeconds?: number; rateLimitHits?: number }): NextAttempt {
+  if (input.rateLimitHits !== undefined) {
+    if (input.rateLimitHits >= MAX_RATE_LIMIT_RETRIES) return { status: 'failed' };
+    return { status: 'pending', at: new Date(input.now.getTime() + (input.retryAfterSeconds ?? RATE_LIMIT_WAIT_SECONDS) * 1000) };
+  }
   if (input.attempts >= MAX_ATTEMPTS) return { status: 'failed' };
   const table = BACKOFF_SECONDS[Math.max(0, input.attempts - 1)] ?? MAX_BACKOFF_SECONDS;
   const delay = input.retryAfterSeconds ?? table;

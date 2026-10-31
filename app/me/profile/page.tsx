@@ -5,7 +5,7 @@ import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
+import { PaceSlider } from '@/components/pace-slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { DISCORD_PATTERN, LINKEDIN_PATTERN, WEBSITE_PATTERN } from '@/lib/domain/badge';
-import { PACE, type ProfileInput } from '@/lib/domain/profile';
+import { PHONE_PATTERN, type ProfileInput } from '@/lib/domain/profile';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AllergyFields } from './allergy-fields';
@@ -44,7 +44,7 @@ const OVERNIGHT = [
 ] as const;
 const TEAM = [
   ['team', 'I have a team'],
-  ['looking', 'I’m looking for a team (lists my name in the Hacker directory)'],
+  ['looking', 'I’m looking for a team (shows me under Looking for a team in the Hacker directory)'],
   ['solo', 'I plan to go solo'],
 ] as const;
 
@@ -99,8 +99,14 @@ async function saveSetup(formData: FormData) {
       allergySeverity: text(formData, 'allergySeverity'),
       teamStatus: text(formData, 'teamStatus'),
       accessibility: text(formData, 'accessibility'),
+      // v0.11.25: the walkthrough's step 3 (the emergency contact page edits it later).
+      ...(formData.get('walkthrough') === '1' && {
+        emergencyName: text(formData, 'emergencyName'),
+        emergencyPhone: text(formData, 'emergencyPhone'),
+        emergencyRelation: text(formData, 'emergencyRelation'),
+      }),
     },
-    { setup: true },
+    { setup: true, requireEmergency: formData.get('walkthrough') === '1' },
   );
   redirect(`/me/profile?${result === 'SAVED' ? `saved=setup${formData.get('walkthrough') === '1' ? '&step=links' : ''}` : `error=${result}${formData.get('walkthrough') === '1' ? '&setup=1' : ''}`}`);
 }
@@ -123,7 +129,9 @@ async function saveNetworking(formData: FormData) {
   if (formData.get('walkthrough') !== '1') {
     redirect(`/me/profile?tab=networking&${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
   }
-  redirect(`/me/profile?${result === 'SAVED' ? `saved=1${formData.get('walkthrough') === '1' ? '&step=links' : ''}` : `error=${result}${formData.get('walkthrough') === '1' ? '&step=links' : ''}`}`);
+  // The walkthrough's last step: done, so back to the hacker menu (owner's request); a refusal stays on the step.
+  if (result === 'SAVED') redirect('/me');
+  redirect(`/me/profile?error=${result}&step=links`);
 }
 
 export default async function HackerProfilePage(props: {
@@ -143,8 +151,9 @@ export default async function HackerProfilePage(props: {
   const tab = ERROR_TAB[notices.error as SaveProfileResult]
     ?? TABS.find(([value]) => value === notices.tab)?.[0] ?? defaultTab;
   const unfinished = { event: !setupDone, health: false, networking: false };
-  const initialStep = networkingError || (notices.step === 'links' && setupDone) ? 3
+  const initialStep = networkingError || (notices.step === 'links' && setupDone) ? 4
     : ['INVALID_OVERNIGHT', 'INVALID_TEAM_STATUS'].includes(notices.error ?? '') ? 1
+    : notices.error === 'INVALID_CONTACT' ? 3
     : error ? 2 : 1;
 
   return (
@@ -160,8 +169,8 @@ export default async function HackerProfilePage(props: {
       </div>
       <h1>{setupDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
       {!setupDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
-      {!m.emergency && <Alert role="note" asChild><p>
-        We still need your emergency contact. <Link className="font-semibold text-accent" href="/me/emergency">Add your emergency contact →</Link>
+      {!m.emergency && !walkthrough && <Alert role="note" asChild><p>
+        We still need your emergency contact. <Link className="inline-flex min-h-11 items-center font-semibold text-accent" href="/me/emergency">Add your emergency contact →</Link>
       </p></Alert>}
 
       {!walkthrough && <nav aria-label="Profile sections" className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden">
@@ -207,7 +216,13 @@ export default async function HackerProfilePage(props: {
 
           [&_legend]:p-0 [&_legend]:mb-[4px] [&_legend]:text-[14px] [&_legend]:font-medium">
             <legend>Your team</legend>
-            {TEAM.map(([value, label]) => (
+            {m.teamName ? (
+              // v0.11.25: in a team, the answer is the team; the stored answer is kept for if they leave.
+              <p className="copy m-0 min-h-[44px] flex items-center gap-2">
+                <input type="hidden" name="teamStatus" value={m.teamStatus ?? 'team'} />
+                In a team: <strong>{m.teamName}</strong> <Link className="inline-flex min-h-[44px] items-center" href="/me/team">Team page →</Link>
+              </p>
+            ) : TEAM.map(([value, label]) => (
               <Label key={value} className="flex gap-[10px] items-center min-h-[44px] [&_input]:[flex:0_0_auto] [&_input]:w-[22px]
 
           [&_input]:h-[22px]">
@@ -225,9 +240,21 @@ export default async function HackerProfilePage(props: {
                 [border-style:solid] [border-top-color:var(--field)] [border-right-color:var(--field)]
                 [border-bottom-color:var(--field)] [border-left-color:var(--field)] rounded-control
                 [&:is(select)]:min-w-0 [&:is(select)]:w-full`} hintClass={" m-0 text-muted-foreground text-[14px]"} />
-          <Label htmlFor="accessibility">Accessibility needs (optional)</Label>
+          <Label htmlFor="accessibility">Accessibility needs</Label>
           <Textarea id="accessibility" name="accessibility" maxLength={500} placeholder="Anything that would make the event easier for you" defaultValue={m.accessibility ?? ''} className="min-h-12 w-full" />
 
+          {!walkthrough && <Button type="submit">Save profile</Button>}
+          </SetupStep>}
+          {walkthrough && <SetupStep number={3}>
+          <h2 id="setup-step-3" tabIndex={-1}>Emergency contact</h2>
+          <p className="copy m-0 text-muted-foreground text-[14px]">Only the organizers see it.</p>
+          <Label htmlFor="emergencyName">Emergency contact name</Label>
+          <Input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" defaultValue={m.emergency?.name ?? ''} className="min-h-12 w-full" />
+          <Label htmlFor="emergencyPhone">Emergency contact phone</Label>
+          <Input id="emergencyPhone" name="emergencyPhone" type="tel" required maxLength={30} pattern={PHONE_PATTERN}
+            title="A phone number: digits, spaces and + ( ) - ." autoComplete="off" defaultValue={m.emergency?.phone ?? ''} className="min-h-12 w-full" />
+          <Label htmlFor="emergencyRelation">Relationship</Label>
+          <Input id="emergencyRelation" name="emergencyRelation" maxLength={60} placeholder="Parent, partner, friend…" autoComplete="off" defaultValue={m.emergency?.relation ?? ''} className="min-h-12 w-full" />
           <Button type="submit">Save profile</Button>
           </SetupStep>}
           {error && !networkingError && (
@@ -262,7 +289,7 @@ export default async function HackerProfilePage(props: {
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
           <input type="hidden" name="walkthrough" value={walkthrough ? '1' : '0'} />
-          <Label htmlFor="linkedin">LinkedIn (optional)</Label>
+          <Label htmlFor="linkedin">LinkedIn</Label>
           <Input
             id="linkedin"
             name="linkedin"
@@ -275,7 +302,7 @@ export default async function HackerProfilePage(props: {
             defaultValue={m.linkedinUrl ?? ''}
             className="min-h-12 w-full"
           />
-          <Label htmlFor="discord">Discord username (optional)</Label>
+          <Label htmlFor="discord">Discord username</Label>
           <Input
             id="discord"
             name="discord"
@@ -290,7 +317,7 @@ export default async function HackerProfilePage(props: {
             defaultValue={m.discordUsername ?? ''}
             className="min-h-12 w-full"
           />
-          <Label htmlFor="website">Website (optional)</Label>
+          <Label htmlFor="website">Website</Label>
           <Input
             id="website"
             name="website"
@@ -303,20 +330,16 @@ export default async function HackerProfilePage(props: {
             defaultValue={m.websiteUrl ?? ''}
             className="min-h-12 w-full"
           />
-          <Label htmlFor="bio">Bio (optional)</Label>
+          <Label htmlFor="bio">Bio</Label>
           <Textarea id="bio" name="bio" maxLength={280} rows={4} defaultValue={m.bio ?? ''} placeholder="What do you enjoy building? Who would you like to meet?" className="min-h-24 w-full" />
-          <Label htmlFor="profilePace">Your pace (optional)</Label>
-          <NativeSelect id="profilePace" name="pace" defaultValue={m.pace ?? ''} className="min-h-12 w-full">
-            <option value="">No pace set</option>
-            {Object.entries(PACE).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </NativeSelect>
+          <PaceSlider key={m.pace ?? ''} value={m.pace ?? ''} />
           <Label className="flex min-h-11 items-center gap-3">
             <input type="checkbox" name="directoryOptIn" defaultChecked={m.directoryOptIn} className="size-[22px] shrink-0" />
             List me in the Hacker directory
           </Label>
-          <Label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
-            <input type="checkbox" name="public" defaultChecked={m.profilePublic} style={{ width: 22, height: 22 }} />
-            Show my name and these links to anyone who taps my badge
+          <Label className="flex min-h-11 items-center gap-3">
+            <input type="checkbox" name="public" defaultChecked={m.profilePublic} className="size-[22px] shrink-0" />
+            Share my name and links on my badge
           </Label>
           {error && (!walkthrough || networkingError || notices.step === 'links') && (
             <Alert className="text-bad" asChild><p role="alert" >
@@ -328,7 +351,8 @@ export default async function HackerProfilePage(props: {
               ✓ Saved.
             </p></Alert>
           )}
-          <Button type="submit">Save links</Button>
+          {/* v0.11.25: in the walkthrough the last step saves and finishes, so nothing typed is lost to a "Done" link. */}
+          <Button type="submit">{walkthrough ? 'Save and finish' : 'Save links'}</Button>
         </form>
       </section></Card>
       </SetupPanel>}

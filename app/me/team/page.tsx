@@ -5,6 +5,7 @@ import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { ConfirmSubmit } from '@/components/confirm-submit';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Input } from '@/components/ui/input';
 import type { Metadata } from 'next';
@@ -14,7 +15,7 @@ import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { formatJoinCode } from '@/lib/domain/team';
 import { myEvent } from '@/lib/me/profile';
-import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, setLooking, setTeamTrack, type TeamCode } from '@/lib/me/team';
+import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, setLooking, setTeamTrack, setTrackInterests, type TeamCode } from '@/lib/me/team';
 import { loadMyEvent, menuMetadata } from '../load';
 
 export const metadata: Metadata = menuMetadata('Team');
@@ -37,6 +38,7 @@ const NOTICES: Record<TeamCode, string> = {
   TEAM_FULL: '✕ That team already has 4 people.',
   CLOSED: '✕ Teams are closed right now. Ask an organizer.',
   NOT_RELEASED: '✕ Tracks aren’t released yet.',
+  BAD_TRACK: '✕ That track isn’t part of this event any more. Reload and pick again.',
   NOT_FOUND: '✕ Something changed. Reload the page and try again.',
   INVALID_NAME: '✕ Give your team a name, up to 60 characters.',
 };
@@ -53,7 +55,7 @@ async function act(formData: FormData) {
   const r =
     op === 'accept' ? await joinTeam(db(), user, m.participantId, { teamId: field('teamId') })
     : op === 'decline' ? await declineInvite(db(), user, m.participantId, field('teamId'))
-    : op === 'looking' ? await setLooking(db(), user, m.participantId, field('looking') === 'on')
+    : op === 'looking' ? await saveLooking(user, m.participantId, field('looking') === 'on', formData.getAll('track').map(String))
     : op === 'create'
       ? await createTeam(db(), user, m.participantId, field('name'))
       : op === 'join'
@@ -64,10 +66,16 @@ async function act(formData: FormData) {
   redirect(`/me/team?r=${r}`);
 }
 
+// v0.11.25: Looking and the tracks they want to do save together.
+async function saveLooking(user: { id: string; email: string | null }, participantId: string, on: boolean, tracks: string[]) {
+  const looking = await setLooking(db(), user, participantId, on);
+  return looking === 'SAVED' ? setTrackInterests(db(), user, participantId, tracks) : looking;
+}
+
 export default async function TeamPage(props: { searchParams: Promise<{ r?: string }> }) {
   const { r } = await props.searchParams;
   const { me: m, now } = await loadMyEvent('/me/team');
-  const { tracks, team, invites } = await myTeam(db(), m);
+  const { tracks, team, invites, myTrackIds } = await myTeam(db(), m);
   const live = Date.parse(m.event.endsAt) > now.getTime();
   const open = m.event.teamsOpen && live;
   const notice = r === 'SAVED' && !team ? '✓ Directory preference saved.' : r && r in NOTICES ? NOTICES[r as TeamCode] : null;
@@ -105,7 +113,15 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
               <input type="checkbox" name="looking" defaultChecked={m.lookingForTeam} style={{ width: 22, height: 22 }} />
               Looking for a team
             </Label>
-            <p className="copy m-0 text-muted-foreground text-[14px]">List my name under “Looking for a team” in the Hacker directory.</p>
+            {tracks.length > 0 && <fieldset className="grid gap-[2px] m-0 p-0 border-0 min-w-0 [&_legend]:p-0 [&_legend]:mb-[4px] [&_legend]:text-[14px] [&_legend]:font-medium">
+              <legend>Tracks I want to do</legend>
+              {tracks.map((t) => (
+                <Label key={t.id} className="flex min-h-11 items-center gap-3 font-normal">
+                  <input type="checkbox" name="track" value={t.id} defaultChecked={myTrackIds.includes(t.id)} className="size-[22px] shrink-0" />
+                  {t.name}
+                </Label>
+              ))}
+            </fieldset>}
             <Button type="submit">Save directory preference</Button>
           </form>
         </section></Card>
@@ -219,10 +235,10 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
 
           [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
               <input type="hidden" name="op" value="leave" />
-              {team.members.length === 1 && <p className="copy m-0 text-muted-foreground text-[14px]">You’re the only member: leaving deletes the team.</p>}
-              <Button type="submit" variant="outline">
+              <ConfirmSubmit title={`Leave ${team.name}?`} cancelLabel="Keep my team" confirmLabel="Leave team"
+                message={team.members.length === 1 ? 'You’re its only member, so leaving deletes the team.' : 'You can rejoin with its code while team forming is open and there’s room.'}>
                 Leave team
-              </Button>
+              </ConfirmSubmit>
             </form>
           )}
         </section></Card>

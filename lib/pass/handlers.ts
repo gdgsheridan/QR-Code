@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { passState, type PassLookup } from '@/lib/domain/pass-state';
 import { sha256hex } from '@/lib/domain/token';
+import { formalVenue } from '@/lib/email/links';
 
 type Db = SupabaseClient<Database>;
 
@@ -42,6 +43,14 @@ export function ipKey(headers: Headers, scope = 'pass'): string {
   return `${scope}:ip:${sha256hex(ip).slice(0, 32)}`;
 }
 
+// v0.11.25 (§15): link-holder endpoints count per link, since a whole venue or campus can share one IP;
+// the per-IP ceiling only stops scraping. Keys hold hashes only (I-3, I-11).
+export const IP_CEILING_PER_MIN = 600;
+export const PER_LINK_PER_MIN = 30;
+export const tokenKey = (scope: string, token: string) => `${scope}:token:${sha256hex(token).slice(0, 32)}`;
+export const overIpCeiling = async (db: Db, headers: Headers, scope: string) => !(await withinLimit(db, ipKey(headers, scope), 60, IP_CEILING_PER_MIN));
+export const overLinkLimit = async (db: Db, scope: string, token: string) => !(await withinLimit(db, tokenKey(scope, token), 60, PER_LINK_PER_MIN));
+
 // Per email only: a whole venue can share one IP. Keys hold hashes only (I-11).
 export const emailKey = (scope: string, email: string) => `${scope}:email:${sha256hex(email).slice(0, 32)}`;
 
@@ -50,7 +59,7 @@ const passBody = z.object({ token: z.string().max(512) }).strict();
 // POST /api/pass (SPEC F5, §9.3): token in the body only, never in a URL (I-3).
 export function createPassHandler(deps: { db: Db }) {
   return async (request: Request): Promise<Response> => {
-    if (!(await withinLimit(deps.db, ipKey(request.headers), 60, 30))) return json({ error: 'rate_limited' }, 429);
+    if (await overIpCeiling(deps.db, request.headers, 'pass')) return json({ error: 'rate_limited' }, 429);
 
     let raw: unknown;
     try {
@@ -60,6 +69,7 @@ export function createPassHandler(deps: { db: Db }) {
     }
     const body = passBody.safeParse(raw);
     if (!body.success) return json({ error: 'invalid_body' }, 400);
+    if (await overLinkLimit(deps.db, 'pass', body.data.token)) return json({ error: 'rate_limited' }, 429);
 
     const found = await lookupToken(deps.db, body.data.token);
     const state = passState(found);
@@ -67,11 +77,19 @@ export function createPassHandler(deps: { db: Db }) {
     if (state !== 'active') return json({ state });
 
     const { participant, event } = found;
+    // v0.11.25: the pass is about its holder. Anyone who scans the QR opens this page, so links show only
+    // when they share them on their badge (§6.5), and never dietary notes, allergies or email.
+    const { data: me, error } = await deps.db.from('participants')
+      .select('last_name, profile_public, linkedin_url, discord_username, website_url, teams(name, tracks(name))')
+      .eq('id', participant.id).single();
+    if (error) throw new Error(`pass holder load failed (${error.code})`);
     return json({
       state,
       firstName: participant.firstName,
-      event,
-      profile: { public: participant.profilePublic, hasLinkedin: participant.hasLinkedin },
+      lastName: me.last_name,
+      event: { ...event, venue: formalVenue(event.venue) }, // v0.11.28: the venue's formal name
+      team: me.teams ? { name: me.teams.name, track: me.teams.tracks?.name ?? null } : null,
+      links: me.profile_public ? { linkedinUrl: me.linkedin_url, discord: me.discord_username, websiteUrl: me.website_url } : null,
     });
   };
 }
@@ -82,7 +100,7 @@ const profileBody = z.object({ token: z.string().max(512), profilePublic: z.bool
 // Same token-in-body auth and per-IP limit as POST; only an active pass may change it.
 export function createPassProfileHandler(deps: { db: Db }) {
   return async (request: Request): Promise<Response> => {
-    if (!(await withinLimit(deps.db, ipKey(request.headers), 60, 30))) return json({ error: 'rate_limited' }, 429);
+    if (await overIpCeiling(deps.db, request.headers, 'pass')) return json({ error: 'rate_limited' }, 429);
 
     let raw: unknown;
     try {
@@ -92,6 +110,7 @@ export function createPassProfileHandler(deps: { db: Db }) {
     }
     const body = profileBody.safeParse(raw);
     if (!body.success) return json({ error: 'invalid_body' }, 400);
+    if (await overLinkLimit(deps.db, 'pass', body.data.token)) return json({ error: 'rate_limited' }, 429);
 
     const found = await lookupToken(deps.db, body.data.token);
     if (!found || passState(found) !== 'active') return json({ state: 'not_found' }, 404);

@@ -76,6 +76,8 @@ const eventUpdate = z
     tracksReleased: z.boolean().optional(),
     // v0.9 (F13). Never in the past: the next cron run would turn every unanswered invite into a no.
     rsvpDeadline: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
+    // v0.11.28: the date shown to invitees (and the reminder days); not after the deadline (a database check).
+    rsvpReplyBy: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0);
@@ -154,7 +156,7 @@ export function createAdminApi(deps: AdminDeps) {
   }
 
   async function loadEvent(eventId: string) {
-    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released, rsvp_deadline').eq('id', eventId).single();
+    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released, rsvp_deadline, rsvp_reply_by').eq('id', eventId).single();
     if (error) throw new Error(`event load failed (${error.code})`);
     return data;
   }
@@ -287,15 +289,25 @@ export function createAdminApi(deps: AdminDeps) {
       if (g instanceof Response) return g;
       const url = new URL(request.url);
       const status = z.enum(['pending', 'accepted', 'waitlisted', 'rejected', 'withdrawn']).optional().safeParse(url.searchParams.get('status') || undefined);
-      if (!status.success) return badRequest();
+      const sheet = z.enum(['accepted', 'waitlisted']).optional().safeParse(url.searchParams.get('sheet') || undefined);
+      if (!status.success || !sheet.success) return badRequest();
       const q = toSearchText(url.searchParams.get('q') ?? '');
       const { data, error } = await db.rpc('admin_participants', {
         p_event_id: g.eventId,
         ...(status.data && { p_status: status.data }),
+        ...(sheet.data && { p_sheet_status: sheet.data }),
         ...(q && { p_query: q }),
         p_no_show: url.searchParams.get('noShow') === '1',
       });
       if (error) throw new Error(`admin_participants failed (${error.code})`);
+      // v0.11.25: whose newest RSVP email (invitation or reminder) failed for good, so they never got a link.
+      const { data: rsvpMail, error: mailError } = await db.from('email_outbox')
+        .select('participant_id, status, participants!inner(event_id)')
+        .in('kind', ['rsvp', 'rsvp_reminder']).eq('participants.event_id', g.eventId)
+        .order('created_at', { ascending: false });
+      if (mailError) throw new Error(`rsvp outbox load failed (${mailError.code})`);
+      const newest = new Map<string, string>();
+      for (const m of rsvpMail) if (m.participant_id && !newest.has(m.participant_id)) newest.set(m.participant_id, m.status);
       return json({
         participants: data.map((p) => ({
           id: p.id,
@@ -310,8 +322,10 @@ export function createAdminApi(deps: AdminDeps) {
           hasBadge: p.has_badge,
           passState: p.pass_state,
           rsvpSentAt: p.rsvp_sent_at,
+          rsvpFailed: newest.get(p.id) === 'failed',
           liveScans: p.live_scans,
           checkedIn: p.checked_in,
+          sheetStatus: p.sheet_status,
         })),
       });
     },
@@ -348,7 +362,7 @@ export function createAdminApi(deps: AdminDeps) {
           emergency: p.emergency_name ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
           // v0.9 profile setup (F14). Allergies and accessibility are personal data: organizers only, never logged.
           overnight: p.overnight,
-          teamStatus: p.team_status,
+          teamStatus: p.team_id ? 'team' : p.team_status, // v0.11.25: in a team means in a team
           allergies: p.allergies,
           allergySeverity: p.allergy_severity,
           accessibility: p.accessibility,
@@ -454,28 +468,6 @@ export function createAdminApi(deps: AdminDeps) {
       return json({ code: data });
     },
 
-    // POST /api/admin/[slug]/participants/[id]/test  { isTest }
-    async markTest(request: Request, params: Params) {
-      const g = await guard(request, params);
-      if (g instanceof Response) return g;
-      const id = uuid(params.id);
-      const body = z.object({ isTest: z.boolean() }).strict().safeParse(await readJson(request));
-      if (!id) return notFound();
-      if (!body.success) return badRequest();
-      const { data, error } = await db
-        .from('participants')
-        .update({ is_test: body.data.isTest, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .eq('event_id', g.eventId)
-        .is('deleted_at', null)
-        .select('id')
-        .maybeSingle();
-      if (error) throw new Error(`mark test failed (${error.code})`);
-      if (!data) return notFound();
-      await audit(g.eventId, g.userId, 'participant.mark_test', id, { isTest: body.data.isTest });
-      return json({ isTest: body.data.isTest });
-    },
-
     // DELETE /api/admin/[slug]/participants/[id]  (§5.1 tombstone)
     async deleteParticipant(request: Request, params: Params) {
       const g = await guard(request, params);
@@ -574,6 +566,7 @@ export function createAdminApi(deps: AdminDeps) {
         teamsOpen: e.teams_open,
         tracksReleased: e.tracks_released,
         rsvpDeadline: e.rsvp_deadline && new Date(e.rsvp_deadline).toISOString(),
+        rsvpReplyBy: e.rsvp_reply_by && new Date(e.rsvp_reply_by).toISOString(),
         lastSyncAt: lastSync ? new Date(lastSync.created_at).toISOString() : null,
       });
     },
@@ -584,7 +577,7 @@ export function createAdminApi(deps: AdminDeps) {
       if (g instanceof Response) return g;
       const body = eventUpdate.safeParse(await readJson(request));
       if (!body.success) return badRequest();
-      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased, rsvpDeadline } = body.data;
+      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased, rsvpDeadline, rsvpReplyBy } = body.data;
       const sheetId = sheet === undefined || sheet === null ? null : parseSheetId(sheet);
       if (sheet !== undefined && sheet !== null && sheetId === null) return badRequest();
       const { error } = await db
@@ -596,11 +589,13 @@ export function createAdminApi(deps: AdminDeps) {
           ...(teamsOpen !== undefined && { teams_open: teamsOpen }),
           ...(tracksReleased !== undefined && { tracks_released: tracksReleased }),
           ...(rsvpDeadline !== undefined && { rsvp_deadline: rsvpDeadline }),
+          ...(rsvpReplyBy !== undefined && { rsvp_reply_by: rsvpReplyBy }),
         })
         .eq('id', g.eventId);
+      if (error?.code === '23514') return badRequest(); // a reply-by date after the deadline
       if (error) throw new Error(`event update failed (${error.code})`);
       if (sheet !== undefined) await audit(g.eventId, g.userId, 'event.sheet_link', g.eventId, { linked: sheetId !== null });
-      if (schedule !== undefined || emergencyInfo !== undefined || rsvpDeadline !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
+      if (schedule !== undefined || emergencyInfo !== undefined || rsvpDeadline !== undefined || rsvpReplyBy !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
       const flags = { ...(teamsOpen !== undefined && { teamsOpen }), ...(tracksReleased !== undefined && { tracksReleased }) };
       if (Object.keys(flags).length > 0) await audit(g.eventId, g.userId, 'event.teams', g.eventId, flags);
       return json({
@@ -608,6 +603,7 @@ export function createAdminApi(deps: AdminDeps) {
         ...(schedule !== undefined && { schedule }),
         ...(emergencyInfo !== undefined && { emergencyInfo }),
         ...(rsvpDeadline !== undefined && { rsvpDeadline: rsvpDeadline && new Date(rsvpDeadline).toISOString() }),
+        ...(rsvpReplyBy !== undefined && { rsvpReplyBy: rsvpReplyBy && new Date(rsvpReplyBy).toISOString() }),
         ...flags,
       });
     },
@@ -749,10 +745,10 @@ export function createAdminApi(deps: AdminDeps) {
       if (g instanceof Response) return g;
       const id = uuid(params.id);
       if (!id) return notFound();
-      const { data, error } = await db.from('teams').delete().eq('id', id).eq('event_id', g.eventId).select('id').maybeSingle();
-      if (error) throw new Error(`team delete failed (${error.code})`);
-      if (!data) return notFound();
-      await audit(g.eventId, g.userId, 'team.delete', id);
+      // delete_team() locks the members before the team, like the hacker functions, so it can't deadlock (v0.11.25).
+      const { data, error } = await db.rpc('delete_team', { p_event_id: g.eventId, p_team_id: id, p_actor: g.userId });
+      if (error) throw new Error(`delete_team failed (${error.code})`);
+      if (data === 'NOT_FOUND') return notFound();
       return json({ deleted: true });
     },
 
@@ -828,6 +824,9 @@ export function createAdminApi(deps: AdminDeps) {
           .is('voided_at', null);
         if (doorError) throw new Error(`door scans load failed (${doorError.code})`);
         const checkedInAt = new Map(doors.map((d) => [d.participant_id, d.scanned_at]));
+        const { data: teamed, error: teamError } = await db.from('participants').select('id').eq('event_id', g.eventId).not('team_id', 'is', null);
+        if (teamError) throw new Error(`team members load failed (${teamError.code})`);
+        const inTeam = new Set(teamed.map((t) => t.id));
         return csvResponse(
           slug,
           kind,
@@ -839,7 +838,7 @@ export function createAdminApi(deps: AdminDeps) {
             data.map((p) => [
               p.first_name, p.last_name, p.email, p.status, p.source, p.is_test, p.dietary_notes,
               local(checkedInAt.get(p.id) ?? null), p.external_id,
-              p.overnight, p.team_status, p.allergies, p.allergy_severity,
+              p.overnight, inTeam.has(p.id) ? 'team' : p.team_status, p.allergies, p.allergy_severity, // v0.11.25: in a team means in a team
             ]),
           ),
         );

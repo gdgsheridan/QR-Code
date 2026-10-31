@@ -5,7 +5,8 @@ import { sanitizeError } from '@/lib/domain/outbox';
 import { parseProfileInput } from '@/lib/domain/profile';
 import { sha256hex } from '@/lib/domain/token';
 import { profileArgs } from '@/lib/me/profile';
-import { emailKey, ipKey, withinLimit } from '@/lib/pass/handlers';
+import { emailKey, overIpCeiling, overLinkLimit, withinLimit } from '@/lib/pass/handlers';
+import { shownReplyBy } from '@/lib/domain/rsvp';
 
 type Db = SupabaseClient<Database>;
 
@@ -35,6 +36,8 @@ const lookupSchema = z.object({
   // v0.9: when the invitation stops taking a Yes, and whether it has (never for the accepted).
   closesAt: z.string().nullable().transform((at) => at && new Date(at).toISOString()),
   closed: z.boolean(),
+  // v0.11.28: the date they're asked to reply by (the invitation closes at closesAt).
+  replyBy: z.string().nullable().transform((at) => at && new Date(at).toISOString()),
 });
 
 const field = z.string().max(1000).optional(); // lengths are checked by parseProfileInput
@@ -65,7 +68,7 @@ const rsvpBody = z
 // can't send one, so no other site can post a Yes and sign a visitor into someone else's account.
 export function createRsvpHandler(deps: RsvpDeps) {
   return async (request: Request): Promise<Response> => {
-    if (!(await withinLimit(deps.db, ipKey(request.headers, 'rsvp'), 60, 30))) return json({ error: 'rate_limited' }, 429);
+    if (await overIpCeiling(deps.db, request.headers, 'rsvp')) return json({ error: 'rate_limited' }, 429);
     if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return json({ error: 'invalid_body' }, 400);
 
     let raw: unknown;
@@ -76,6 +79,7 @@ export function createRsvpHandler(deps: RsvpDeps) {
     }
     const body = rsvpBody.safeParse(raw);
     if (!body.success) return json({ error: 'invalid_body' }, 400);
+    if (await overLinkLimit(deps.db, 'rsvp', body.data.token)) return json({ error: 'rate_limited' }, 429);
 
     const hash = sha256hex(body.data.token);
     const { data, error } = await deps.db.rpc('rsvp_lookup', { p_token_hash: hash });
@@ -85,7 +89,7 @@ export function createRsvpHandler(deps: RsvpDeps) {
     const { going, password = '' } = body.data;
     if (going === undefined) {
       // The prefill holds the Sheet's dietary notes and LinkedIn, never the email or the emergency contact.
-      return json({ firstName: found.firstName, event: found.event, status: found.status, hasAccount: found.hasAccount, profile: found.profile, closesAt: found.closesAt, closed: found.closed });
+      return json({ firstName: found.firstName, event: found.event, status: found.status, hasAccount: found.hasAccount, profile: found.profile, closesAt: found.closesAt, closed: found.closed, replyBy: shownReplyBy(found.replyBy, found.closesAt, new Date()) });
     }
     // Past the deadline (F13, v0.9): refused before any account is made or signed into.
     if (going && found.closed) return json({ error: 'closed' }, 409);
@@ -101,9 +105,10 @@ export function createRsvpHandler(deps: RsvpDeps) {
       if (password.length < 8 || password.length > 72) return json({ error: 'weak_password' }, 400);
       const created = await deps.db.auth.admin.createUser({ email: found.email, password, email_confirm: true });
       if (created.error?.code === 'weak_password') return json({ error: 'weak_password' }, 400);
-      // email_exists: an account appeared since the lookup (a double tap): it needs its own password, below.
-      if (created.error?.code === 'email_exists') newAccount = false;
-      else if (created.error) throw new Error(`createUser failed (${created.error.code ?? created.error.status})`);
+      // Any other failure is most likely an account that appeared since the lookup (a double tap): email_exists,
+      // or GoTrue's bare 500 when two creates race (v0.11.25). Either way it needs its own password, below:
+      // the right one signs in and answers, a wrong one is refused, and GoTrue being down is still a 500.
+      if (created.error) newAccount = false;
     }
     if (going && !newAccount) {
       // Over the limit looks like a wrong password, as on /login (§15).

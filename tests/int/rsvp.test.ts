@@ -150,8 +150,13 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect((await call({ token, going: 'yes' })).status).toBe(400);
     expect((await call({ token, extra: 1 })).status).toBe(400);
 
+    // v0.11.25: 30 a minute per invitation link, 600 per IP: a campus behind one IP isn't refused.
+    const campus: number[] = [];
+    for (let i = 0; i < 31; i++) campus.push((await call({ token: generateToken() }, '10.200.0.1')).status);
+    expect(campus.every((st) => st === 404)).toBe(true);
+    const hammered = generateToken();
     const statuses: number[] = [];
-    for (let i = 0; i < 31; i++) statuses.push((await call({ token: generateToken() }, '10.200.0.1')).status);
+    for (let i = 0; i < 31; i++) statuses.push((await call({ token: hammered })).status);
     expect(statuses.at(-1)).toBe(429);
   });
 
@@ -291,6 +296,14 @@ describe('RSVP (SPEC F13, v0.4)', () => {
       signedIn: true,
       next: '/me',
     });
+
+    // v0.11.25: a real parallel double tap. GoTrue answers the second createUser with a bare 500 ("Database
+    // error creating new user"), not email_exists; that tap must still sign in and answer, not fail.
+    const both = await newApplicant('parallel-tap');
+    const bothToken = await rsvpToken(both.id);
+    const taps = await Promise.all([1, 2].map(() => call({ token: bothToken, going: true, ...CONTACT, password: STAFF_PASSWORD })));
+    expect(taps.map((t) => t.status)).toEqual([200, 200]);
+    for (const t of taps) expect(t.body).toMatchObject({ code: 'GOING' });
 
     // GoTrue itself failing (rate limit, 5xx) is an error, not "wrong password", and changes nothing.
     const flaky = await newApplicant('gotrue-down');

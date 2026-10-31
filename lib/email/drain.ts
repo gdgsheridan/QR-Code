@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { toFileLabel } from '@/lib/domain/file-label';
+import { shownReplyBy } from '@/lib/domain/rsvp';
 import { nextAttempt, sanitizeError } from '@/lib/domain/outbox';
 import { generateToken, passToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
@@ -12,7 +13,7 @@ import { renderProfileReminderEmail } from './templates/profile-reminder';
 import { renderRsvpEmail } from './templates/rsvp';
 import { renderStaffAddedEmail } from './templates/staff-added';
 import { renderTeamInviteEmail } from './templates/team-invite';
-import { emailEventName } from './links';
+import { emailEventName, formalVenue } from './links';
 
 type Db = SupabaseClient<Database>;
 type OutboxRow = Database['public']['Tables']['email_outbox']['Row'];
@@ -35,14 +36,30 @@ export interface DrainResult {
   retrying: number;
   failed: number;
   cancelled: number;
+  /** A 429 stopped this batch (v0.11.25). */
+  rateLimited: boolean;
 }
 
 // SPEC F4. Safe to run concurrently: rows are claimed with FOR UPDATE SKIP LOCKED.
 export async function drainOutbox(opts: DrainOptions): Promise<DrainResult> {
+  if (opts.provider.holdQueue) return { claimed: 0, sent: 0, retrying: 0, failed: 0, cancelled: 0, rateLimited: false };
   const { data: rows, error } = await opts.db.rpc('claim_outbox', { p_limit: opts.limit ?? 20 });
   if (error) throw new Error(`claim_outbox failed (${error.code})`);
-  const result: DrainResult = { claimed: rows.length, sent: 0, retrying: 0, failed: 0, cancelled: 0 };
-  for (const row of rows) result[await processRow(opts, row)] += 1;
+  const result: DrainResult = { claimed: rows.length, sent: 0, retrying: 0, failed: 0, cancelled: 0, rateLimited: false };
+  for (const [i, row] of rows.entries()) {
+    const outcome = await processRow(opts, row);
+    if (outcome === 'rateLimited') {
+      // v0.11.25: the provider said slow down. Hand the rest of the batch back, uncharged, for after its wait.
+      result.retrying += 1;
+      result.rateLimited = true;
+      for (const rest of rows.slice(i + 1)) {
+        await finish(opts.db, { p_id: rest.id, p_status: 'pending', p_refund: true });
+        result.retrying += 1;
+      }
+      break;
+    }
+    result[outcome] += 1;
+  }
   return result;
 }
 
@@ -53,7 +70,7 @@ export async function drainUntilIdle(opts: DrainOptions, budgetMs = 25_000): Pro
   for (;;) {
     const r = await drainOutbox(opts);
     claimed += r.claimed;
-    if (r.claimed === 0 || Date.now() > deadline) return claimed;
+    if (r.claimed === 0 || r.rateLimited || Date.now() > deadline) return claimed;
   }
 }
 
@@ -65,7 +82,7 @@ async function finish(db: Db, args: FinishArgs): Promise<void> {
 // What the drainer sends for one row; null cancels it.
 type Outgoing = Pick<EmailMessage, 'to' | 'subject' | 'html' | 'text' | 'inlineImages' | 'fileLabel'>;
 
-async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<keyof DrainResult, 'claimed'>> {
+async function processRow(opts: DrainOptions, row: OutboxRow): Promise<'sent' | 'retrying' | 'failed' | 'cancelled' | 'rateLimited'> {
   let providerId: string;
   try {
     const message = row.kind === 'staff_added' ? await staffEmail(opts, row) : await participantEmail(opts, row);
@@ -77,14 +94,18 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
     ({ id: providerId } = await opts.provider.send({ ...message, from: opts.from, idempotencyKey: `${row.id}:${row.attempts}` }));
   } catch (err) {
     // 5. Failure: back off, or give up after the last attempt. last_error is sanitized (I-11).
+    // A 429 isn't charged as an attempt and has its own, larger allowance (v0.11.25).
+    const rateLimited = err instanceof ProviderError && err.status === 429;
     const next = nextAttempt({
       attempts: row.attempts,
       now: (opts.now ?? (() => new Date()))(),
       retryAfterSeconds: err instanceof ProviderError ? err.retryAfterSeconds : undefined,
+      rateLimitHits: rateLimited ? row.rate_limit_hits + 1 : undefined,
     });
     const lastError = sanitizeError(err);
+    const charge = { p_refund: rateLimited, p_rate_limited: rateLimited };
     if (next.status === 'failed') {
-      await finish(opts.db, { p_id: row.id, p_status: 'failed', p_last_error: lastError });
+      await finish(opts.db, { p_id: row.id, p_status: 'failed', p_last_error: lastError, ...charge });
       return 'failed';
     }
     await finish(opts.db, {
@@ -92,8 +113,9 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
       p_status: 'pending',
       p_next_attempt_at: next.at.toISOString(),
       p_last_error: lastError,
+      ...charge,
     });
-    return 'retrying';
+    return rateLimited ? 'rateLimited' : 'retrying';
   }
 
   // 4. Success. If this write fails, the row is retried and a second email goes out with a newer
@@ -109,14 +131,14 @@ async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Out
   if (participantId === null) return null;
   const { data: p, error } = await opts.db
     .from('participants')
-    .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, events(slug, name, venue, starts_at, timezone)')
+    .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, team_id, events(slug, name, venue, starts_at, timezone, rsvp_reply_by)')
     .eq('id', participantId)
     .single();
   if (error) throw new Error(`participant load failed (${error.code})`);
   const accepted = p.status === 'accepted';
   const rsvp = row.kind === 'rsvp' || row.kind === 'rsvp_reminder';
   if (p.deleted_at !== null || (rsvp ? accepted : !accepted)) return null;
-  const event = { name: emailEventName(p.events.slug, p.events.name), venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone };
+  const event = { name: emailEventName(p.events.slug, p.events.name), venue: formalVenue(p.events.venue), startsAt: p.events.starts_at, timezone: p.events.timezone };
 
   let email: RenderedEmail;
   if (rsvp) {
@@ -129,14 +151,18 @@ async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Out
     const closes = z.object({ closesAt: z.string().nullable() }).safeParse(stored);
     if (!closes.success) return null;
     const closesAt = closes.data.closesAt && new Date(closes.data.closesAt).toISOString();
-    email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt, reminder: row.kind === 'rsvp_reminder' });
+    // v0.11.28: they're asked to reply by the event's reply-by date while it's ahead; the invitation closes later.
+    const replyBy = p.events.rsvp_reply_by && new Date(p.events.rsvp_reply_by).toISOString();
+    email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt: shownReplyBy(replyBy, closesAt, opts.now?.() ?? new Date()), reminder: row.kind === 'rsvp_reminder' });
   } else if (row.kind === 'team_invite') {
-    const { data: invite, error: inviteError } = await opts.db.from('team_invites')
+    if (p.team_id !== null) return null; // joined a team since (v0.11.25): the invite no longer applies
+    const { data: invites, error: inviteError } = await opts.db.from('team_invites')
       .select('teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')
-      .eq('participant_id', participantId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      .eq('participant_id', participantId).order('created_at', { ascending: false });
     if (inviteError) throw new Error(`invite load failed (${inviteError.code})`);
+    const invite = invites[0];
     if (!invite) return null;
-    email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin });
+    email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin, count: invites.length });
   } else if (row.kind === 'profile_reminder') {
     // F14 (v0.9): only while their profile still isn't finished.
     if (p.emergency_name !== null && p.overnight !== null && p.team_status !== null) return null;

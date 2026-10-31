@@ -43,4 +43,16 @@ describe('resend provider (SPEC §12, §17 A1)', () => {
     expect(err).toMatchObject({ status: 429, retryAfterSeconds: 120 });
     expect(String(err)).not.toContain('@');
   });
+  it('T-MAIL-15: a hung request times out as a retryable error, and sends are spaced to stay under the rate limit', async () => {
+    const hung = vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+    }));
+    await expect(createResendProvider({ apiKey: 'k', fetchImpl: hung, timeoutMs: 20 }).send(message)).rejects.toMatchObject({ status: 504 });
+
+    const times: number[] = [];
+    const quick = vi.fn<typeof fetch>(async () => { times.push(Date.now()); return Response.json({ id: 'msg' }); });
+    const paced = createResendProvider({ apiKey: 'k', fetchImpl: quick, minIntervalMs: 50 });
+    await Promise.all([paced.send(message), paced.send(message), paced.send(message)]);
+    expect(times[2]! - times[0]!).toBeGreaterThanOrEqual(95);
+  });
 });

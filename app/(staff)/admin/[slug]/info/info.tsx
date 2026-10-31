@@ -13,6 +13,8 @@ import { adminUrl, errorText, useApi, useLoad } from '../api';
 interface EventInfo {
   /** v0.9 (F13): an instant from the API; edited as a datetime-local in the event timezone. */
   rsvpDeadline: string | null;
+  /** v0.11.28: the date shown to invitees, which can be earlier than the deadline. */
+  rsvpReplyBy: string | null;
   timezone: string;
 }
 
@@ -21,6 +23,7 @@ export function Info({ slug }: { slug: string }) {
   const api = useApi();
   const [info, setInfo] = useState<EventInfo | null>(null);
   const [deadline, setDeadline] = useState('');
+  const [replyBy, setReplyBy] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,8 +31,9 @@ export function Info({ slug }: { slug: string }) {
   const load = useCallback(async () => {
     const r = await api<EventInfo>(adminUrl(slug, '/event'));
     if (r.ok) {
-      setInfo({ rsvpDeadline: r.data.rsvpDeadline, timezone: r.data.timezone });
+      setInfo({ rsvpDeadline: r.data.rsvpDeadline, rsvpReplyBy: r.data.rsvpReplyBy, timezone: r.data.timezone });
       setDeadline(r.data.rsvpDeadline ? toLocalInput(r.data.rsvpDeadline, r.data.timezone) : '');
+      setReplyBy(r.data.rsvpReplyBy ? toLocalInput(r.data.rsvpReplyBy, r.data.timezone) : '');
     } else setError(errorText(r));
   }, [api, slug]);
 
@@ -40,13 +44,16 @@ export function Info({ slug }: { slug: string }) {
     if (!info) return;
     setBusy(true);
     setMessage(null);
-    const body = { rsvpDeadline: deadline ? zonedToUtc(deadline, info.timezone) : null };
+    const body = {
+      rsvpDeadline: deadline ? zonedToUtc(deadline, info.timezone) : null,
+      rsvpReplyBy: replyBy ? zonedToUtc(replyBy, info.timezone) : null,
+    };
     const r = await api<EventInfo>(adminUrl(slug, '/event'), { method: 'PATCH', body });
     setBusy(false);
     if (r.ok) {
       setError(null);
       setMessage('✓ Saved.');
-    } else setError(r.status === 400 ? 'Choose a future RSVP deadline, or leave it empty for no deadline.' : errorText(r));
+    } else setError(r.status === 400 ? 'Choose future times, with Reply by no later than RSVPs close, or leave them empty.' : errorText(r));
   }
 
   return (
@@ -106,14 +113,21 @@ export function Info({ slug }: { slug: string }) {
             <div className="flex items-start gap-[14px] [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
               <div>
                 <h2>RSVP deadline</h2>
-                <p className="copy max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">When unanswered invitations close.</p>
+                <p className="copy max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">When invitees are asked to reply, and when invitations really close.</p>
               </div>
             </div>
             <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
-              RSVP deadline ({info.timezone})
+              Reply by ({info.timezone})
+              <Input className="tw-admin-input w-full" type="datetime-local" value={replyBy} onChange={(e) => setReplyBy(e.target.value)} />
+              <span className="text-muted-foreground text-[0.78rem] font-normal leading-[1.5]">
+                The date in the RSVP email and on the RSVP page. Invitees get a reminder at 10:00 that day and the two days before. Answers still count until RSVPs close. Leave it empty to show the close date.
+              </span>
+            </Label>
+            <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
+              RSVPs close ({info.timezone})
               <Input className="tw-admin-input w-full" type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
               <span className="text-muted-foreground text-[0.78rem] font-normal leading-[1.5]">
-                No reply by then counts as a no. Invitees get a reminder at 10:00 on the deadline day and the two days before. Someone invited late gets 48 hours. Leave it empty for no deadline.
+                After this, Yes is refused and no reply counts as a no. Someone invited late gets 48 hours. Leave it empty for no deadline.
               </span>
             </Label>
           </section>

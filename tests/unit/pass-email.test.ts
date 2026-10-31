@@ -23,8 +23,10 @@ describe('pass email template (SPEC §12)', () => {
     }
     expect(m.html).toContain('src="cid:qr"');
     expect(m.inlineImages).toEqual([{ cid: 'qr', filename: 'station-qr.png', contentType: 'image/png', content: base.qrPng }]);
-    // §12 order: greeting, event, time, venue, QR, link.
-    const order = ['Ada', 'Hack Day 2026', 'Sat, Oct 3', 'Bahen Centre', 'cid:qr', 'Open your pass'].map((s) => m.html.indexOf(s));
+    // §12 order (v0.11.28): greeting, event, time, venue, the arrival note, then the QR last, linking to the pass.
+    const order = ['Ada', 'Hack Day 2026', 'Sat, Oct 3', 'Bahen Centre', 'first-come, first-served', 'cid:qr'].map((s) => m.html.indexOf(s));
+    expect(m.html).toContain(`<a href="${base.passUrl}" style="display:block"><img src="cid:qr"`);
+    expect(m.html).not.toContain('Open your pass');
     expect(order.every((v, i) => v >= 0 && (i === 0 || v > (order[i - 1] ?? 0)))).toBe(true);
   });
 
@@ -38,7 +40,10 @@ describe('pass email template (SPEC §12)', () => {
       expect(part).toContain('allergies');
     }
     expect(m.html).toContain('Set up your profile');
-    expect(m.html.indexOf('Open your pass')).toBeLessThan(m.html.indexOf('Set up your profile'));
+    // v0.11.28: the three links are buttons with icons served by the app; the plain text has the arrival note.
+    for (const icon of ['discord', 'book', 'megaphone']) expect(m.html).toContain(`src="https://station.example.com/email-icon-${icon}.png"`);
+    expect(m.text).toContain('limited to the first 175 hackers, so make sure to arrive on time!');
+    expect(m.html.indexOf('cid:qr')).toBeLessThan(m.html.indexOf('Set up your profile')); // v0.11.28: profile setup comes last
   });
 
   it('T-MAIL-07: local time uses the event timezone, not the device (EST after DST ends)', () => {
