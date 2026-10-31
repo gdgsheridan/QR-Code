@@ -59,7 +59,8 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
     [f.e1.id, email],
   );
 
-  await f.pool.query(`update events set rsvp_deadline = now() + interval '3 days' where id = $1`, [f.e1.id]); // v0.9
+  // v0.9 deadline; v0.11.28: an earlier reply-by date, with the real close named beside it.
+  await f.pool.query(`update events set rsvp_deadline = now() + interval '3 days', rsvp_reply_by = now() + interval '1 day' where id = $1`, [f.e1.id]);
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/participants`);
   await page.getByLabel('Select Rae Rsvp').check();
   await page.getByRole('button', { name: 'Send RSVP (1)' }).click();
@@ -72,6 +73,7 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
 
   const invitation = await consoleMailText(email, '/rsvp#');
   expect(invitation).toContain('Please reply by '); // v0.9
+  expect(invitation).toContain('Invitations close '); // v0.11.28: only the close counts no reply as a no
   const rsvpToken = /\/rsvp#([A-Za-z0-9_-]{32})/.exec(invitation)?.[1] ?? '';
   expect(rsvpToken).toHaveLength(32);
 
@@ -83,6 +85,16 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await expect(p.getByRole('heading', { name: f.e1.name })).toBeVisible();
   await expect(p.getByText('Hi Rae, will you be there?')).toBeVisible();
   await expect(p.locator('strong', { hasText: /^\s*Reply by \w{3}, / })).toBeVisible();
+  await expect(p.getByText(/Invitations close \w{3}, /).first()).toBeVisible();
+  await expect(p.getByRole('button', { name: 'No, give my spot away' })).toBeVisible();
+  await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
+  // The password step: its rule, a show-password switch, and Back to the choice without a reload.
+  await expect(p.getByText('At least 8 characters.')).toBeVisible();
+  const password = p.getByLabel('Set a password for your Datathon account');
+  await expect(password).toHaveAttribute('type', 'password');
+  await p.getByLabel('Show password').check();
+  await expect(password).toHaveAttribute('type', 'text');
+  await p.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(p.getByRole('button', { name: 'No, give my spot away' })).toBeVisible();
   await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
   await expect(p.getByLabel('Dietary notes')).toHaveCount(0); // v0.8.2: the Sheet's, for organizers only
@@ -118,18 +130,17 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(p.getByText('Step 3 of 4: Emergency contact')).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Emergency contact', exact: true })).toBeFocused();
-  await p.getByRole('button', { name: 'Save profile' }).click();
+  await p.getByRole('button', { name: 'Next', exact: true }).click();
   expect(await p.getByLabel('Emergency contact name').evaluate((el) => (el as HTMLInputElement).validity.valueMissing)).toBe(true);
   await p.getByLabel('Emergency contact name').fill('Sam Rsvp');
   await p.getByLabel('Emergency contact phone').fill('416 555 0100');
-  await p.getByRole('button', { name: 'Save profile' }).click();
-  await expect(p.getByText('✓ Saved. Your profile is set up.')).toBeVisible();
-  await expect(p.getByRole('heading', { name: 'Hacker profile' })).toBeVisible();
+  await p.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(p.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
   await expect(p.getByText('Step 4 of 4: Networking')).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Networking', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(p.getByRole('heading', { name: 'Emergency contact', exact: true })).toBeFocused();
-  await p.getByRole('button', { name: 'Save profile', exact: true }).click();
+  await p.getByRole('button', { name: 'Next', exact: true }).click();
   // v0.11.25: the last step saves and finishes on the menu.
   await p.getByRole('button', { name: 'Save and finish', exact: true }).click();
   await p.waitForURL(/\/me$/);
@@ -244,6 +255,8 @@ test('T-RSVP-08 (E): past the deadline the link says so and only offers to give 
   await p.getByLabel('Type “give away” to confirm').fill('give away');
   await p.getByRole('button', { name: 'Give my spot away' }).click();
   await expect(p.getByRole('heading', { name: 'Thanks for letting us know' })).toBeVisible();
+  await expect(p.getByRole('button', { name: 'Change my answer' })).toHaveCount(0); // closed: Yes is gone
+  await expect(p.getByRole('link', { name: 'Ask the organizers on Discord' })).toHaveAttribute('href', /discord/);
   expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'withdrawn' }]);
   await attendee.close();
 });
@@ -276,6 +289,12 @@ test('T-RSVP-05 (E): an accepted hacker reopening the invitation sees they are i
   await give.click();
   await expect(p.getByRole('heading', { name: 'Thanks for letting us know' })).toBeVisible();
   expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'withdrawn' }]);
+  // No deadline: Yes stays open, offered right here, with the organizers' Discord.
+  await expect(p.getByText('Changed your mind? You can say yes from this link any time.')).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Ask the organizers on Discord' })).toHaveAttribute('href', /discord/);
+  await p.getByRole('button', { name: 'Change my answer' }).click();
+  await expect(p.getByText('(You said no. You can still change your mind.)', { exact: false }).first()).toBeVisible();
+  await expect(p.getByRole('button', { name: 'Yes, I’m coming' })).toBeVisible();
   await ctx.close();
 });
 
@@ -299,4 +318,25 @@ test('v0.11.25: no dead ends: a dead link offers sign-in, a passed deadline offe
   await signIn(p, c, '/me');
   await expect(p.getByText(`You’re on the waitlist for ${f.e1.name}. We’ll email you if a spot opens.`)).toBeVisible();
   await ctx.close();
+});
+
+test('T-RSVP-05 (E): a failed lookup offers Try again; the venue uses its formal name with a map link (v0.11.28)', async ({ page }) => {
+  let calls = 0;
+  let fail = true; // fail every lookup (dev may fetch twice) until Try again
+  await page.route('**/api/rsvp', (route) => (++calls && fail
+    ? route.fulfill({ status: 500, json: {} })
+    : route.fulfill({ json: {
+      firstName: 'Rae', event: { name: 'Map Fest', venue: 'HMC Campus', startsAt: '2026-11-07T14:00:00Z', timezone: 'America/Toronto' },
+      status: 'pending', hasAccount: false, profile: { dietaryNotes: null, linkedinUrl: null, profilePublic: true },
+      closed: false, closesAt: null, replyBy: null,
+    } })));
+  await page.goto('/rsvp#retry-test');
+  await expect(page.getByRole('heading', { name: 'Couldn’t load your invitation' })).toBeVisible();
+  const failed = calls;
+  fail = false;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('heading', { name: 'Map Fest' })).toBeVisible();
+  expect(calls).toBeGreaterThan(failed);
+  await expect(page.getByRole('link', { name: 'Sheridan College - Hazel McCallion Campus' })).toHaveAttribute('href', /google\.com\/maps/);
+  await expect(page.getByText('HMC Campus', { exact: true })).toHaveCount(0);
 });
