@@ -292,6 +292,14 @@ describe('RSVP (SPEC F13, v0.4)', () => {
       next: '/me',
     });
 
+    // v0.11.25: a real parallel double tap. GoTrue answers the second createUser with a bare 500 ("Database
+    // error creating new user"), not email_exists; that tap must still sign in and answer, not fail.
+    const both = await newApplicant('parallel-tap');
+    const bothToken = await rsvpToken(both.id);
+    const taps = await Promise.all([1, 2].map(() => call({ token: bothToken, going: true, ...CONTACT, password: STAFF_PASSWORD })));
+    expect(taps.map((t) => t.status)).toEqual([200, 200]);
+    for (const t of taps) expect(t.body).toMatchObject({ code: 'GOING' });
+
     // GoTrue itself failing (rate limit, 5xx) is an error, not "wrong password", and changes nothing.
     const flaky = await newApplicant('gotrue-down');
     await createAccount(flaky.email);

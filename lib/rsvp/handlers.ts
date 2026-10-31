@@ -101,9 +101,10 @@ export function createRsvpHandler(deps: RsvpDeps) {
       if (password.length < 8 || password.length > 72) return json({ error: 'weak_password' }, 400);
       const created = await deps.db.auth.admin.createUser({ email: found.email, password, email_confirm: true });
       if (created.error?.code === 'weak_password') return json({ error: 'weak_password' }, 400);
-      // email_exists: an account appeared since the lookup (a double tap): it needs its own password, below.
-      if (created.error?.code === 'email_exists') newAccount = false;
-      else if (created.error) throw new Error(`createUser failed (${created.error.code ?? created.error.status})`);
+      // Any other failure is most likely an account that appeared since the lookup (a double tap): email_exists,
+      // or GoTrue's bare 500 when two creates race (v0.11.25). Either way it needs its own password, below:
+      // the right one signs in and answers, a wrong one is refused, and GoTrue being down is still a 500.
+      if (created.error) newAccount = false;
     }
     if (going && !newAccount) {
       // Over the limit looks like a wrong password, as on /login (§15).
