@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { formatEventDateTime } from '@/lib/domain/event-time';
+import { DISCORD_URL } from '@/lib/email/links';
 
 interface Invite {
   firstName: string;
@@ -77,6 +78,13 @@ export function RsvpView() {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // v0.11.25: another invitation opened in this tab (mail apps reuse tabs) changes only the fragment.
+  const [hashes, setHashes] = useState(0);
+  useEffect(() => {
+    const onHash = () => { setView({ kind: 'loading' }); setError(null); setHashes((n) => n + 1); };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   useEffect(() => {
     // A late answer from an abandoned lookup (React runs this twice in dev) must not reset an open form.
@@ -93,7 +101,7 @@ export function RsvpView() {
     return () => {
       stale = true;
     };
-  }, []);
+  }, [hashes]);
 
   async function respond(going: boolean, fields: Record<string, string | boolean> = {}) {
     setBusy(true);
@@ -132,6 +140,7 @@ export function RsvpView() {
           <>
             <h1>This invitation link doesn’t work</h1>
             <p className="copy">It may have been replaced by a newer email, or the event is over.</p>
+            <Button className="self-start" asChild><a href="/login?next=%2Fme">Sign in</a></Button>
           </>
         )}
         {(view.kind === 'rate_limited' || view.kind === 'error') && (
@@ -191,7 +200,7 @@ export function RsvpView() {
               {view.invite.closed ? (
                 <>
                   Hi {view.invite.firstName}. The RSVP deadline
-                  {view.invite.closesAt && ` (${formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)})`} has passed. Contact the organizers if you still want to come.
+                  {view.invite.closesAt && ` (${formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)})`} has passed. If you still want to come, <a className="text-link underline" href={DISCORD_URL} rel="noopener" target="_blank">Ask the organizers on Discord</a>.
                 </>
               ) : (
                 <>

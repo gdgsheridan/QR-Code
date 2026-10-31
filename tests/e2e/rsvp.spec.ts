@@ -238,6 +238,7 @@ test('T-RSVP-08 (E): past the deadline the link says so and only offers to give 
   const p = await attendee.newPage();
   await p.goto(`/rsvp#${token}`);
   await expect(p.getByText(/The RSVP deadline \(.+\) has passed/)).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Ask the organizers on Discord' })).toHaveAttribute('href', /discord/);
   await expect(p.getByRole('button', { name: 'Yes, I’m coming' })).toHaveCount(0);
   await p.getByRole('button', { name: 'No, give my spot away' }).click();
   await p.getByLabel('Type “give away” to confirm').fill('give away');
@@ -275,5 +276,27 @@ test('T-RSVP-05 (E): an accepted hacker reopening the invitation sees they are i
   await give.click();
   await expect(p.getByRole('heading', { name: 'Thanks for letting us know' })).toBeVisible();
   expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'withdrawn' }]);
+  await ctx.close();
+});
+
+test('v0.11.25: no dead ends: a dead link offers sign-in, a passed deadline offers the Discord, a waitlisted hacker sees why /me is empty, a new link in the same tab loads', async ({ browser }) => {
+  const ctx = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const p = await ctx.newPage();
+  await p.goto(`/rsvp#${generateToken()}`);
+  await expect(p.getByRole('heading', { name: 'This invitation link doesn’t work' })).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login?next=%2Fme');
+  // Another invitation opened in the same tab (mail apps reuse tabs) loads instead of keeping the old screen.
+  const token = generateToken();
+  const email = `tab-${f.slug}@example.test`;
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, search_text, status, source, rsvp_token_hash, rsvp_sent_at)
+     values ($1, $2, 'Tab', 'tab', 'pending', 'sheet', $3, now())`, [f.e1.id, email, sha256hex(token)]);
+  await p.evaluate((t) => { window.location.hash = t; }, token);
+  await expect(p.getByText('Hi Tab, will you be there?')).toBeVisible();
+  // Waitlisted: /me says so instead of "No upcoming events yet".
+  const c = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.C])).rows[0]!.email;
+  await createAccount(c);
+  await signIn(p, c, '/me');
+  await expect(p.getByText(`You’re on the waitlist for ${f.e1.name}. We’ll email you if a spot opens.`)).toBeVisible();
   await ctx.close();
 });
