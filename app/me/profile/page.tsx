@@ -167,24 +167,23 @@ export default async function HackerProfilePage(props: {
         <BrandMark name={m.event.name} className="max-w-[70%]" />
         <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
-      <h1>{setupDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
-      {!setupDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
+      {/* The walkthrough keeps its heading until Save and finish, even once steps 1–3 are saved. */}
+      <h1>{setupDone && !walkthrough ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
+      {(!setupDone || walkthrough) && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
       {!m.emergency && !walkthrough && <Alert role="note" asChild><p>
         We still need your emergency contact. <Link className="inline-flex min-h-11 items-center font-semibold text-accent" href="/me/emergency">Add your emergency contact →</Link>
       </p></Alert>}
 
-      {!walkthrough && <nav aria-label="Profile sections" className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden">
+      {/* The tabs wrap on a phone instead of scrolling sideways out of sight. */}
+      {!walkthrough && <nav aria-label="Profile sections" className="flex min-w-0 max-w-full flex-wrap gap-1">
         {TABS.map(([value, label]) => <a key={value} href={`/me/profile?tab=${value}`} aria-current={tab === value ? 'page' : undefined}
           className="inline-flex min-h-12 shrink-0 items-center whitespace-nowrap rounded-t-lg border-b-2 border-transparent px-3 text-sm font-semibold text-muted-foreground no-underline hover:bg-accent/6 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-3 aria-[current=page]:border-accent aria-[current=page]:bg-accent/8 aria-[current=page]:text-accent aria-[current=page]:font-bold">
           {label}{unfinished[value] && <span className="ml-1 font-normal">· needs answer</span>}
         </a>)}
       </nav>}
-      {!walkthrough && notices.saved === '1' && tab !== 'networking' && <Alert className="text-ok" role="status">✓ Saved.</Alert>}
-          {notices.saved === 'setup' && (
-            <Alert className="text-ok" asChild role="status"><p role="status" >
-              ✓ Saved. Your profile is set up.
-            </p></Alert>
-          )}
+      {/* Every tab's notice sits at the top, where the page reloads (Networking's used to sit off-screen by its button). */}
+      {!walkthrough && notices.saved === '1' && <Alert className="text-ok" role="status">✓ Saved.</Alert>}
+      {notices.saved === 'setup' && <Alert className="text-ok" role="status">✓ Saved.</Alert>}
       <SetupWalkthrough key={`${notices.error ?? ''}:${notices.saved ?? ''}:${notices.step ?? ''}`} enabled={walkthrough} initialStep={initialStep}>
       {(walkthrough || tab !== 'networking') && <SetupPanel>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-label="Profile setup" >
@@ -232,7 +231,7 @@ export default async function HackerProfilePage(props: {
             ))}
           </fieldset>
 
-          {!walkthrough && <Button type="submit">Save profile</Button>}
+          {!walkthrough && <Button type="submit">Save</Button>}
           </SetupStep>}
           {(walkthrough || tab === 'health') && <SetupStep number={2}>
           <h2 id="setup-step-2" tabIndex={-1}>Health and access</h2>
@@ -243,7 +242,7 @@ export default async function HackerProfilePage(props: {
           <Label htmlFor="accessibility">Accessibility needs</Label>
           <Textarea id="accessibility" name="accessibility" maxLength={500} placeholder="Anything that would make the event easier for you" defaultValue={m.accessibility ?? ''} className="min-h-12 w-full" />
 
-          {!walkthrough && <Button type="submit">Save profile</Button>}
+          {!walkthrough && <Button type="submit">Save</Button>}
           </SetupStep>}
           {walkthrough && <SetupStep number={3}>
           <h2 id="setup-step-3" tabIndex={-1}>Emergency contact</h2>
@@ -255,7 +254,6 @@ export default async function HackerProfilePage(props: {
             title="A phone number: digits, spaces and + ( ) - ." autoComplete="off" defaultValue={m.emergency?.phone ?? ''} className="min-h-12 w-full" />
           <Label htmlFor="emergencyRelation">Relationship</Label>
           <Input id="emergencyRelation" name="emergencyRelation" maxLength={60} placeholder="Parent, partner, friend…" autoComplete="off" defaultValue={m.emergency?.relation ?? ''} className="min-h-12 w-full" />
-          <Button type="submit">Save profile</Button>
           </SetupStep>}
           {error && !networkingError && (
             <Alert className="text-bad" asChild><p role="alert" >
@@ -268,7 +266,7 @@ export default async function HackerProfilePage(props: {
       </section></Card>
 
       </SetupPanel>}
-      {(walkthrough || tab === 'networking') && <SetupPanel networking>
+      {(walkthrough || tab === 'networking') && <SetupPanel networking listed={m.directoryOptIn}>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="networking" >
         <h2 id="networking" tabIndex={-1}>Networking</h2>
         <div className="grid gap-[4px]">
@@ -346,13 +344,8 @@ export default async function HackerProfilePage(props: {
               {error}
             </p></Alert>
           )}
-          {notices.saved === '1' && (
-            <Alert className="text-ok" asChild role="status"><p role="status" >
-              ✓ Saved.
-            </p></Alert>
-          )}
           {/* v0.11.25: in the walkthrough the last step saves and finishes, so nothing typed is lost to a "Done" link. */}
-          <Button type="submit">{walkthrough ? 'Save and finish' : 'Save links'}</Button>
+          <Button type="submit">{walkthrough ? 'Save and finish' : 'Save networking'}</Button>
         </form>
       </section></Card>
       </SetupPanel>}

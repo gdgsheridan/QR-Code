@@ -28,6 +28,8 @@ type View =
   | { kind: 'replaced' | 'cancelled' | 'not_found' | 'rate_limited' | 'error' };
 
 const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN ?? '';
+// §6.4: only a well-formed token is drawn before the server answers.
+const TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
 
 function readToken(): string {
   try {
@@ -86,6 +88,9 @@ export function PassView() {
   }, [token, reloads]);
 
   const shown: View = token === '' ? { kind: 'not_found' } : loaded && loaded.token === token ? loaded.view : { kind: 'loading' };
+  // Draw the QR from the fragment at once, so a hacker with no signal at the door still has their code.
+  // Only the server's replaced/cancelled/not found answers take it away.
+  const drawQr = token !== null && TOKEN_RE.test(token) && ['loading', 'active', 'error', 'rate_limited'].includes(shown.kind);
 
   return (
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
@@ -94,13 +99,13 @@ export function PassView() {
       {/* Same header row as the /me pages. */}
       <div className="flex items-center gap-[16px] min-h-[44px]">
         <Link className="inline-flex shrink-0 items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
-          ← Menu
+          ← My menu
         </Link>
         <BrandMark name={shown.kind === 'active' ? shown.pass.event.name : undefined} className="max-w-[70%]" />
         <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
-      {shown.kind === 'loading' && <p aria-live="polite">Loading your pass…</p>}
-      {shown.kind === 'active' && token && <ActiveView pass={shown.pass} token={token} />}
+      {shown.kind === 'loading' && !drawQr && <p aria-live="polite">Loading your pass…</p>}
+      {drawQr && token && <PassCard pass={shown.kind === 'active' ? shown.pass : null} checking={shown.kind === 'loading'} token={token} />}
       {shown.kind === 'replaced' && (
         <Status tone="warn" icon="!" title="This pass was replaced">
           Check your most recent email for your current pass.
@@ -118,12 +123,12 @@ export function PassView() {
       )}
       {shown.kind === 'rate_limited' && (
         <Status tone="warn" icon="!" title="Too many attempts">
-          Please wait a minute and reload the page.
+          {drawQr ? 'Couldn\u2019t check your pass right now. You can still show this code.' : 'Please wait a minute and reload the page.'}
         </Status>
       )}
       {shown.kind === 'error' && (
-        <Status tone="warn" icon="!" title="Couldn't load your pass">
-          Check your connection and try again.{' '}
+        <Status tone="warn" icon="!" title={drawQr ? 'Couldn\u2019t check your pass' : 'Couldn\u2019t load your pass'}>
+          {drawQr ? 'Couldn\u2019t check your pass right now. You can still show this code.' : 'Check your connection and try again.'}{' '}
           <Button type="button" onClick={reload}>
             Retry
           </Button>
@@ -132,6 +137,9 @@ export function PassView() {
     </main></Entrance>
   );
 }
+
+// §15: every link is a 44 px tap target.
+const LINK = 'inline-flex items-center min-h-[44px] text-link underline focus-visible:outline-2 focus-visible:outline-offset-2';
 
 function Status(props: { tone: 'warn' | 'bad'; icon: string; title: string; children: React.ReactNode }) {
   return (
@@ -155,7 +163,8 @@ function Status(props: { tone: 'warn' | 'bad'; icon: string; title: string; chil
   );
 }
 
-function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
+/** The pass card. `pass` is null until /api/pass answers (or when it couldn't): the QR shows either way. */
+function PassCard({ pass, checking, token }: { pass: ActivePass | null; checking: boolean; token: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -169,11 +178,11 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
     });
   }, [token]);
 
-  const shared = pass.links;
+  const shared = pass?.links;
   const links = [
-    shared?.linkedinUrl && { key: 'li', node: <a href={shared.linkedinUrl} rel="nofollow ugc noopener" target="_blank" className="text-link underline">LinkedIn</a> },
+    shared?.linkedinUrl && { key: 'li', node: <a href={shared.linkedinUrl} rel="nofollow ugc noopener" target="_blank" className={LINK}>LinkedIn</a> },
     shared?.discord && { key: 'dc', node: <span><span className="text-muted-foreground">Discord </span>@{shared.discord}</span> },
-    shared?.websiteUrl && { key: 'web', node: <a href={shared.websiteUrl} rel="nofollow ugc noopener" target="_blank" className="text-link underline">{shared.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> },
+    shared?.websiteUrl && { key: 'web', node: <a href={shared.websiteUrl} rel="nofollow ugc noopener" target="_blank" className={LINK}>{shared.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a> },
   ].filter((l): l is { key: string; node: React.ReactElement } => Boolean(l));
 
   return (
@@ -186,13 +195,14 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-ticket shadow-panel" aria-labelledby="pass-name">
         <div className="grid [justify-items:center] gap-[4px] p-[24px_20px_20px] text-center [:where(&)_>_*]:m-0">
           <h1 id="pass-name" className="text-[28px] leading-[1.15] [overflow-wrap:anywhere]">
-            {`${pass.firstName} ${pass.lastName}`.trim()}
+            {pass ? `${pass.firstName} ${pass.lastName}`.trim() : 'Your pass'}
           </h1>
+          {checking && <p aria-live="polite" className="text-muted-foreground text-[14px]">Checking your pass…</p>}
           <canvas ref={canvas} className="block mt-[8px] w-[min(100%,_360px)] h-auto [background:rgb(255,_255,_255)] rounded-md
 
           [image-rendering:pixelated]" role="img" aria-label="Your check-in QR code" />
         </div>
-        <dl className="grid [grid-template-columns:repeat(auto-fit,_minmax(160px,_1fr))] gap-[16px] m-0 p-[16px_20px_20px]
+        {pass && <dl className="grid [grid-template-columns:repeat(auto-fit,_minmax(160px,_1fr))] gap-[16px] m-0 p-[16px_20px_20px]
 
           [border-top-width:1px] [border-top-style:dashed] [border-top-color:var(--line)] [&_dt]:text-muted-foreground
 
@@ -220,7 +230,7 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
               <dd>{pass.team.track}</dd>
             </div>
           )}
-        </dl>
+        </dl>}
         {links.length > 0 && (
           <ul aria-label="Your links" className="flex flex-wrap gap-x-[20px] gap-y-[4px] m-0 p-[0px_20px_16px] list-none text-[14px]">
             {links.map((l) => <li key={l.key} className="flex items-center min-h-[44px]">{l.node}</li>)}

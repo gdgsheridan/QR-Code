@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { toFileLabel } from '@/lib/domain/file-label';
-import { shownReplyBy } from '@/lib/domain/rsvp';
+import { earlierReplyBy } from '@/lib/domain/rsvp';
 import { nextAttempt, sanitizeError } from '@/lib/domain/outbox';
 import { generateToken, passToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
@@ -151,9 +151,10 @@ async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Out
     const closes = z.object({ closesAt: z.string().nullable() }).safeParse(stored);
     if (!closes.success) return null;
     const closesAt = closes.data.closesAt && new Date(closes.data.closesAt).toISOString();
-    // v0.11.28: they're asked to reply by the event's reply-by date while it's ahead; the invitation closes later.
+    // v0.11.28: they're asked to reply by the event's reply-by date while it's ahead; the email also names the
+    // real close, the only time no reply counts as a no.
     const replyBy = p.events.rsvp_reply_by && new Date(p.events.rsvp_reply_by).toISOString();
-    email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt: shownReplyBy(replyBy, closesAt, opts.now?.() ?? new Date()), reminder: row.kind === 'rsvp_reminder' });
+    email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt, replyBy: earlierReplyBy(replyBy, closesAt, opts.now?.() ?? new Date()), reminder: row.kind === 'rsvp_reminder' });
   } else if (row.kind === 'team_invite') {
     if (p.team_id !== null) return null; // joined a team since (v0.11.25): the invite no longer applies
     const { data: invites, error: inviteError } = await opts.db.from('team_invites')

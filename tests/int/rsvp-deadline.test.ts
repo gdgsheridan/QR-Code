@@ -278,7 +278,7 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
     const [sent] = sentTo(mail.sent, unfinished.email);
     expect(sent?.subject).toBe('Finish setting up your profile for Profile Fest');
-    expect(sent?.text).toContain('http://localhost:3100/me/profile');
+    expect(sent?.text).toContain('http://localhost:3100/me/profile?setup=1');
     expect(sent?.text).not.toMatch(/#/); // no token
     expect(sentTo(mail.sent, later.email)).toEqual([]);
     expect(await profileReminders(later.id)).toEqual([{ kind: 'profile_reminder', status: 'cancelled' }]);

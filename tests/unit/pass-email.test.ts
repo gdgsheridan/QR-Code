@@ -33,7 +33,8 @@ describe('pass email template (SPEC §12)', () => {
   it('T-MAIL-07: points them to profile setup, the Discord, the hacker package and the Google Group (v0.9)', () => {
     const m = renderPassEmail(base);
     for (const part of [m.html, m.text]) {
-      expect(part).toContain(base.profileUrl);
+      // The guided walkthrough, not the tabs.
+      expect(part).toContain(`${base.profileUrl}?setup=1`);
       expect(part).toContain('https://groups.google.com/g/sheridandatathon');
       expect(part).toContain(DISCORD_URL);
       expect(part).toContain(HACKER_PACKAGE_URL);

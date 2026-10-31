@@ -16,7 +16,7 @@ const emailOf = async (participantId: string) =>
   (await f.pool.query<{ email: string }>('select email from participants where id = $1', [participantId])).rows[0]?.email ?? '';
 
 async function hacker(browser: Browser, participantId: string) {
-  const context = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, permissions: ['clipboard-read', 'clipboard-write'] });
   const page = await context.newPage();
   const email = await emailOf(participantId);
   await createAccount(email);
@@ -102,16 +102,28 @@ test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joi
   await a.page.getByRole('button', { name: 'Create team' }).click();
   await expect(a.page.getByText('✓ Team created.')).toBeVisible();
   const code = (await a.page.getByText(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/).innerText()).replace('-', '');
-  await expect(a.page.getByText('Tracks are announced at the hackathon.')).toBeVisible();
+  // Tracks exist but aren't released: the team learns when it can pick one.
+  await expect(a.page.getByText('Your team picks its track once organizers open track picks.')).toBeVisible();
+  await expect(a.page.getByText('Ada Fixture (you)')).toBeVisible();
+  await a.page.getByRole('button', { name: 'Copy join code' }).click();
+  await expect(a.page.getByRole('status').filter({ hasText: 'Join code copied.' })).toBeAttached();
+  expect(await a.page.evaluate(() => navigator.clipboard.readText())).toBe(`${code.slice(0, 4)}-${code.slice(4)}`);
 
-  // B types the code in lowercase.
+  // B mistypes the code first: it stays in the field with the error beside it.
   const b = await hacker(browser, f.p.B);
   await b.page.goto('/me/team');
+  await b.page.getByLabel('Join code').fill('zzzz-zzzz');
+  await b.page.getByRole('button', { name: 'Join team' }).click();
+  await expect(b.page.getByLabel('Join code')).toHaveValue('zzzz-zzzz');
+  await expect(b.page.getByLabel('Join code')).toHaveAccessibleDescription('✕ No team has that code. Check it and try again.');
+  await expect(b.page.getByLabel('Join code')).toBeFocused();
+  // Then types it in lowercase.
   await b.page.getByLabel('Join code').fill(code.toLowerCase());
   await b.page.getByRole('button', { name: 'Join team' }).click();
   await expect(b.page.getByText('✓ You joined the team.')).toBeVisible();
   await expect(b.page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
   await expect(b.page.getByText('Ada Fixture')).toBeVisible();
+  await expect(b.page.getByText('Ben Fixture (you)')).toBeVisible();
 
   await page.getByLabel('Tracks released').check();
   await expect(page.getByText('✓ Tracks released.')).toBeVisible();
@@ -145,8 +157,8 @@ test('T-TEAM-07: N opts into the directory, A invites by email, N accepts and bo
   const n = await hacker(browser, f.p.N);
   await n.page.goto('/me/team');
   await n.page.getByLabel('Looking for a team', { exact: true }).check();
-  await n.page.getByRole('button', { name: 'Save directory preference' }).click();
-  await expect(n.page.getByRole('status')).toContainText('Directory preference saved');
+  await n.page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(n.page.getByRole('status')).toContainText('✓ Saved. You’re listed under Looking for a team.');
   await n.page.getByRole('link', { name: 'Find teammates in the Hacker directory' }).click();
   await expect(n.page.getByText('Create a team to invite them.', { exact: false })).toBeVisible();
   const ownDirectory = n.page.getByRole('region', { name: 'Hacker directory' });
@@ -159,8 +171,7 @@ test('T-TEAM-07: N opts into the directory, A invites by email, N accepts and bo
   await expect(directory.getByText('Ada Fixture')).toHaveCount(0);
   await expect(directory.getByRole('button', { name: 'Invite Ada Fixture', exact: true })).toHaveCount(0);
   const nia = directory.getByRole('article', { name: 'Nia Fixture', exact: true });
-  await expect(nia.getByRole('button', { name: 'Invite', includeHidden: true })).not.toBeVisible();
-  await nia.locator('summary').click();
+  await expect(nia.getByRole('button', { name: 'Invite' })).toBeVisible(); // on the card without opening it
   await nia.getByRole('button', { name: 'Invite' }).click();
   await expect(a.getByRole('status')).toContainText('Invite sent');
   expect(await consoleMailText(await emailOf(f.p.N), '/me/team')).toContain(`${E2E_ORIGIN}/me/team`);
@@ -195,6 +206,32 @@ test('T-TEAM-07 (v0.11.25): Leave team asks first in a dialog; Keep my team keep
   await a.context.close();
 });
 
+test('T-TEAM-07: with forming closed, an invite says when it can be accepted and a team says how to leave', async ({ browser }) => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const a = await hacker(browser, f.p.A);
+  await a.page.goto('/me/team');
+  await a.page.getByLabel('Team name').fill('Closed Shop');
+  await a.page.getByRole('button', { name: 'Create team' }).click();
+  await expect(a.page.getByRole('heading', { name: 'Closed Shop' })).toBeVisible();
+  await f.pool.query(
+    `insert into team_invites (team_id, participant_id, event_id, invited_by)
+     select team_id, $2, event_id, id from participants where id = $1`, [f.p.A, f.p.N]);
+  await f.pool.query('update events set teams_open = false where id = $1', [f.e1.id]);
+
+  await a.page.reload();
+  await expect(a.page.getByText('Team changes are closed. Ask an organizer if you need to leave.')).toBeVisible();
+  await expect(a.page.getByRole('button', { name: 'Leave team' })).toHaveCount(0);
+
+  const n = await hacker(browser, f.p.N);
+  await n.page.goto('/me/team');
+  const invites = n.page.getByRole('region', { name: 'Pending invites' });
+  await expect(invites).toContainText('Accepting opens when team forming opens.');
+  await expect(invites.getByRole('button', { name: 'Accept', exact: true })).toHaveCount(0);
+  await expect(invites.getByRole('button', { name: 'Decline' })).toBeVisible();
+  await a.context.close();
+  await n.context.close();
+});
+
 test('T-TEAM-08 (v0.11.25): a hacker picks the tracks they want under Looking, before release; others see and filter by them', async ({ browser }) => {
   await f.pool.query('update events set tracks_released = false where id = $1', [f.e1.id]);
   await f.pool.query(`insert into tracks (event_id, name) values ($1, 'Best AI'), ($1, 'Best Hardware')`, [f.e1.id]);
@@ -202,8 +239,8 @@ test('T-TEAM-08 (v0.11.25): a hacker picks the tracks they want under Looking, b
   await a.page.goto('/me/team');
   await a.page.getByLabel('Looking for a team', { exact: true }).check();
   await a.page.getByRole('group', { name: 'Tracks I want to do' }).getByLabel('Best AI').check();
-  await a.page.getByRole('button', { name: 'Save directory preference' }).click();
-  await expect(a.page.getByText('✓ Directory preference saved.')).toBeVisible();
+  await a.page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(a.page.getByText('✓ Saved. You’re listed under Looking for a team.')).toBeVisible();
   await expect(a.page.getByLabel('Best AI')).toBeChecked();
   await expect(a.page.getByLabel('Best Hardware')).not.toBeChecked();
   await a.context.close();

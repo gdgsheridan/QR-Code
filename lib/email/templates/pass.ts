@@ -9,7 +9,7 @@ export interface PassEmailInput {
   event: { name: string; venue: string; startsAt: string; timezone: string };
   passUrl: string;
   qrPng: Buffer;
-  /** v0.9: /me/profile, where they finish setting up (F14). */
+  /** v0.9: /me/profile, where they finish setting up (F14); the email links its guided walkthrough (`?setup=1`). */
   profileUrl: string;
 }
 
@@ -24,6 +24,10 @@ export interface RenderedEmail {
 // icon buttons, the arrival note, the QR (it links to the pass; no separate button), then profile setup; privacy line. The QR is an inline cid: attachment, never a data: URI.
 export function renderPassEmail(input: PassEmailInput): RenderedEmail {
   const when = formatEventDateTime(input.event.startsAt, input.event.timezone);
+  // The guided walkthrough, not the tabs: one tab saved left people unsure what was still missing.
+  const setup = new URL(input.profileUrl);
+  setup.searchParams.set('setup', '1');
+  const profileUrl = setup.toString();
   const mapUrl = venueMapUrl(input.event.venue);
   const e = {
     first: escapeHtml(input.firstName),
@@ -31,7 +35,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     when: escapeHtml(when),
     venue: escapeHtml(input.event.venue),
     url: escapeHtml(input.passUrl),
-    profile: escapeHtml(input.profileUrl),
+    profile: escapeHtml(profileUrl),
   };
   const setupWhat = 'your emergency contact, whether you’re staying overnight, allergies, your team and any accessibility needs';
   const privacy = 'Dietary notes, allergies, accessibility needs and emergency contacts are deleted 30 days after the event.';
@@ -65,7 +69,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     '',
     `Open your pass (shows your QR code): ${input.passUrl}`,
     '',
-    `Next: set up your profile. Tell us ${setupWhat}: ${input.profileUrl}`,
+    `Next: set up your profile. Tell us ${setupWhat}: ${profileUrl}`,
     '',
     `Join the Discord: ${DISCORD_URL}`,
     `Read the hacker package: ${HACKER_PACKAGE_URL}`,

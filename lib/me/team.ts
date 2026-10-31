@@ -101,7 +101,7 @@ export interface MyTeam {
   tracks: Array<{ id: string; name: string }>;
   /** v0.11.25: the tracks this hacker wants to do. */
   myTrackIds: string[];
-  team: { name: string; code: string; trackId: string | null; members: string[] } | null;
+  team: { name: string; code: string; trackId: string | null; members: Array<{ id: string; name: string }> } | null;
 }
 
 export interface TrackWithTeams {
@@ -131,12 +131,12 @@ export async function tracksWithTeams(db: Db, me: MyEvent): Promise<TrackWithTea
   return groups;
 }
 
-// /me/team: the event's tracks and the attendee's own team (teammates' names only). `me` comes from myEvent().
+// /me/team: the event's tracks and the attendee's own team (teammates' names; ids only to mark the viewer). `me` comes from myEvent().
 export async function myTeam(db: Db, me: MyEvent): Promise<MyTeam> {
   const [tracks, team, invites, mine] = await Promise.all([
     db.from('tracks').select('id, name').eq('event_id', me.eventId).order('created_at'),
     me.teamId
-      ? db.from('teams').select('name, join_code, track_id, participants(first_name, last_name)').eq('id', me.teamId).eq('event_id', me.eventId).maybeSingle()
+      ? db.from('teams').select('name, join_code, track_id, participants(id, first_name, last_name)').eq('id', me.teamId).eq('event_id', me.eventId).maybeSingle()
       : null,
     db.from('team_invites').select('team_id, teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')
       .eq('participant_id', me.participantId).eq('event_id', me.eventId).order('created_at', { ascending: false }),
@@ -152,7 +152,7 @@ export async function myTeam(db: Db, me: MyEvent): Promise<MyTeam> {
     myTrackIds: mine.data.map((t) => t.track_id),
     invites: invites.data.map((i) => ({ teamId: i.team_id, teamName: i.teams.name, from: i.participants?.first_name ?? 'A teammate' })),
     team: t
-      ? { name: t.name, code: t.join_code, trackId: t.track_id, members: t.participants.map((m) => `${m.first_name} ${m.last_name}`.trim()).toSorted() }
+      ? { name: t.name, code: t.join_code, trackId: t.track_id, members: t.participants.map((m) => ({ id: m.id, name: `${m.first_name} ${m.last_name}`.trim() })).toSorted((x, y) => x.name.localeCompare(y.name)) }
       : null,
   };
 }

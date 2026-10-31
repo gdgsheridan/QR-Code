@@ -12,7 +12,7 @@ import { formatEventDateTime } from '@/lib/domain/event-time';
 import { env } from '@/lib/env';
 import { formalVenue, venueMapUrl } from '@/lib/email/links';
 import { myPasses } from '@/lib/pass/mine';
-import { ChevronIcon, EmergencyIcon, ProfileIcon, QrIcon, ScheduleIcon, TeamIcon } from './icons';
+import { ChevronIcon, EmergencyIcon, HackersIcon, ProfileIcon, QrIcon, ScheduleIcon, TeamIcon } from './icons';
 import { LinksDropdown } from './links-dropdown';
 import { normalizeEmail } from '@/lib/domain/normalize';
 import { loadMe, menuMetadata } from './load';
@@ -36,13 +36,20 @@ export default async function MePage() {
   let waiting: string | null = null;
   if (!m) {
     const { data: rows, error: statusError } = await db().from('participants')
-      .select('status, rsvp_sent_at, events!inner(name, ends_at)').eq('email', normalizeEmail(user.email ?? ''))
+      .select('status, rsvp_sent_at, rsvp_token_hash, events!inner(name, ends_at, rsvp_deadline)').eq('email', normalizeEmail(user.email ?? ''))
       .is('deleted_at', null).gt('events.ends_at', now.toISOString()).order('created_at', { ascending: false }).limit(1);
     if (statusError) throw new Error(`status lookup failed (${statusError.code})`);
     const row = rows[0];
     if (row?.status === 'pending' && row.rsvp_sent_at) waiting = `Your invitation to ${row.events.name} is in your email. Answer it there.`;
-    else if (row?.status === 'pending' || row?.status === 'waitlisted') waiting = `You’re on the waitlist for ${row.events.name}. We’ll email you if a spot opens.`;
-    else if (row?.status === 'withdrawn') waiting = `You gave your spot at ${row.events.name} away. Changed your mind? Open your invitation link again before the RSVP deadline.`;
+    else if (row?.status === 'waitlisted') waiting = `You’re on the waitlist for ${row.events.name}. We’ll email you if a spot opens.`;
+    // Never invited: they applied, nothing more (F13: organizers send RSVPs themselves).
+    else if (row?.status === 'pending') waiting = `You’ve applied to ${row.events.name}. We’ll email you if you get a spot.`;
+    else if (row?.status === 'withdrawn') {
+      const reopen = row.rsvp_token_hash !== null && row.rsvp_sent_at !== null && await stillAnswerable(row.events.rsvp_deadline, row.rsvp_sent_at, now);
+      waiting = reopen
+        ? `You gave your spot at ${row.events.name} away. Changed your mind? Open your invitation link again before the RSVP deadline.`
+        : `You gave your spot at ${row.events.name} away. RSVPs are closed.`;
+    }
   }
 
   const live = m ? Date.parse(m.event.endsAt) > now.getTime() : false;
@@ -207,7 +214,7 @@ export default async function MePage() {
           rounded-card [background:var(--card)] shadow-panel overflow-hidden [&_li_+_li]:[border-top-width:1px]
 
           [&_li_+_li]:[border-top-style:solid] [&_li_+_li]:[border-top-color:var(--line)]">
-              <Item href="/me/hackers" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Hackers" hint="Meet hackers and find teammates" />
+              <Item href="/me/hackers" icon={<HackersIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Hackers" hint="Meet hackers and find teammates" />
               <Item href="/me/schedule" icon={<ScheduleIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Schedule" hint={m.event.schedule ? '' : 'Not posted yet'} />
               <Item href="/me/team" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Team" hint={teamHint} />
               <Item
@@ -221,7 +228,7 @@ export default async function MePage() {
                 href="/me/profile"
                 icon={<ProfileIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />}
                 label="Hacker profile"
-                hint={!profileSetUp ? 'Finish setting up' : m.badge ? 'Badge linked' : 'No badge linked yet'}
+                hint={!profileSetUp ? 'Finish setting up' : m.badge ? 'Badge linked' : 'Badge: linked at check-in'}
                 warn={!profileSetUp}
               />
               <LinksDropdown />
@@ -268,6 +275,14 @@ export default async function MePage() {
       </footer>
     </main></Entrance>
   );
+}
+
+// F13: an invitation takes a Yes until it closes (the SQL _rsvp_closes(), the single definition); no deadline: never.
+async function stillAnswerable(deadline: string | null, sentAt: string, now: Date): Promise<boolean> {
+  if (deadline === null) return true;
+  const { data, error } = await db().rpc('_rsvp_closes', { p_deadline: deadline, p_sent_at: sentAt });
+  if (error) throw new Error(`rsvp close lookup failed (${error.code})`);
+  return Date.parse(data) > now.getTime();
 }
 
 function Item(props: { href: string; icon: ReactNode; label: string; hint: string; warn?: boolean }) {

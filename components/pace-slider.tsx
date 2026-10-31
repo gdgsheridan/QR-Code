@@ -9,6 +9,13 @@ export function PaceSlider({ value, filter = false }: { value: string; filter?: 
   const initialStop = PACE_STOPS.findIndex((pace) => pace === value);
   const [stop, setStop] = useState(initialStop > 0 ? initialStop : filter ? 0 : 2);
   const [unset, setUnset] = useState(initialStop <= 0);
+  // Not remounted when the filters navigate (that dropped keyboard focus); follow a new value instead (back/forward).
+  const [shown, setShown] = useState(value);
+  if (value !== shown) {
+    setShown(value);
+    setStop(initialStop > 0 ? initialStop : filter ? 0 : 2);
+    setUnset(initialStop <= 0);
+  }
   const id = filter ? 'pace' : 'profilePace';
   const pace = PACE_STOPS[stop] ?? '';
   const label = !filter && unset ? 'No pace set' : pace ? PACE[pace] : 'Any pace';
@@ -17,6 +24,8 @@ export function PaceSlider({ value, filter = false }: { value: string; filter?: 
   }[pace];
   const sliderStyle = {
     '--pace-position': `${((stop - (filter ? 0 : 1)) / (filter ? 3 : 2)) * 100}%`,
+    // The fill counts segments like the cards' bar: 1 = learn, 2 = balanced, 3 = win.
+    '--pace-fill': `${(stop / 3) * 100}%`,
     '--pace-color': color,
   } as CSSProperties;
 
@@ -25,8 +34,8 @@ export function PaceSlider({ value, filter = false }: { value: string; filter?: 
       <style>{'.pace-enhanced { display: none; }'}</style>
       <fieldset className="grid gap-2">
         <legend>Your pace</legend>
-        {PACE_STOPS.map((choice) => <Label key={choice}>
-          <input type="radio" name="pace" value={choice} defaultChecked={value === choice} />
+        {PACE_STOPS.map((choice) => <Label key={choice} className="flex min-h-11 items-center gap-3">
+          <input type="radio" className="size-[22px]" name="pace" value={choice} defaultChecked={value === choice} />
           {choice ? PACE[choice] : 'Prefer not to say'}
         </Label>)}
       </fieldset>
@@ -45,7 +54,7 @@ export function PaceSlider({ value, filter = false }: { value: string; filter?: 
       <p className="m-0 flex justify-between gap-3 text-xs text-muted-foreground" aria-hidden="true">
         {filter && <span>Any</span>}<span>Learn</span><span>Balanced</span><span>Win</span>
       </p>
-      {!filter && <Label>
+      {!filter && <Label className="flex min-h-11 items-center gap-3">
         <input type="checkbox" className="size-[22px]" checked={unset} onChange={(event) => setUnset(event.currentTarget.checked)} />
         Prefer not to say
       </Label>}
