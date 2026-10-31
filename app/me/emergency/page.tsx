@@ -54,7 +54,6 @@ export default async function EmergencyPage(props: { searchParams: Promise<{ sav
       </section></Card>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="own-contact" >
         <h2 id="own-contact">Your emergency contact</h2>
-        <p className="copy m-0 text-muted-foreground text-[14px]">Who we call if something happens to you. Only the organizers see it, and it’s deleted 30 days after the event.</p>
         <form action={save} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
           [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]

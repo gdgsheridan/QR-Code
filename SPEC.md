@@ -1,6 +1,6 @@
 # Sheridan Datathon Station — Product & Technical Specification
 
-> **Status:** Draft v0.11.23 · **Owner:** Ade · **Last updated:** 2026-10-31
+> **Status:** Draft v0.11.24 · **Owner:** Ade · **Last updated:** 2026-10-31
 > The app is **Station** (Sheridan Datathon Station, `https://station.sheridandatathon.com`); it was called Passline until v0.11.21.
 
 ## 0. How to read this document
@@ -1474,6 +1474,12 @@ Target: at least 95% of attempts under 3 s.
 | T-DIR-05 | Walkthrough networking opt-in → menu → directory → filters and contact → profile opt-out | Self has no actions, normalized search, pace/Looking filters, LinkedIn/website and Discord Copy; escaped bio; no private data in HTML; responsive | E |
 | T-DIR-06 | Signed-out, waitlisted and withdrawn viewers open /me/hackers | Login / 404 respectively | E |
 
+### 14.20 Look — `T-UI`
+
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-UI-01 | Every visible text and form control on the signed-out pages (login, RSVP, pass, auth confirm, badge profile, 404), a real invitation from the email (`/rsvp#token`: the choice, the password step, You're in, No) and a real pass page, the hacker menu pages and the admin and scanner pages | computed font is Fira Code | E |
+
 ## 15. Non-functional requirements
 
 - **Latency:** `/api/scan` p95 under 700 ms server-side. The Vercel function region MUST be co-located with the Supabase region.
@@ -1490,6 +1496,7 @@ Target: at least 95% of attempts under 3 s.
   | RSVP Yes password checks per email (v0.7.2; its own bucket) | 10 / 15 min (then refused like a wrong password) |
   | "Forgot or never set your password?" emails per address | 3 / h (over the limit looks the same) |
 - **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin. NFC features (badge scanning, linking badges, the Tools page) need Chrome on Android and are hidden elsewhere. Opening a badge's profile works on any phone: it only opens the badge's URL.
+- **Typeface (v0.11.24):** Fira Code everywhere, like sheridandatathon.com: every page, form control and email (emails fall back to a system monospace where mail apps block web fonts). No second typeface (T-UI-01).
 - **Accessibility:**
   - WCAG 2.1 AA contrast,
   - status never conveyed by color alone,
@@ -1613,6 +1620,8 @@ Each slice ends with its tests green in CI and a short demo.
 ---
 
 ## 20. Changelog
+
+- **v0.11.24 (2026-10-31)** — One typeface everywhere (owner's request): Geist is gone, Tailwind's sans font is Fira Code, and form controls inherit it instead of the system font, so login, RSVP, emergency contact and every other page match the schedule and the site. §15; new T-UI-01.
 
 - **v0.11.23 (2026-10-31)** — The RSVP email's subject is `You're invited: {Event name}`, without “— will you be there?” (owner's request); every email calls the datathon by its full name, “Sheridan Datathon 2026” (`emailEventName()` in `lib/email/links.ts`), so it reads “You're invited: Sheridan Datathon 2026”, while the app keeps the event name “Datathon”. Emails come from “Sheridan Datathon” (the `EMAIL_FROM` display name). §12; T-RSVP-11 updated.
 

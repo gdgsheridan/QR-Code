@@ -15,7 +15,8 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
-  --font-sans: var(--font-geist), "Geist", system-ui, sans-serif;
+  /* One typeface everywhere, like sheridandatathon.com: "sans" is Fira Code too, so nothing falls back to another font. */
+  --font-sans: var(--font-fira-code), "Fira Code", ui-monospace, Menlo, monospace;
   --font-mono: var(--font-fira-code), "Fira Code", ui-monospace, Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -153,6 +154,10 @@
     accent-color: var(--primary);
     cursor: pointer;
   }
+  /* Form controls don't inherit the page font by default (they'd show the system font). Zero specificity. */
+  :where(button, input, select, textarea, optgroup) {
+    font-family: inherit;
+  }
   /* Zero specificity: module classes still win. */
   :where(input:not([type='checkbox'], [type='radio'], [type='file']), textarea, select) {
     background: var(--surface);
@@ -261,7 +266,6 @@
 @layer components {
   p { text-wrap: pretty; }
   .copy {
-    font-family: var(--font-geist), "Geist", system-ui, sans-serif;
     font-weight: 400;
     line-height: 1.6;
     max-width: 62ch;

@@ -182,7 +182,6 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
           <canvas ref={canvas} className="block w-[min(100%,_300px)] h-auto [background:rgb(255,_255,_255)] rounded-md
 
           [image-rendering:pixelated]" role="img" aria-label="Your check-in QR code" />
-          <p className="copy max-w-[32ch] mt-[12px] text-muted-foreground text-[13px]">Show this at the door. Turn your screen brightness up. This code is personal.</p>
         </div>
         <dl className="grid [grid-template-columns:repeat(auto-fit,_minmax(160px,_1fr))] gap-[16px] m-0 p-[16px_20px_20px]
 
@@ -245,14 +244,12 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
 
           [&_h2]:text-[18px]" asChild><section  aria-labelledby="profile-heading">
       <h2 id="profile-heading">Badge profile (optional)</h2>
-      <p className="copy">If you get an NFC badge at the event, anyone can tap it with their phone to see what you share here.</p>
       <Label className="flex gap-[12px] items-center min-h-[44px] font-semibold [&_input]:w-[22px] [&_input]:h-[22px]
 
           [&_input]:[flex:0_0_auto] [&_input]:[accent-color:var(--accent)]">
         <input type="checkbox" checked={on} onChange={onToggle} disabled={busy} />
         Show my name and profile links to anyone who taps my badge
       </Label>
-      <p className="copy m-0 text-muted-foreground text-[14px]">Your LinkedIn, Discord and website are set on your Hacker profile.</p>
       <Alert className={` [&:empty]:mt-[-12px] [&:empty]:p-0 [&:empty]:border-0 [&:empty]:bg-transparent [&:empty]:shadow-none ${message ? ({ warn: 'text-warn', bad: 'text-bad', ok: 'text-ok' })[message.tone] : ''}`} asChild role="status"><p  role="status" aria-live="polite">
         {message ? `${message.tone === 'ok' ? '✓' : '✕'} ${message.text}` : ''}
       </p></Alert>

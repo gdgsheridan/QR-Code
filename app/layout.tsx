@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Fira_Code, Geist } from 'next/font/google';
+import { Fira_Code } from 'next/font/google';
 import type { ReactNode } from 'react';
 import './globals.css';
 import { SiteBackground } from '@/components/site-background';
@@ -7,8 +7,6 @@ import { MotionProvider } from '@/components/motion';
 
 // Self-hosted by next/font, so the CSP's font-src 'self' still holds.
 const firaCode = Fira_Code({ subsets: ['latin'], variable: '--font-fira-code' });
-
-const geist = Geist({ subsets: ['latin'], variable: '--font-geist' });
 
 export const metadata: Metadata = {
   title: 'Datathon',
@@ -23,7 +21,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${firaCode.variable} ${geist.variable}`}>
+    <html lang="en" className={firaCode.variable}>
       <body><SiteBackground /><MotionProvider>{children}</MotionProvider></body>
     </html>
   );

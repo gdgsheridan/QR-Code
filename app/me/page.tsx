@@ -235,7 +235,7 @@ export default async function MePage() {
           ))}
         </section></Entrance>
       )}
-      {!m && roles.length === 0 && <p className="copy">No upcoming events yet. When you answer Yes to an invitation, your event shows up here.</p>}
+      {!m && roles.length === 0 && <p className="copy">No upcoming events yet.</p>}
       <footer className="tw-me-footer flex flex-wrap items-center justify-between gap-[12px] pt-[24px] [border-top-width:1px]
 
           [border-top-style:solid] [border-top-color:var(--line)] text-muted-foreground text-[14px] [&_p]:m-0 [&_p]:min-w-0

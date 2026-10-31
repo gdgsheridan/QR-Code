@@ -105,7 +105,6 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
               <input type="checkbox" name="looking" defaultChecked={m.lookingForTeam} style={{ width: 22, height: 22 }} />
               Looking for a team
             </Label>
-            <p className="copy m-0 text-muted-foreground text-[14px]">List my name under “Looking for a team” in the Hacker directory.</p>
             <Button type="submit">Save directory preference</Button>
           </form>
         </section></Card>
@@ -219,7 +218,6 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
 
           [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
               <input type="hidden" name="op" value="leave" />
-              {team.members.length === 1 && <p className="copy m-0 text-muted-foreground text-[14px]">You’re the only member: leaving deletes the team.</p>}
               <Button type="submit" variant="outline">
                 Leave team
               </Button>
