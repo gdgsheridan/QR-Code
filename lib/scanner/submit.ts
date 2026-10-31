@@ -10,6 +10,16 @@ export type SubmitOutcome =
   | { kind: 'unauthorized' }
   | { kind: 'rate_limited' };
 
+// A03: latch-free OFFLINE banner. A thrown fetch sets networkDown, but any
+// HTTP-backed answer proves connectivity and clears it. A 'network' outcome
+// (timeouts / 5xx / parse) leaves the flag as it was: the next scan retries and
+// clears it on success, so no reload is ever needed to recover.
+export function nextNetworkDown(prev: boolean, kind: SubmitOutcome['kind']): boolean {
+  if (kind === 'offline') return true;
+  if (kind === 'network') return prev;
+  return false;
+}
+
 export async function submitScan(
   body: ScanRequest,
   opts: { fetchImpl?: typeof fetch; timeoutMs?: number; retries?: number } = {},
