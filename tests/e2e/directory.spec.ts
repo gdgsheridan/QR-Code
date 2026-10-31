@@ -154,3 +154,21 @@ test('T-DIR-06: waitlisted and withdrawn viewers get 404; signed-out visitors mu
     await context.close();
   }
 });
+
+test('T-DIR-05 (v0.11.25): the directory shows 50 hackers, and Show more adds the next 50', async ({ page }) => {
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, last_name, search_text, status, source, directory_opt_in)
+     select $1, 'more' || g || '-' || $2 || '@example.test', 'Bulk', 'Hacker' || lpad(g::text, 2, '0'), 'bulk hacker' || lpad(g::text, 2, '0'),
+            'accepted', 'seed', true from generate_series(1, 60) g`, [f.e1.id, f.slug]);
+  const email = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.B])).rows[0]!.email;
+  await createAccount(email);
+  await signIn(page, email, '/me/hackers');
+  const cards = page.getByRole('region', { name: 'Hacker directory' }).getByRole('article');
+  await expect(cards).toHaveCount(50);
+  await page.getByRole('link', { name: 'Show more' }).click();
+  await page.waitForURL(/show=100/);
+  await expect(cards.nth(50)).toBeVisible();
+  expect(await cards.count()).toBeGreaterThan(60);
+  await expect(page.getByRole('link', { name: 'Show more' })).toHaveCount(0);
+  await f.pool.query(`delete from participants where event_id = $1 and email like 'more%'`, [f.e1.id]);
+});

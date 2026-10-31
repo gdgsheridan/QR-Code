@@ -22,7 +22,7 @@ const invites = async (id: string) => (await f.pool.query('select team_id from t
 const pageFor = async (id: string) => {
   const me = await myEvent(db, (await as(id)).email, new Date());
   if (!me) throw new Error('fixture attendee missing');
-  return { ...await myTeam(db, me), directory: await hackerDirectory(db, me, (await as(id)).email, { looking: true, search: '', pace: '' }) };
+  return { ...await myTeam(db, me), directory: (await hackerDirectory(db, me, (await as(id)).email, { looking: true, search: '', pace: '' })).people };
 };
 const mail = mockProvider();
 const drain = () => drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://station.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });

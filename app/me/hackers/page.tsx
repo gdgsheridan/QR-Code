@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import { db } from '@/lib/db/server';
 import { PACE } from '@/lib/domain/profile';
-import { hackerDirectory } from '@/lib/me/hackers';
+import { DIRECTORY_MAX, DIRECTORY_PAGE, hackerDirectory } from '@/lib/me/hackers';
 import { inviteTeammate, myTeam } from '@/lib/me/team';
 import { emailFrom, getProvider } from '@/lib/email';
 import { drainUntilIdle } from '@/lib/email/drain';
@@ -38,13 +38,15 @@ const NOTICES: Record<string, string> = {
   NOT_FOUND: 'Something changed. Reload the page and try again.',
 };
 
-export default async function HackersPage({ searchParams }: { searchParams: Promise<{ q?: string; looking?: string; pace?: string; r?: string }> }) {
+export default async function HackersPage({ searchParams }: { searchParams: Promise<{ q?: string; looking?: string; pace?: string; r?: string; show?: string }> }) {
   const params = await searchParams;
   const { me, user, now } = await loadMyEvent('/me/hackers');
   const looking = params.looking === '1';
   const pace = params.pace && Object.hasOwn(PACE, params.pace) ? params.pace : '';
-  const [people, { team }] = await Promise.all([
-    hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace }),
+  // v0.11.25: 50 at a time; Show more asks for 50 more (a plain link, so it works without JavaScript).
+  const show = Math.min(Math.max(Math.floor(Number(params.show)) || DIRECTORY_PAGE, DIRECTORY_PAGE), DIRECTORY_MAX);
+  const [{ people, more }, { team }] = await Promise.all([
+    hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace, show }),
     myTeam(db(), me),
   ]);
   const canInvite = me.event.teamsOpen && Date.parse(me.event.endsAt) > now.getTime() && team && team.members.length < 4;
@@ -79,7 +81,7 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
         const paceLabel = full ? person.pace ? PACE[person.pace] : 'Pace not set' : 'Pace not shared';
         const paceLevel = full && person.pace ? { casual: 1, balanced: 2, competitive: 3 }[person.pace] : 0;
         const paceDescription = `${paceLabel.startsWith('Pace ') ? paceLabel : `Pace: ${paceLabel}`} (${paceLevel} of 3)`;
-        return <Card key={person.id} asChild className="min-w-0 gap-0 p-0 [overflow-wrap:anywhere]"><article aria-label={`${person.name}${self ? ' (you)' : ''}`}>
+        return <Card key={person.id} asChild className="min-w-0 gap-0 p-0 [overflow-wrap:anywhere]"><article id={`h-${person.id}`} aria-label={`${person.name}${self ? ' (you)' : ''}`}>
           <details className="group">
             <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-md px-4 py-3 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
               <h2 className="m-0 min-w-0 flex-1 text-base font-semibold">{person.name}{self && <span className="text-sm font-normal text-muted-foreground"> (you)</span>}</h2>
@@ -110,5 +112,10 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
         </article></Card>;
       })}
     </section>
+    {more && show < DIRECTORY_MAX && (() => {
+      const next = new URLSearchParams({ ...(params.q && { q: params.q }), ...(looking && { looking: '1' }), ...(pace && { pace }), show: String(show + DIRECTORY_PAGE) });
+      const firstNew = people.at(-1)?.id;
+      return <Button variant="outline" className="self-center" asChild><Link href={`/me/hackers?${next.toString()}${firstNew ? `#h-${firstNew}` : ''}`} scroll={false}>Show more</Link></Button>;
+    })()}
   </main></Entrance>;
 }

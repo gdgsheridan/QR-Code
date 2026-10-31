@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { hackerDirectory } from '@/lib/me/hackers';
 import { saveBadgeProfile, myEvent } from '@/lib/me/profile';
 import { serviceClient } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -56,4 +57,34 @@ it('T-DIR-04: listed by default; own profile only, missing unchanged, blank clea
   await save({ directoryOptIn: true, bio: 'My bio', pace: 'competitive' });
   await f.pool.query('select delete_participant($1, $2, $3)', [f.e1.id, id, f.staff.org1]);
   expect(await stored()).toEqual({ directory_opt_in: false, bio: null, pace: null });
+});
+
+it('T-DIR-02 (v0.11.25): name, pace and self filter in the database before the page limit; 50 a page with Show more', async () => {
+  // Hundreds of hackers whose names sort before Zoe: the old 500-row cap came before the name search.
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, last_name, search_text, status, source, directory_opt_in, pace)
+     select $1, 'bulk' || g || '-' || $2 || '@example.test', 'Aaron', 'Bulk' || lpad(g::text, 3, '0'), 'aaron bulk' || lpad(g::text, 3, '0'),
+            'accepted', 'seed', true, 'balanced' from generate_series(1, 560) g`, [f.e1.id, f.slug]);
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, last_name, search_text, status, source, directory_opt_in, pace)
+     values ($1, 'zoe1-' || $2 || '@example.test', 'Zoë', 'Search', 'zoe search', 'accepted', 'seed', true, 'competitive'),
+            ($1, 'zoe2-' || $2 || '@example.test', 'Zoe', 'Second', 'zoe second', 'accepted', 'seed', true, 'competitive'),
+            ($1, 'zoe3-' || $2 || '@example.test', 'Zoe', 'Third', 'zoe third', 'accepted', 'seed', true, 'casual')`, [f.e1.id, f.slug]);
+  const email = await emailOf(f.p.A);
+  const me = (await myEvent(serviceClient(), email, new Date()))!;
+  const read = (filters: { search?: string; pace?: string; looking?: boolean; show?: number }) =>
+    hackerDirectory(serviceClient(), me, email, { search: '', pace: '', looking: false, show: 50, ...filters });
+
+  const first = await read({});
+  expect(first.people).toHaveLength(50);
+  expect(first.more).toBe(true);
+  const zoes = await read({ search: 'zoe' });
+  expect(zoes.people.map((p) => p.name).sort()).toEqual(['Zoe Second', 'Zoe Third', 'Zoë Search']); // accents fold in search_text
+  expect(zoes.more).toBe(false);
+  expect((await read({ search: 'zoe', pace: 'competitive' })).people).toHaveLength(2);
+  const all = await read({ show: 1000 });
+  expect(all.people.length).toBeGreaterThan(563);
+  expect(all.more).toBe(false);
+  expect(new Set(all.people.map((p) => p.id)).size).toBe(all.people.length);
+  await f.pool.query(`delete from participants where event_id = $1 and source = 'seed' and email like '%' || $2 || '@example.test' and (email like 'bulk%' or email like 'zoe%')`, [f.e1.id, f.slug]);
 });

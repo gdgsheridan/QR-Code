@@ -502,7 +502,7 @@ isOneToOne: false
 { Args: { "p_user_id": string }; Returns: number
                            },
 "hacker_directory":
-{ Args: { "p_email": string,"p_event_id": string,"p_looking"?: boolean }; Returns: Json
+{ Args: { "p_email": string,"p_event_id": string,"p_limit"?: number,"p_looking"?: boolean,"p_pace"?: string,"p_query"?: string }; Returns: Json
                            },
 "ingest_sheet_row":
 { Args: { "p_dietary_notes"?: string,"p_dry_run"?: boolean,"p_email": string,"p_event_id": string,"p_external_id": string,"p_first_name": string,"p_last_name": string,"p_linkedin_url"?: string,"p_search_text": string }; Returns: string
