@@ -62,7 +62,7 @@ async function eventCounts(eventId: string) {
 }
 
 describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
-  it('T-ING-01: valid signature and fresh timestamp → 200 with per-row results in request order', async () => {
+  it('T-ING-01: valid signature and fresh timestamp → 200 with per-row results in request order, also with the pre-rename headers', async () => {
     const rows = [sheetRow(f.slug, { status: 'Waitlisted' }), sheetRow(f.slug), sheetRow(f.slug, { status: '' })];
     const res = await c.post({ event_slug: f.slug, rows });
     expect(res.status).toBe(200);
@@ -73,6 +73,11 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
         { external_id: rows[2]?.external_id, result: 'CREATED' },
       ],
     });
+    // Apps Scripts pasted before the rename still sign with X-Passline-* headers.
+    const legacy = [sheetRow(f.slug)];
+    const old = await c.post({ event_slug: f.slug, rows: legacy }, { legacyHeaders: true });
+    expect(old.status).toBe(200);
+    expect(await old.json()).toEqual({ results: [{ external_id: legacy[0]?.external_id, result: 'CREATED' }] });
   });
 
   it('T-ING-02: off-by-one signature, wrong secret, missing headers → 401 and zero DB writes', async () => {

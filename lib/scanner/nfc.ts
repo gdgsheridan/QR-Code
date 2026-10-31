@@ -97,7 +97,8 @@ export function useNfcReader(opts: {
     if (!supported) return;
     let wanted = defaultOn && autoStart;
     try {
-      const saved = window.localStorage.getItem(prefKey);
+      // Pre-rename `passline:` keys still count, so a reader turned off before v0.11.21 stays off.
+      const saved = window.localStorage.getItem(prefKey) ?? window.localStorage.getItem(prefKey.replace(/^station:/, 'passline:'));
       if (saved !== null) wanted = autoStart && saved === 'on';
     } catch {
       // keep the default

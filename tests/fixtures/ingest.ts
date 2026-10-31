@@ -15,20 +15,21 @@ export function ingestClient() {
   const scheduled: Array<() => Promise<unknown>> = [];
   // Until idle: rows other files left due would otherwise crowd this test's row out of a 20-row batch.
   const drain = () =>
-    drainUntilIdle({ db, provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
+    drainUntilIdle({ db, provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
   const handler = createIngestHandler({ db, secret: INGEST_SECRET(), scheduleDrain: (t) => scheduled.push(t), drain });
 
   async function post(
     body: unknown,
-    o: { ts?: number; secret?: string; signature?: string | null; timestamp?: string | null; contentLength?: string } = {},
+    o: { ts?: number; secret?: string; signature?: string | null; timestamp?: string | null; contentLength?: string; legacyHeaders?: boolean } = {},
   ): Promise<Response> {
     const raw = typeof body === 'string' ? body : JSON.stringify(body);
     const ts = String(o.ts ?? Math.floor(Date.now() / 1000));
     const headers: Record<string, string> = { 'content-type': 'application/json; charset=utf-8' };
     const timestamp = o.timestamp === undefined ? ts : o.timestamp;
     const signature = o.signature === undefined ? signSheetBody(raw, ts, o.secret ?? INGEST_SECRET()) : o.signature;
-    if (timestamp !== null) headers['x-passline-timestamp'] = timestamp;
-    if (signature !== null) headers['x-passline-signature'] = signature;
+    const prefix = o.legacyHeaders ? 'x-passline' : 'x-station';
+    if (timestamp !== null) headers[`${prefix}-timestamp`] = timestamp;
+    if (signature !== null) headers[`${prefix}-signature`] = signature;
     if (o.contentLength) headers['content-length'] = o.contentLength;
     return handler(new Request('http://localhost/api/ingest/sheet', { method: 'POST', headers, body: raw }));
   }

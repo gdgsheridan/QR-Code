@@ -84,7 +84,7 @@ describe('parseProfileInput: profile setup (SPEC F14, v0.9)', () => {
     });
   });
 
-  it('T-ME-09: the setup form needs the contact, overnight and team status; bad choices and lengths name their field', () => {
+  it('T-ME-09: the setup form needs overnight and team status (the contact has its own page); bad choices and lengths name their field', () => {
     const bad: Array<[Parameters<typeof parseProfileInput>[0], string]> = [
       [{ ...setup, overnight: 'maybe' }, 'overnight'],
       [{ ...setup, overnight: '' }, 'overnight'],
@@ -95,11 +95,16 @@ describe('parseProfileInput: profile setup (SPEC F14, v0.9)', () => {
       [{ ...setup, allergySeverity: 'deadly' }, 'allergySeverity'],
       [{ ...setup, allergies: 'a'.repeat(301) }, 'allergies'],
       [{ ...setup, accessibility: 'x'.repeat(501) }, 'accessibility'],
-      [{ ...setup, emergencyName: undefined, emergencyPhone: undefined, emergencyRelation: undefined }, 'emergencyName'],
     ];
     for (const [input, field] of bad) {
-      expect(parseProfileInput(input, { requireEmergency: true, requireSetup: true }), JSON.stringify(input)).toEqual({ ok: false, field });
+      expect(parseProfileInput(input, { requireEmergency: false, requireSetup: true }), JSON.stringify(input)).toEqual({ ok: false, field });
     }
+    // Setup without the contact leaves it unchanged; a contact that is given is still checked.
+    const noContact = { ...setup, emergencyName: undefined, emergencyPhone: undefined, emergencyRelation: undefined };
+    const parsed = parseProfileInput(noContact, { requireEmergency: false, requireSetup: true });
+    expect(parsed).toMatchObject({ ok: true });
+    expect(parsed.ok && 'emergency' in parsed.value).toBe(false);
+    expect(parseProfileInput({ ...setup, emergencyPhone: '12' }, { requireEmergency: false, requireSetup: true })).toEqual({ ok: false, field: 'emergencyPhone' });
     // Outside the setup form, missing answers stay unchanged, but a given one is still checked.
     expect(parseProfileInput({ linkedin: '' }, { requireEmergency: false })).toEqual({ ok: true, value: { linkedinUrl: '' } });
     expect(parseProfileInput({ overnight: 'maybe' }, { requireEmergency: false })).toEqual({ ok: false, field: 'overnight' });

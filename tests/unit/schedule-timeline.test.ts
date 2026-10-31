@@ -16,28 +16,58 @@ describe('scheduleTimeline', () => {
     expect(saturday.slots.find(s => s.title === 'Opening Ceremony')).toMatchObject({ startMinute: 660, endMinute: 690 });
   });
 
-  it('T-ME-11: every pair of overlapping poster slots uses different lanes, with a shared group width', () => {
-    for (const day of scheduleTimeline(parseSchedule(official)!)) {
-      for (const a of day.slots) for (const b of day.slots) {
-        expect(a.lane).toBeLessThan(a.laneCount);
-        if (a !== b && a.startMinute < b.endMinute && b.startMinute < a.endMinute) {
-          expect(a.lane).not.toBe(b.lane);
-          expect(a.laneCount).toBe(b.laneCount);
-        }
+  it('T-ME-11: poster columns: similar events share a column, free slots span the day, overlaps stack on top', () => {
+    const [saturday, sunday] = scheduleTimeline(parseSchedule(official)!);
+    const all = [...saturday!.slots, ...sunday!.slots];
+    const find = (day: typeof saturday, title: string) => day!.slots.find(s => s.title.startsWith(title))!;
+    for (const s of all) expect(s.track).toBe(s.category === 'food' ? 'food' : s.category === 'hacking' || s.category === 'workshops' ? 'main' : 'side');
+    for (const s of all) { expect(s.left).toBeGreaterThanOrEqual(0); expect(s.left + s.width).toBeLessThanOrEqual(1 + 1e-9); }
+    const full = (s: { left: number; width: number }) => [s.left, s.width];
+    for (const title of ['Check-in', 'Opening Ceremony']) expect(full(find(saturday, title))).toEqual([0, 1]);
+    for (const title of ['Breakfast', 'Talk: IBM', 'Hacking Ends', 'Demos', 'Closing']) expect(full(find(sunday, title))).toEqual([0, 1]);
+    // Saturday: main 40%, food 25%, side 35%.
+    const workshops = saturday!.slots.filter(s => s.title.startsWith('Workshop'));
+    expect(workshops).toHaveLength(5);
+    for (const w of workshops) expect([w.left, w.width]).toEqual([0, 0.4]);
+    expect(full(find(saturday, 'Hacking Begins'))).toEqual([0, 0.65]);
+    expect(full(find(saturday, 'Team formation'))).toEqual([0, 0.65]); // inside the red Hacking Begins block on the poster
+    // Free-standing, but next to another column's slot: stays in its own column like the poster.
+    expect(full(find(saturday, 'Fitness Challenge'))).toEqual([0.65, 0.35]);
+    expect(full(find(saturday, 'Lunch'))).toEqual([0.4, 0.25]);
+    expect(full(find(saturday, 'Sponsor Station'))).toEqual([0.65, 0.35]);
+    // Food sits on top of hacking, nudged below its title; Photo Booth stacks on Sponsor Station.
+    expect(find(saturday, 'Lunch').layer).toBeGreaterThan(find(saturday, 'Hacking Begins').layer);
+    expect(find(saturday, 'Lunch').nudged).toBe(true);
+    expect(find(sunday, 'Lunch').layer).toBeGreaterThan(find(sunday, 'Hacking Ends').layer);
+    // Photo Booth (12–8) would hide Sponsor Station (12–6): drawn from 1 PM, so Sponsor's title, time and place show.
+    expect(find(saturday, 'Photo Booth')).toMatchObject({ depth: 1, nudged: false, startMinute: 720, topMinute: 780, start: '12:00 PM' });
+    expect(find(saturday, 'Sponsor Station').topMinute).toBe(720);
+    expect(find(saturday, 'Lunch').topMinute).toBe(720);
+    expect(find(saturday, 'Photo Booth').layer).toBeGreaterThan(find(saturday, 'Sponsor Station').layer);
+    expect(find(saturday, 'Hacking Begins').nudged).toBe(false);
+    expect(find(saturday, 'Team formation').nudged).toBe(false);
+    // Stair-step cascade: a later card steps in past every card it covers, so each one keeps a visible edge.
+    expect(find(saturday, 'Caricatures').depth).toBe(2);
+    expect(find(saturday, 'Karaoke').depth).toBe(1);
+    for (const day of [saturday!, sunday!]) for (const a of day.slots) for (const b of day.slots) {
+      if (a !== b && a.track === b.track && a.startMinute < b.endMinute && b.startMinute < a.endMinute) {
+        expect(a.depth).not.toBe(b.depth);
+        expect(a.layer).not.toBe(b.layer);
       }
     }
-    const [day] = scheduleTimeline([{ label: 'Day', slots: [makeSlot('9:00', '10:00'), makeSlot('9:30', '10:30'), makeSlot('10:30', '11:00')] }]);
-    expect(day!.slots.map(s => [s.lane, s.laneCount])).toEqual([[0, 2], [1, 2], [0, 1]]);
+    const [day] = scheduleTimeline([{ label: 'Day', slots: [makeSlot('9:00', '10:00'), makeSlot('9:30', '10:30'), makeSlot('10:30', '11:00'), makeSlot('9:00', '9:30', 'Lunch')] }]);
+    expect(day!.slots.map(s => [s.title, s.track, s.left, s.width, s.depth])).toEqual([
+      ['Activity', 'side', 2.5 / 6, 3.5 / 6, 0], ['Lunch', 'food', 0, 2.5 / 6, 0], ['Activity', 'side', 2.5 / 6, 3.5 / 6, 1], ['Activity', 'side', 0, 1, 0]]);
   });
 
   it('T-ME-11: title categories match the poster, including MLH Meetup', () => {
     const days = scheduleTimeline(parseSchedule(official)!);
     const category = (title: string) => days.flatMap(d => d.slots).find(s => s.title.startsWith(title))?.category;
-    for (const title of ['Hacking Begins', 'Hacking Ends', 'Devpost', 'Quiet Rooms', 'Demos']) expect(category(title)).toBe('hacking');
+    for (const title of ['Hacking Begins', 'Team formation', 'Hacking Ends', 'Devpost', 'Quiet Rooms', 'Demos']) expect(category(title)).toBe('hacking');
     for (const title of ['Lunch', 'Dinner', 'Breakfast', 'Snack Cart', 'Late-Night Snacks']) expect(category(title)).toBe('food');
     for (const title of ['Workshop', 'Talk', 'MLH Meetup']) expect(category(title)).toBe('workshops');
     expect(category('Sponsor')).toBe('sponsors');
-    for (const title of ['Check-in', 'Opening', 'Photo Booth', 'Team formation', 'Caricatures', 'Fitness', 'Spin', 'Karaoke', 'Magic']) expect(category(title)).toBe('activities');
+    for (const title of ['Check-in', 'Opening', 'Photo Booth', 'Caricatures', 'Fitness', 'Spin', 'Karaoke', 'Magic']) expect(category(title)).toBe('activities');
   });
 
   it('T-ME-11: typed 24-hour, AM/PM, compact and dotted times; overnight rollover and rounding', () => {

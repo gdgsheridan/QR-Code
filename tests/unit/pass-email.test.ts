@@ -5,9 +5,9 @@ import { renderPassEmail } from '@/lib/email/templates/pass';
 const base = {
   firstName: 'Ada',
   event: { name: 'Hack Day 2026', venue: 'Bahen Centre, Room 1180', startsAt: '2026-10-03T13:00:00Z', timezone: 'America/Toronto' },
-  passUrl: 'https://passline.example.com/p#Ab3_-xYz0123456789abcdefGHIJKLMN',
+  passUrl: 'https://station.example.com/p#Ab3_-xYz0123456789abcdefGHIJKLMN',
   qrPng: Buffer.from('fake-png'),
-  profileUrl: 'https://passline.example.com/me/profile',
+  profileUrl: 'https://station.example.com/me/profile',
 };
 
 describe('pass email template (SPEC §12)', () => {
@@ -22,7 +22,7 @@ describe('pass email template (SPEC §12)', () => {
       expect(part).toContain(base.passUrl);
     }
     expect(m.html).toContain('src="cid:qr"');
-    expect(m.inlineImages).toEqual([{ cid: 'qr', filename: 'passline-qr.png', contentType: 'image/png', content: base.qrPng }]);
+    expect(m.inlineImages).toEqual([{ cid: 'qr', filename: 'station-qr.png', contentType: 'image/png', content: base.qrPng }]);
     // §12 order: greeting, event, time, venue, QR, link.
     const order = ['Ada', 'Hack Day 2026', 'Sat, Oct 3', 'Bahen Centre', 'cid:qr', 'Open your pass'].map((s) => m.html.indexOf(s));
     expect(order.every((v, i) => v >= 0 && (i === 0 || v > (order[i - 1] ?? 0)))).toBe(true);
@@ -51,6 +51,14 @@ describe('pass email template (SPEC §12)', () => {
     expect(m.html).toContain('&lt;b&gt;x&lt;/b&gt;');
     expect(m.html).not.toContain('<b>x</b>');
     expect(m.html).toContain('A &amp; &quot;B&quot;');
+  });
+
+  it('T-MAIL-07: Atom waves beside his sign-off, in the HTML and the plain-text part (v0.11.21)', () => {
+    const m = renderPassEmail(base);
+    // He waves in the bottom-left corner, beside the sign-off with his name (not bold).
+    expect(m.html).toMatch(/<img src="https:\/\/station\.example\.com\/email-atom\.png"[^>]*alt="Atom the astronaut waving hello"[^>]*><\/td><td[^>]*>Waving from orbit,<br>Atom and the Sheridan Datathon team<\/td>/);
+    expect(m.text).toContain('Waving from orbit,\nAtom and the Sheridan Datathon team');
+    expect(m.inlineImages).toHaveLength(1); // Atom is linked from the app, not attached
   });
 
   it('T-MAIL-09: rendered HTML is under 60 KB', () => {

@@ -1,4 +1,4 @@
-// Passline ↔ Google Sheet bridge. SPEC Appendix A (verbatim). Setup steps are in SPEC Appendix A.
+// Station ↔ Google Sheet bridge. SPEC Appendix A (verbatim). Setup steps are in SPEC Appendix A.
 // Script properties: ENDPOINT, EVENT_SLUG, INGEST_SECRET. Triggers: onFormSubmitInstalled, onEditInstalled.
 
 const SHEET_NAME = 'Form Responses 1';
@@ -6,7 +6,7 @@ const HEADERS = {
   id: 'Applicant ID', email: 'Email Address', first: 'First Name', last: 'Last Name',
   dietary: 'Dietary Restrictions', linkedin: 'LinkedIn URL', status: 'Status', sync: 'Sync Status',
 };
-// v0.4: Status is optional and ignored by Passline (acceptance comes from the RSVP, SPEC F13).
+// v0.4: Status is optional and ignored by Station (acceptance comes from the RSVP, SPEC F13).
 const REQUIRED = ['id', 'email', 'first', 'sync'];
 
 function prop_(k) {
@@ -61,7 +61,7 @@ function syncRows_(sheet, cols, first, last) {
   try {
     const res = UrlFetchApp.fetch(prop_('ENDPOINT'), {
       method: 'post', contentType: 'application/json; charset=utf-8', payload: body,
-      headers: { 'X-Passline-Timestamp': ts, 'X-Passline-Signature': sig },
+      headers: { 'X-Station-Timestamp': ts, 'X-Station-Signature': sig },
       muteHttpExceptions: true,
     });
     const code = res.getResponseCode();

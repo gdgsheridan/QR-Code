@@ -104,7 +104,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
       atSend.push(rows[0]?.h ?? '');
     });
     const drain = () =>
-      drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
+      drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
     const fresh = await newApplicant('drain');
     const late = await newApplicant('late');
     await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'rsvp'), ($2, 'rsvp')`, [fresh.id, late.id]);

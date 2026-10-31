@@ -1,5 +1,5 @@
 /**
- * Passline — Form + Sheet setup (README "Connecting a Google Form"). Lives next to Code.gs in the
+ * Station — Form + Sheet setup (README "Connecting a Google Form"). Lives next to Code.gs in the
  * same Apps Script project; it uses SHEET_NAME and headerMap_ from Code.gs.
  *
  * setupTestForm: run ONCE from a NEW, EMPTY Google Sheet:
@@ -27,8 +27,8 @@ function setupTestForm() {
   }
 
   // 1. The form.
-  const form = FormApp.create('Passline Test — Event Application');
-  form.setDescription('Test form for the Passline check-in app. Fake names and emails are fine.')
+  const form = FormApp.create('Station Test — Event Application');
+  form.setDescription('Test form for the Station check-in app. Fake names and emails are fine.')
       .setCollectEmail(false)          // "Email Address" is a normal question instead (matches Code.gs)
       .setAllowResponseEdits(false);
   form.addTextItem().setTitle('First Name').setRequired(true);
@@ -45,7 +45,7 @@ function setupTestForm() {
   if (sheet.getName() !== SHEET_NAME) sheet.setName(SHEET_NAME); // SHEET_NAME comes from Code.gs
 
   // 3. The three organizer columns, with a dropdown on Status (blank = pending). Since SPEC v0.4
-  //    Passline ignores Status (acceptance comes from the RSVP); keep it for your own notes.
+  //    Station ignores Status (acceptance comes from the RSVP); keep it for your own notes.
   const lastCol = sheet.getLastColumn();
   sheet.getRange(1, lastCol + 1, 1, 3).setValues([['Applicant ID', 'Status', 'Sync Status']]);
   const statusRule = SpreadsheetApp.newDataValidation()

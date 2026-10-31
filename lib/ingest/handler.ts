@@ -40,8 +40,9 @@ export function createIngestHandler(deps: IngestDeps) {
 
     const verified = verifySheetSignature({
       rawBody: raw,
-      timestamp: request.headers.get('x-passline-timestamp'),
-      signature: request.headers.get('x-passline-signature'),
+      // X-Passline-* is the pre-rename name: Apps Scripts already pasted into Sheets still send it.
+      timestamp: request.headers.get('x-station-timestamp') ?? request.headers.get('x-passline-timestamp'),
+      signature: request.headers.get('x-station-signature') ?? request.headers.get('x-passline-signature'),
       secret: deps.secret,
       nowSeconds: (deps.nowSeconds ?? (() => Math.floor(Date.now() / 1000)))(),
     });

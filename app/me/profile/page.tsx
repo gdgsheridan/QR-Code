@@ -15,7 +15,7 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { DISCORD_PATTERN, LINKEDIN_PATTERN, WEBSITE_PATTERN } from '@/lib/domain/badge';
-import { PACE, PHONE_PATTERN, type ProfileInput } from '@/lib/domain/profile';
+import { PACE, type ProfileInput } from '@/lib/domain/profile';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AllergyFields } from './allergy-fields';
@@ -30,7 +30,6 @@ const ERRORS: Partial<Record<SaveProfileResult, string>> = {
   INVALID_LINKEDIN: '✕ Not saved. Use your LinkedIn profile link, like linkedin.com/in/yourname.',
   INVALID_DISCORD: '✕ Not saved. Use your Discord username: 2–32 lowercase letters, numbers, _ or . (no # tag).',
   INVALID_WEBSITE: '✕ Not saved. Use a website address under 200 characters, like yourname.dev.',
-  INVALID_CONTACT: '✕ Not saved. Enter your emergency contact’s name and a phone number with at least 3 digits.',
   INVALID_OVERNIGHT: '✕ Not saved. Tell us whether you’re staying overnight.',
   INVALID_ALLERGY: '✕ Not saved. Pick how severe your allergy is (or clear the allergy field), in 300 characters or less.',
   INVALID_TEAM_STATUS: '✕ Not saved. Tell us about your team.',
@@ -52,14 +51,12 @@ const TEAM = [
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? '');
 
 const TABS = [
-  ['emergency', 'Emergency contact'],
+  ['networking', 'Networking'],
   ['event', 'The event'],
   ['health', 'Health and access'],
-  ['networking', 'Networking'],
 ] as const;
 type ProfileTab = (typeof TABS)[number][0];
 const ERROR_TAB: Partial<Record<SaveProfileResult, ProfileTab>> = {
-  INVALID_CONTACT: 'emergency',
   INVALID_OVERNIGHT: 'event',
   INVALID_TEAM_STATUS: 'event',
   INVALID_ALLERGY: 'health',
@@ -76,7 +73,6 @@ async function saveSection(tab: Exclude<ProfileTab, 'networking'>, formData: For
   const user = await currentUser();
   if (!user) redirect('/login?next=/me/profile');
   const fields = {
-    emergency: ['emergencyName', 'emergencyPhone', 'emergencyRelation'],
     event: ['overnight', 'teamStatus'],
     health: ['allergies', 'allergySeverity', 'accessibility'],
   } as const;
@@ -86,8 +82,8 @@ async function saveSection(tab: Exclude<ProfileTab, 'networking'>, formData: For
   redirect(`/me/profile?tab=${ERROR_TAB[result] ?? tab}&${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
 }
 
-// SPEC F14 (v0.9): profile setup after the RSVP Yes. The emergency contact, overnight and team status are
-// required; allergies (with how severe) and accessibility are optional. Only the organizers see the private answers, and
+// SPEC F14 (v0.9): profile setup after the RSVP Yes. Overnight and team status are required; allergies (with how
+// severe) and accessibility are optional. The emergency contact is required too, but has its own page (/me/emergency). Only the organizers see the private answers, and
 // meal volunteers see the allergies.
 async function saveSetup(formData: FormData) {
   'use server';
@@ -98,9 +94,6 @@ async function saveSetup(formData: FormData) {
     user,
     text(formData, 'participantId'),
     {
-      emergencyName: text(formData, 'emergencyName'),
-      emergencyPhone: text(formData, 'emergencyPhone'),
-      emergencyRelation: text(formData, 'emergencyRelation'),
       overnight: text(formData, 'overnight'),
       allergies: text(formData, 'allergies'),
       allergySeverity: text(formData, 'allergySeverity'),
@@ -143,14 +136,16 @@ export default async function HackerProfilePage(props: {
 
   // The walkthrough is the RSVP's onboarding ("Set up my hacker profile" → ?setup=1); from the menu each section has its own tab and save.
   const walkthrough = notices.setup === '1' || notices.step === 'links';
-  const defaultTab = !m.emergency ? 'emergency' : !m.overnight || !m.teamStatus ? 'event' : 'emergency';
+  // The emergency contact lives on /me/emergency; this page only links to it while it is missing.
+  const setupDone = m.overnight !== null && m.teamStatus !== null;
+  // Unanswered setup questions come first; otherwise the first tab.
+  const defaultTab = setupDone ? 'networking' : 'event';
   const tab = ERROR_TAB[notices.error as SaveProfileResult]
     ?? TABS.find(([value]) => value === notices.tab)?.[0] ?? defaultTab;
-  const unfinished = { emergency: !m.emergency, event: !m.overnight || !m.teamStatus, health: false, networking: false };
-  const initialStep = networkingError || (notices.step === 'links' && m.profileDone) ? 4
-    : notices.error === 'INVALID_CONTACT' ? 1
-    : ['INVALID_OVERNIGHT', 'INVALID_TEAM_STATUS'].includes(notices.error ?? '') ? 2
-    : error ? 3 : 1;
+  const unfinished = { event: !setupDone, health: false, networking: false };
+  const initialStep = networkingError || (notices.step === 'links' && setupDone) ? 3
+    : ['INVALID_OVERNIGHT', 'INVALID_TEAM_STATUS'].includes(notices.error ?? '') ? 1
+    : error ? 2 : 1;
 
   return (
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
@@ -163,8 +158,11 @@ export default async function HackerProfilePage(props: {
         <BrandMark name={m.event.name} className="max-w-[70%]" />
         <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
-      <h1>{m.profileDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
-      {!m.profileDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your emergency, health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
+      <h1>{setupDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
+      {!setupDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
+      {!m.emergency && <Alert role="note" asChild><p>
+        We still need your emergency contact. <Link className="font-semibold text-accent" href="/me/emergency">Add your emergency contact →</Link>
+      </p></Alert>}
 
       {!walkthrough && <nav aria-label="Profile sections" className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden">
         {TABS.map(([value, label]) => <a key={value} href={`/me/profile?tab=${value}`} aria-current={tab === value ? 'page' : undefined}
@@ -181,7 +179,7 @@ export default async function HackerProfilePage(props: {
       <SetupWalkthrough key={`${notices.error ?? ''}:${notices.saved ?? ''}:${notices.step ?? ''}`} enabled={walkthrough} initialStep={initialStep}>
       {(walkthrough || tab !== 'networking') && <SetupPanel>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-label="Profile setup" >
-        <SetupForm action={walkthrough ? saveSetup : saveSection.bind(null, tab === 'networking' ? 'emergency' : tab)} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+        <SetupForm action={walkthrough ? saveSetup : saveSection.bind(null, tab === 'networking' ? 'event' : tab)} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
           [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
 
@@ -190,39 +188,8 @@ export default async function HackerProfilePage(props: {
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
           <input type="hidden" name="walkthrough" value={walkthrough ? '1' : '0'} />
-          {(walkthrough || tab === 'emergency') && <SetupStep number={1}>
-          <h2 id="setup-step-1" tabIndex={-1}>Emergency contact</h2>
-          <p className="copy m-0 text-muted-foreground text-[14px]">Who we call if something happens to you.</p>
-          <Label htmlFor="emergencyName">Emergency contact name</Label>
-          <Input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" defaultValue={m.emergency?.name ?? ''} className="min-h-12 w-full" />
-          <Label htmlFor="emergencyPhone">Emergency contact phone</Label>
-          <Input
-            id="emergencyPhone"
-            name="emergencyPhone"
-            type="tel"
-            required
-            maxLength={30}
-            pattern={PHONE_PATTERN}
-            title="A phone number: digits, spaces and + ( ) - ."
-            autoComplete="off"
-            defaultValue={m.emergency?.phone ?? ''}
-            className="min-h-12 w-full"
-          />
-          <Label htmlFor="emergencyRelation">Relationship (optional)</Label>
-          <Input
-            id="emergencyRelation"
-            name="emergencyRelation"
-            maxLength={60}
-            placeholder="Parent, partner, friend…"
-            autoComplete="off"
-            defaultValue={m.emergency?.relation ?? ''}
-            className="min-h-12 w-full"
-          />
-
-          {!walkthrough && <Button type="submit">Save profile</Button>}
-          </SetupStep>}
-          {(walkthrough || tab === 'event') && <SetupStep number={2}>
-          <h2 id="setup-step-2" tabIndex={-1}>The event</h2>
+          {(walkthrough || tab === 'event') && <SetupStep number={1}>
+          <h2 id="setup-step-1" tabIndex={-1}>The event</h2>
           <fieldset className="grid gap-[2px] m-0 p-0 [border-width:0px] [border-style:none] [border-color:currentcolor] min-w-0
 
           [&_legend]:p-0 [&_legend]:mb-[4px] [&_legend]:text-[14px] [&_legend]:font-medium">
@@ -252,8 +219,8 @@ export default async function HackerProfilePage(props: {
 
           {!walkthrough && <Button type="submit">Save profile</Button>}
           </SetupStep>}
-          {(walkthrough || tab === 'health') && <SetupStep number={3}>
-          <h2 id="setup-step-3" tabIndex={-1}>Health and access</h2>
+          {(walkthrough || tab === 'health') && <SetupStep number={2}>
+          <h2 id="setup-step-2" tabIndex={-1}>Health and access</h2>
           <AllergyFields allergies={m.allergies ?? ''} severity={m.allergySeverity ?? ''} inputClass={`min-h-[48px] p-[0px_12px] [font:inherit] [background:var(--raised)] text-fg [border-width:1px]
                 [border-style:solid] [border-top-color:var(--field)] [border-right-color:var(--field)]
                 [border-bottom-color:var(--field)] [border-left-color:var(--field)] rounded-control
@@ -295,19 +262,6 @@ export default async function HackerProfilePage(props: {
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
           <input type="hidden" name="walkthrough" value={walkthrough ? '1' : '0'} />
-          <Label className="flex min-h-11 items-center gap-3">
-            <input type="checkbox" name="directoryOptIn" defaultChecked={m.directoryOptIn} className="size-[22px] shrink-0" />
-            List me in the Hacker directory
-          </Label>
-          <p className="copy m-0 text-sm text-muted-foreground">Off by default. Share your name, pace, bio, team status and these networking links with accepted attendees of this event. You can opt out here anytime. Badge sharing is a separate choice.</p>
-          <Label htmlFor="profilePace">Your pace (optional)</Label>
-          <NativeSelect id="profilePace" name="pace" defaultValue={m.pace ?? ''} className="min-h-12 w-full">
-            <option value="">No pace set</option>
-            {Object.entries(PACE).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </NativeSelect>
-          <Label htmlFor="bio">Bio (optional)</Label>
-          <Textarea id="bio" name="bio" maxLength={280} rows={4} defaultValue={m.bio ?? ''} placeholder="What do you enjoy building? Who would you like to meet?" aria-describedby="bio-hint" className="min-h-24 w-full" />
-          <p id="bio-hint" className="copy m-0 text-sm text-muted-foreground">Up to 280 characters. Line breaks are welcome.</p>
           <Label htmlFor="linkedin">LinkedIn (optional)</Label>
           <Input
             id="linkedin"
@@ -349,6 +303,17 @@ export default async function HackerProfilePage(props: {
             defaultValue={m.websiteUrl ?? ''}
             className="min-h-12 w-full"
           />
+          <Label htmlFor="bio">Bio (optional)</Label>
+          <Textarea id="bio" name="bio" maxLength={280} rows={4} defaultValue={m.bio ?? ''} placeholder="What do you enjoy building? Who would you like to meet?" className="min-h-24 w-full" />
+          <Label htmlFor="profilePace">Your pace (optional)</Label>
+          <NativeSelect id="profilePace" name="pace" defaultValue={m.pace ?? ''} className="min-h-12 w-full">
+            <option value="">No pace set</option>
+            {Object.entries(PACE).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </NativeSelect>
+          <Label className="flex min-h-11 items-center gap-3">
+            <input type="checkbox" name="directoryOptIn" defaultChecked={m.directoryOptIn} className="size-[22px] shrink-0" />
+            List me in the Hacker directory
+          </Label>
           <Label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
             <input type="checkbox" name="public" defaultChecked={m.profilePublic} style={{ width: 22, height: 22 }} />
             Show my name and these links to anyone who taps my badge

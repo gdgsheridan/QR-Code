@@ -4,7 +4,7 @@ import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import { renderQrPng } from '@/lib/qr/render';
 
-const URL_TEXT = 'https://passline.example.com/p#Ab3_-xYz0123456789abcdefGHIJKLMN';
+const URL_TEXT = 'https://station.example.com/p#Ab3_-xYz0123456789abcdefGHIJKLMN';
 
 async function rgba(image: Buffer) {
   const { data, info } = await sharp(image).ensureAlpha().raw().toBuffer({ resolveWithObject: true });

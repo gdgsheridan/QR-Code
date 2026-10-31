@@ -1,4 +1,4 @@
-# Passline launch checklist
+# Station launch checklist
 
 Code for every slice in SPEC §18 is done and tested locally. What's left is **setup that only you can do** (accounts, domains, the production deploy) and the **manual tests** from SPEC §14 that need real phones, inboxes and a real Sheet. Work top to bottom. Each box names the SPEC test it satisfies.
 
@@ -9,7 +9,7 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 ### Supabase (production project)
 - [ ] Create the project in the region closest to Toronto (§17 A9), e.g. `ca-central-1` or `us-east-1`.
 - [ ] Apply the migrations from your machine: `supabase link --project-ref <ref>` then `supabase db push`. This creates every table, function, grant and the private `photos` bucket (retained for deleting legacy uploads).
-- [ ] Auth → URL configuration: set Site URL to `https://<your-domain>` and add `https://<your-domain>/auth/confirm**` to the redirect URLs. Point the invite and recovery email templates at `https://<your-domain>/auth-email/invite.html` and `recovery.html`, and turn off public sign-ups. Keep "Secure email change" on (Passline trusts an account's email for `/me` and invites).
+- [ ] Auth → URL configuration: set Site URL to `https://<your-domain>` and add `https://<your-domain>/auth/confirm**` to the redirect URLs. Point the invite and recovery email templates at `https://<your-domain>/auth-email/invite.html` and `recovery.html`, and turn off public sign-ups. Keep "Secure email change" on (Station trusts an account's email for `/me` and invites).
 - [ ] Auth → SMTP: **set up custom SMTP** (e.g. Resend's SMTP). Supabase's built-in mailer only sends a few emails per hour, which isn't enough for volunteers signing in on event day.
 - [ ] Copy the project URL, anon key and service-role key for the Vercel env.
 

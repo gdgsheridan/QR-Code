@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-// SPEC §9.2: X-Passline-Signature = hex(HMAC_SHA256(secret, timestamp + "." + rawBody)).
+// SPEC §9.2: X-Station-Signature (X-Passline-Signature from older scripts) = hex(HMAC_SHA256(secret, timestamp + "." + rawBody)).
 export const MAX_SKEW_SECONDS = 300;
 
 export function signSheetBody(rawBody: string, timestamp: string, secret: string): string {

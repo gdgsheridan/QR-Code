@@ -44,7 +44,7 @@ function toMime(m: EmailMessage, id: string): string {
     `To: ${m.to}`,
     `Subject: =?utf-8?B?${Buffer.from(m.subject, 'utf8').toString('base64')}?=`,
     `Date: ${new Date().toUTCString()}`,
-    `Message-ID: <${id}@passline.local>`,
+    `Message-ID: <${id}@station.local>`,
     `X-Idempotency-Key: ${m.idempotencyKey}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/related; boundary="${rel}"`,

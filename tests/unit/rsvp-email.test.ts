@@ -8,7 +8,7 @@ import { renderRsvpEmail } from '@/lib/email/templates/rsvp';
 const base = {
   firstName: 'Ada',
   event: { name: 'Datathon', venue: 'HMC Campus', startsAt: '2026-11-07T14:00:00Z', timezone: 'America/Toronto' },
-  rsvpUrl: 'https://passline.example.com/rsvp#Ab3_-xYz0123456789abcdefGHIJKLMN',
+  rsvpUrl: 'https://station.example.com/rsvp#Ab3_-xYz0123456789abcdefGHIJKLMN',
   closesAt: '2026-11-04T04:59:00Z', // Nov 3, 11:59 PM EST
 };
 
@@ -48,8 +48,8 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
     const result = await drainOutbox({
       db: fake as unknown as SupabaseClient<Database>,
       provider: { name: 'mock', send: async (m) => (sent.push(m), { id: 'x' }) },
-      appOrigin: 'https://passline.example.com',
-      from: 'Passline <p@example.test>',
+      appOrigin: 'https://station.example.com',
+      from: 'Station <p@example.test>',
       passSecret: 'x'.repeat(32),
     });
     expect(result).toMatchObject({ claimed: 1, cancelled: 1, sent: 0 });

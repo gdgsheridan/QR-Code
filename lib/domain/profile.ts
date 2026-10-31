@@ -70,7 +70,8 @@ export const PHONE_PATTERN = '(?=(?:\\D*\\d){3})[0-9+\\(\\) .\\-]{3,30}';
 
 export function parseProfileInput(
   raw: ProfileInput,
-  // requireSetup: the profile setup form, which also needs overnight and team status (and the contact).
+  // requireSetup: the profile setup form, which also needs overnight and team status. The contact is required too,
+  // but set on its own page (/me/emergency), so setup only checks one that is given.
   opts: { requireEmergency: boolean; requireSetup?: boolean },
 ): { ok: true; value: ProfileFields } | { ok: false; field: ProfileField } {
   const value: ProfileFields = {};
@@ -107,7 +108,7 @@ export function parseProfileInput(
     value.dietaryNotes = dietary;
   }
   const given = [raw.emergencyName, raw.emergencyPhone, raw.emergencyRelation].some((v) => v !== undefined);
-  if (given || opts.requireEmergency || opts.requireSetup) {
+  if (given || opts.requireEmergency) {
     const name = (raw.emergencyName ?? '').trim();
     const phone = (raw.emergencyPhone ?? '').trim();
     const relation = (raw.emergencyRelation ?? '').trim();

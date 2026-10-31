@@ -1,7 +1,7 @@
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { escapeHtml } from '@/lib/domain/html';
 import type { RenderedEmail } from './pass';
-import { button, details, emailPage, HEADLINE, MUTED, p } from './layout';
+import { button, details, emailPage, HEADLINE, MUTED, p, SIGN_OFF_TEXT } from './layout';
 
 export interface StaffAddedEmailInput {
   /** Their staff display name, if they have set one. */
@@ -22,7 +22,7 @@ export function renderStaffAddedEmail(input: StaffAddedEmailInput): RenderedEmai
   const when = formatEventDateTime(input.event.startsAt, input.event.timezone);
   const hint = 'Never set a password? Use “Forgot or never set your password?” on the sign-in page.';
   const hi = input.name ? `Hi ${input.name},` : 'Hi,';
-  const html = emailPage(input.appOrigin, 'Staff', [
+  const html = emailPage(input.appOrigin, 'Staff access', [
     p(escapeHtml(hi)),
     p(`You’re now ${as} for <strong>${escapeHtml(input.event.name)}</strong>.`, HEADLINE),
     details([['When', escapeHtml(when)], ['Access', opens]]),
@@ -40,6 +40,8 @@ export function renderStaffAddedEmail(input: StaffAddedEmailInput): RenderedEmai
     `Sign in: ${url}`,
     '',
     hint,
+    '',
+    SIGN_OFF_TEXT,
   ].join('\n');
   return { subject: `You’re now ${as} for ${input.event.name}`, html, text, inlineImages: [] };
 }

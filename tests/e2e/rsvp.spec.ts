@@ -95,41 +95,45 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.waitForURL('**/me/profile?setup=1');
   await expect(p.getByRole('navigation', { name: 'Profile sections' })).toHaveCount(0); // RSVP keeps the guided walkthrough.
   await expect(p.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
-  await expect(p.getByText('Step 1 of 4: Emergency contact')).toBeVisible();
-  await p.getByRole('button', { name: 'Next', exact: true }).click();
-  expect(await p.getByLabel('Emergency contact name').evaluate((el) => (el as HTMLInputElement).validity.valueMissing)).toBe(true);
-  await p.getByLabel('Emergency contact name').fill('Sam Rsvp');
-  await p.getByLabel('Emergency contact phone').fill('416 555 0100');
-  await p.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(p.getByRole('heading', { name: 'The event', exact: true })).toBeFocused();
-  await p.getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(p.getByRole('heading', { name: 'Emergency contact', exact: true })).toBeFocused();
-  await expect(p.getByLabel('Emergency contact name')).toHaveValue('Sam Rsvp');
-  await p.getByRole('button', { name: 'Next', exact: true }).click();
+  // The emergency contact has its own page: the profile links there while it's missing.
+  await expect(p.getByLabel('Emergency contact name')).toHaveCount(0);
+  await expect(p.getByText('Step 1 of 3: The event')).toBeVisible();
+  await expect(p.getByRole('link', { name: 'Add your emergency contact →' })).toHaveAttribute('href', '/me/emergency');
   await p.getByRole('button', { name: 'Next', exact: true }).click();
   expect(await p.getByLabel('Not sure yet').evaluate((el) => (el as HTMLInputElement).validity.valueMissing)).toBe(true);
   await p.getByLabel('Not sure yet').check();
   await p.getByLabel('I’m looking for a team (lists my name in the Hacker directory)').check();
   await p.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(p.getByRole('heading', { name: 'Health and access', exact: true })).toBeFocused();
+  await p.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(p.getByRole('heading', { name: 'The event', exact: true })).toBeFocused();
+  await expect(p.getByLabel('Not sure yet')).toBeChecked();
+  await p.getByRole('button', { name: 'Next', exact: true }).click();
   await p.getByLabel('Allergies (optional)').fill('Peanuts');
   // An allergy without its severity is caught in the browser: nothing is sent, so nothing typed is lost.
   await p.getByRole('button', { name: 'Save profile' }).click();
   expect(await p.getByLabel('How severe?').evaluate((el) => (el as HTMLSelectElement).validity.valueMissing)).toBe(true);
-  await expect(p.getByLabel('Emergency contact name')).toHaveValue('Sam Rsvp');
+  await expect(p.getByLabel('Allergies (optional)')).toHaveValue('Peanuts');
   await p.getByLabel('How severe?').selectOption('severe');
   await p.getByLabel('Accessibility needs (optional)').fill('Step-free access');
   await p.getByRole('button', { name: 'Save profile' }).click();
   await expect(p.getByText('✓ Saved. Your profile is set up.')).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Hacker profile' })).toBeVisible();
-  await expect(p.getByText('Step 4 of 4: Networking (optional)')).toBeVisible();
+  await expect(p.getByText('Step 3 of 3: Networking (optional)')).toBeVisible();
   await expect(p.getByRole('heading', { name: 'Networking', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(p.getByRole('heading', { name: 'Health and access', exact: true })).toBeFocused();
   await p.getByRole('button', { name: 'Save profile', exact: true }).click();
   await p.getByRole('button', { name: 'Save links', exact: true }).click();
   await expect(p.getByText('✓ Saved.', { exact: true })).toBeVisible();
-  await p.getByRole('link', { name: 'Done', exact: true }).click();
-  await expect(p).toHaveURL(/\/me$/);
+  await p.getByRole('link', { name: 'Add your emergency contact →' }).click();
+  await p.waitForURL('**/me/emergency');
+  await p.getByLabel('Name').fill('Sam Rsvp');
+  await p.getByLabel('Phone').fill('416 555 0100');
+  await p.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(p.getByText('✓ Saved.', { exact: true })).toBeVisible();
+  await p.goto('/me/profile');
+  await expect(p.getByRole('link', { name: 'Add your emergency contact →' })).toHaveCount(0);
 
   const { rows } = await f.pool.query(
     `select emergency_name, emergency_phone, looking_for_team, dietary_notes, overnight, team_status, allergies, allergy_severity, accessibility

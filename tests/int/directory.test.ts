@@ -11,6 +11,8 @@ const directory = async (email: string, looking = false, event = f.e1.id) =>
   (await f.pool.query<{ value: Array<Record<string, unknown>> }>('select hacker_directory($1, $2, $3) as value', [event, email, looking])).rows[0]!.value;
 
 it('T-DIR-02: same event accepted undeleted opted-in hackers only; Looking adds names only with no private fields', async () => {
+  // Listing is on by default (v0.11.19): start from everyone opted out, then opt in the ones this test needs.
+  await f.pool.query('update participants set directory_opt_in = false where event_id = any($1)', [[f.e1.id, f.e2.id]]);
   await f.pool.query(`update participants set directory_opt_in = true, bio = 'Secret bio', pace = 'balanced',
     emergency_name = 'Emergency secret', emergency_phone = '12345' where id = any($1)`, [[f.p.A, f.p.B, f.p.C, f.p.Wd, f.p.X]]);
   await f.pool.query('update participants set looking_for_team = true where id = $1', [f.p.N]);
@@ -34,12 +36,12 @@ it('T-DIR-03: waitlisted, withdrawn, unknown viewers cannot read; myEvent refuse
   expect(await directory('stranger@example.test')).toEqual([]);
 });
 
-it('T-DIR-04: own profile only, missing unchanged, blank clears, constraints, no PII audit; tombstone clears', async () => {
+it('T-DIR-04: listed by default; own profile only, missing unchanged, blank clears, constraints, no PII audit; tombstone clears', async () => {
   const { id } = await f.addParticipant(f.e1.id);
   const user = { id: f.staff.vol1, email: await emailOf(id) };
   const save = (input: Parameters<typeof saveBadgeProfile>[3], target = id) => saveBadgeProfile(serviceClient(), user, target, input);
   const stored = async () => (await f.pool.query('select directory_opt_in, bio, pace from participants where id = $1', [id])).rows[0];
-  expect(await stored()).toEqual({ directory_opt_in: false, bio: null, pace: null });
+  expect(await stored()).toEqual({ directory_opt_in: true, bio: null, pace: null }); // v0.11.19: on by default
   expect(await save({ directoryOptIn: true, bio: 'My bio', pace: 'casual' })).toBe('SAVED');
   expect(await save({ bio: 'Forged' }, f.p.A)).toBe('NOT_FOUND');
   expect(await save({ linkedin: '' })).toBe('SAVED');

@@ -4,7 +4,7 @@ import { createContext, useContext, useLayoutEffect, useRef, useState, useSyncEx
 import { Button } from '@/components/ui/button';
 
 const subscribe = () => () => {};
-const TITLES = ['Emergency contact', 'The event', 'Health and access', 'Networking (optional)'];
+const TITLES = ['The event', 'Health and access', 'Networking (optional)'];
 const Walkthrough = createContext<{ step: number; move: (step: number) => void; active: boolean; enabled: boolean }>({ step: 1, move: () => {}, active: false, enabled: false });
 
 export function SetupWalkthrough({ enabled, initialStep, children }: { enabled: boolean; initialStep: number; children: ReactNode }) {
@@ -14,7 +14,7 @@ export function SetupWalkthrough({ enabled, initialStep, children }: { enabled: 
   return (
     <Walkthrough value={{ step, move: setStep, active, enabled }}>
       {enabled && <div className="grid gap-2" role="status" aria-live="polite">
-        <p className="m-0 text-sm text-muted-foreground">Step {step} of 4: {TITLES[step - 1]}</p>
+        <p className="m-0 text-sm text-muted-foreground">Step {step} of {TITLES.length}: {TITLES[step - 1]}</p>
         <div className="flex gap-2" aria-hidden="true">
           {TITLES.map((title, index) => <span key={title} className={`h-1 flex-1 rounded-sm ${index < step ? 'bg-accent' : 'bg-border'}`} />)}
         </div>
@@ -32,7 +32,7 @@ export function SetupForm({ action, className, children }: { action: (data: Form
     for (const field of fields) {
       if (!field.reportValidity()) { event.preventDefault(); return; }
     }
-    if (step < 3) { event.preventDefault(); move(step + 1); }
+    if (step < 2) { event.preventDefault(); move(step + 1); }
   }}>{children}</form>;
 }
 
@@ -49,7 +49,7 @@ export function SetupStep({ number, children }: { number: number; children: Reac
     {children}
     {active && <div className="flex gap-3 [&>*]:flex-1">
       {number > 1 && <Button type="button" variant="outline" onClick={() => move(number - 1)}>Back</Button>}
-      {number < 3 && <Button type="submit">Next</Button>}
+      {number < 2 && <Button type="submit">Next</Button>}
     </div>}
   </section>;
 }
@@ -58,13 +58,13 @@ export function SetupPanel({ networking = false, children }: { networking?: bool
   const { active, step, move, enabled } = useContext(Walkthrough);
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    if (active && networking && step === 4) ref.current?.querySelector<HTMLElement>('h2')?.focus();
+    if (active && networking && step === 3) ref.current?.querySelector<HTMLElement>('h2')?.focus();
   }, [active, networking, step]);
-  const hidden = active && (networking ? step !== 4 : step === 4);
+  const hidden = active && (networking ? step !== 3 : step === 3);
   return <div ref={ref} hidden={hidden} className={hidden ? 'hidden' : 'contents'}>
     {children}
     {enabled && networking && <div className="flex flex-wrap gap-3">
-      {active && <Button type="button" variant="outline" onClick={() => move(3)}>Back</Button>}
+      {active && <Button type="button" variant="outline" onClick={() => move(2)}>Back</Button>}
       <Button asChild variant="ghost"><a href="/me">Done</a></Button>
     </div>}
   </div>;

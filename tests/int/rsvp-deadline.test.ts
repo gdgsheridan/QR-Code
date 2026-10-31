@@ -172,7 +172,7 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
 
     const sentAt = (await row(r1.id))?.rsvp_sent_at;
     const mail = mockProvider();
-    await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
+    await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
     const [reminder] = sentTo(mail.sent, r1.email);
     if (!reminder) throw new Error('no reminder email');
     expect(reminder.subject).toMatch(/^Reminder: reply by .+ — Deadline open$/);
@@ -228,7 +228,7 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     const p = await invitee(events.open, { sentAgo: '2 days' });
     await f.pool.query(`insert into email_outbox (participant_id, kind, created_at) values ($1, 'rsvp_reminder', now() - interval '7 hours')`, [p.id]);
     const mail = mockProvider();
-    await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
+    await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
     expect(sentTo(mail.sent, p.email)).toEqual([]);
     expect(await outbox(p.id)).toEqual([{ kind: 'rsvp_reminder', status: 'cancelled' }]);
     expect((await call({ token: p.token })).status).toBe(200); // their link still works
@@ -272,7 +272,7 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
       [later.id],
     );
     const mail = mockProvider();
-    await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
+    await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
     const [sent] = sentTo(mail.sent, unfinished.email);
     expect(sent?.subject).toBe('Finish setting up your profile for Profile Fest');
     expect(sent?.text).toContain('http://localhost:3100/me/profile');

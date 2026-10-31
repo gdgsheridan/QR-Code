@@ -1,4 +1,4 @@
-# Passline
+# Sheridan Datathon Station
 
 QR check-in for club events. Accepted applicants get a personal QR pass by email. Volunteers scan it at the door, at meals, at workshops and at any other checkpoint. Organizers watch live counts and export attendance.
 
@@ -158,7 +158,7 @@ The Sheet talks to the app through `apps-script/Code.gs`. `apps-script/Setup.gs`
 
 | Function | When |
 |----------|------|
-| `setupTestForm` | Starting fresh: run it from a new, empty Google Sheet. It creates a form with the right questions, links it, adds the extra columns (including a Status dropdown, which Passline ignores), saves the settings, and installs both triggers. The execution log prints the form link. |
+| `setupTestForm` | Starting fresh: run it from a new, empty Google Sheet. It creates a form with the right questions, links it, adds the extra columns (including a Status dropdown, which Station ignores), saves the settings, and installs both triggers. The execution log prints the form link. |
 | `connectExistingSheet` | You already have a form and Sheet: saves the settings and installs the triggers. |
 | `updateEndpoint` | **After any `CONFIG` edit:** a new tunnel URL, a different event slug, a new secret. |
 | `showEndpoint` | Shows the address and event slug the Sheet will actually use. |
@@ -249,7 +249,7 @@ Keep `NEXT_PUBLIC_APP_ORIGIN=http://localhost:3000`. QR codes then match the lap
 |---------|-----|
 | "Organizer access only" | Sign in again as the right account. Invites are picked up at every sign-in. If it persists, grant the role in Studio (`http://127.0.0.1:54323`), SQL editor, with the query below. |
 | No `.mail/qr` folder after someone answers Yes to an RSVP | Check that the RSVP was accepted and the pass email was sent. If `.mail/` has `.eml` files but no `qr/` folder, restart `pnpm dev`. |
-| Every scan says "Not a Passline code" | `NEXT_PUBLIC_APP_ORIGIN` must be exactly `http://localhost:3000` with no trailing slash, and you must scan from `localhost:3000`. Restart `pnpm dev` after changing it. |
+| Every scan says "Not a Datathon code" | `NEXT_PUBLIC_APP_ORIGIN` must be exactly `http://localhost:3000` with no trailing slash, and you must scan from `localhost:3000`. Restart `pnpm dev` after changing it. |
 | Every scan says "Unknown code" | The QR image is from before the last `pnpm db:reset`. Use fresh images. |
 | "Checkpoint closed" | Open it on the Checkpoints tab. |
 | `SUPABASE_SERVICE_ROLE_KEY is not set` | `.env.local` is missing its keys. Redo "First time only". |

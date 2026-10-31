@@ -14,11 +14,11 @@ const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3
 function message(overrides: Partial<EmailMessage> = {}): EmailMessage {
   return {
     to: 'ada@example.com',
-    from: 'Passline <passes@example.com>',
+    from: 'Station <passes@example.com>',
     subject: "You're in: Hack Day — your check-in pass",
     html: '<p>Hi Ada</p><img src="cid:qr">',
     text: 'Hi Ada',
-    inlineImages: [{ cid: 'qr', filename: 'passline-qr.png', contentType: 'image/png', content: png }],
+    inlineImages: [{ cid: 'qr', filename: 'station-qr.png', contentType: 'image/png', content: png }],
     idempotencyKey: 'row-1:1',
     fileLabel: 'Hack-Day-Ada',
     ...overrides,
@@ -26,7 +26,7 @@ function message(overrides: Partial<EmailMessage> = {}): EmailMessage {
 }
 
 async function tempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'passline-mail-'));
+  return mkdtemp(join(tmpdir(), 'station-mail-'));
 }
 
 describe('console email provider (SPEC §12)', () => {

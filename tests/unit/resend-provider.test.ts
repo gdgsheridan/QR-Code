@@ -4,11 +4,11 @@ import { createResendProvider } from '@/lib/email/resend';
 
 const message = {
   to: 'ada@example.com',
-  from: 'Passline <passes@example.com>',
+  from: 'Station <passes@example.com>',
   subject: 's',
   html: '<img src="cid:qr">',
   text: 't',
-  inlineImages: [{ cid: 'qr', filename: 'passline-qr.png', contentType: 'image/png', content: Buffer.from('png') }],
+  inlineImages: [{ cid: 'qr', filename: 'station-qr.png', contentType: 'image/png', content: Buffer.from('png') }],
   idempotencyKey: 'row-1:2',
 };
 
@@ -22,7 +22,7 @@ describe('resend provider (SPEC §12, §17 A1)', () => {
     const body: unknown = JSON.parse(String(init?.body));
     expect(body).toMatchObject({
       to: ['ada@example.com'],
-      attachments: [{ filename: 'passline-qr.png', content_id: 'qr', content_type: 'image/png', content: 'cG5n' }],
+      attachments: [{ filename: 'station-qr.png', content_id: 'qr', content_type: 'image/png', content: 'cG5n' }],
     });
   });
 

@@ -30,6 +30,8 @@ export default async function MePage() {
   if (error) throw new Error(`event_staff lookup failed (${error.code})`);
 
   const live = m ? Date.parse(m.event.endsAt) > now.getTime() : false;
+  // The emergency contact has its own menu item and warning; this hint is about the profile page's own answers.
+  const profileSetUp = !!m && m.overnight !== null && m.teamStatus !== null;
   const teamHint = !m ? '' : m.teamId ? 'You’re in a team' : !live ? '' : m.event.teamsOpen ? 'Create or join a team' : 'Opens on hackathon day';
 
   return (
@@ -189,22 +191,22 @@ export default async function MePage() {
           rounded-card [background:var(--card)] shadow-panel overflow-hidden [&_li_+_li]:[border-top-width:1px]
 
           [&_li_+_li]:[border-top-style:solid] [&_li_+_li]:[border-top-color:var(--line)]">
-              <Item
-                href="/me/profile"
-                icon={<ProfileIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />}
-                label="Hacker profile"
-                hint={!m.profileDone ? 'Finish setting up' : m.badge ? 'Badge linked' : 'No badge linked yet'}
-                warn={!m.profileDone}
-              />
-              <Item href="/me/team" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Team" hint={teamHint} />
               <Item href="/me/hackers" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Hackers" hint="Meet hackers and find teammates" />
               <Item href="/me/schedule" icon={<ScheduleIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Schedule" hint={m.event.schedule ? '' : 'Not posted yet'} />
+              <Item href="/me/team" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Team" hint={teamHint} />
               <Item
                 href="/me/emergency"
                 icon={<EmergencyIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />}
                 label="Emergency contact"
                 hint={m.emergency ? m.emergency.name : 'Not set'}
                 warn={!m.emergency}
+              />
+              <Item
+                href="/me/profile"
+                icon={<ProfileIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />}
+                label="Hacker profile"
+                hint={!profileSetUp ? 'Finish setting up' : m.badge ? 'Badge linked' : 'No badge linked yet'}
+                warn={!profileSetUp}
               />
             </ul></Entrance>
           </nav>

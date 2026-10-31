@@ -45,12 +45,22 @@ export function parseSchedule(text: string): ScheduleSection[] | null {
   return found ? sections : null;
 }
 export type ScheduleCategory = 'hacking' | 'activities' | 'workshops' | 'food' | 'sponsors';
+export type ScheduleTrack = 'main' | 'food' | 'side';
 export interface TimelineSlot extends ScheduleSlot {
   startMinute: number;
   endMinute: number;
-  lane: number;
-  laneCount: number;
   category: ScheduleCategory;
+  // Poster layout: `left` and `width` are fractions of the day; `depth` is the inset level among
+  // overlapping slots of the same track; higher `layer`s draw on top; `nudged` sits below a title it covers.
+  // `topMinute` is where the card is drawn from: its start, or an hour later when it would hide a same-column card
+  // starting with it (Photo Booth on Sponsor Station); its text still says the real start.
+  track: ScheduleTrack;
+  topMinute: number;
+  left: number;
+  width: number;
+  depth: number;
+  layer: number;
+  nudged: boolean;
   state: 'past' | 'current' | 'upcoming';
 }
 export interface TimelineDay {
@@ -73,13 +83,68 @@ function minutes(time: string): number | null {
 }
 
 // First match wins: Workshop/Talk/MLH Meetup; meals/snacks; Sponsor; hacking milestones;
-// everything else is Activities. MLH Meetup is a workshop to match the official poster.
+// everything else is Activities. MLH Meetup is a workshop and Team formation is hacking, to match the official poster.
 const CATEGORY_RULES: [RegExp, ScheduleCategory][] = [
   [/\b(workshop|talk|MLH\s+Meetup)\b/i, 'workshops'],
   [/\b(lunch|dinner|breakfast|snacks?)\b/i, 'food'],
   [/\bsponsor\b/i, 'sponsors'],
-  [/\b(hacking\s+(begins|ends)|devpost|draft\s+due|demos|judging|quiet\s+rooms)\b/i, 'hacking'],
+  [/\b(hacking\s+(begins|ends)|devpost|draft\s+due|demos|judging|quiet\s+rooms|team\s+formation)\b/i, 'hacking'],
 ];
+
+// Like the Hacker Package poster: hacking and workshops left, food in the middle, sponsors and activities right.
+const TRACKS: { id: ScheduleTrack; weight: number; categories: ScheduleCategory[] }[] = [
+  { id: 'main', weight: 4, categories: ['hacking', 'workshops'] },
+  { id: 'food', weight: 2.5, categories: ['food'] },
+  { id: 'side', weight: 3.5, categories: ['sponsors', 'activities'] },
+];
+const NUDGE_WITHIN = 15;
+const DROP_MINUTES = 60; // a long card on a same-column one starting with it begins this much lower
+const DROP_MIN_LENGTH = 120;
+const NEIGHBOUR_WITHIN = 15; // a lone slot this close to another column's slot keeps its own column
+const overlaps = (a: { startMinute: number; endMinute: number }, b: { startMinute: number; endMinute: number }) =>
+  a.startMinute < b.endMinute && b.startMinute < a.endMinute;
+
+// A slot whose overlap group stays in its own track, with no other track's slot right beside it, spans the day; hacking also runs under the food column
+// (food draws on top) and into the side column when that is free; overlaps in one track stack, each a step further in than the cards it covers.
+function layout(slots: TimelineSlot[]) {
+  const used = TRACKS.filter(t => slots.some(s => s.track === t.id));
+  const total = used.reduce((sum, t) => sum + t.weight, 0);
+  const extent = (from: number, to: number) => ({
+    left: used.slice(0, from).reduce((sum, t) => sum + t.weight, 0) / total,
+    width: used.slice(from, to + 1).reduce((sum, t) => sum + t.weight, 0) / total,
+  });
+  const groups: TimelineSlot[][] = [];
+  let groupEnd = -Infinity;
+  for (const slot of slots) {
+    if (slot.startMinute >= groupEnd) groups.push([]);
+    groups.at(-1)!.push(slot);
+    groupEnd = Math.max(groupEnd, slot.endMinute);
+  }
+  slots.forEach((slot, i) => {
+    const own = used.findIndex(t => t.id === slot.track);
+    const group = groups.find(g => g.includes(slot))!;
+    let [from, to] = [own, own];
+    const alone = group.every(s => s.track === slot.track) && !slots.some(s => s.track !== slot.track
+      && s.startMinute < slot.endMinute + NEIGHBOUR_WITHIN && slot.startMinute - NEIGHBOUR_WITHIN < s.endMinute);
+    if (alone) [from, to] = [0, used.length - 1];
+    else if (slot.category === 'hacking') {
+      const free = (track: ScheduleTrack) => !slots.some(s => s.track === track && overlaps(s, slot));
+      while (to + 1 < used.length && (used[to + 1]!.id === 'food' || free(used[to + 1]!.id))) to += 1;
+    }
+    const below = slots.slice(0, i).filter(s => s.track === slot.track && overlaps(s, slot));
+    const depth = below.length ? Math.max(...below.map(s => s.depth)) + 1 : 0;
+    Object.assign(slot, extent(from, to), { depth, layer: i + (slot.track === 'food' ? slots.length : 0) });
+  });
+  for (const slot of slots) {
+    const covered = slots.filter(s => s.layer < slot.layer && overlaps(s, slot)
+      && s.left < slot.left + slot.width && slot.left < s.left + s.width
+      && slot.startMinute - s.startMinute < NUDGE_WITHIN);
+    const drop = slot.endMinute - slot.startMinute >= DROP_MIN_LENGTH && covered.some(s => s.track === slot.track
+      && s.endMinute - s.startMinute > DROP_MINUTES);
+    slot.topMinute = slot.startMinute + (drop ? DROP_MINUTES : 0);
+    slot.nudged = covered.length > 0 && !drop;
+  }
+}
 
 // Intl extracts civil time in the event zone; UTC below is only calendar-day arithmetic.
 function civilTime(now: Date, timezone: string) {
@@ -117,24 +182,13 @@ export function scheduleTimeline(sections: ScheduleSection[], now?: Date, timezo
       let endMinute = end === null ? startMinute + 30 : end + offset;
       if (endMinute < startMinute) endMinute += 1440;
       if (endMinute === startMinute) endMinute += 30;
-      slots.push({ ...slot, startMinute, endMinute, lane: 0, laneCount: 1,
-        state: relativeNow === null || relativeNow < startMinute ? 'upcoming' : relativeNow >= endMinute ? 'past' : 'current',
-        category: CATEGORY_RULES.find(([rule]) => rule.test(slot.title))?.[1] ?? 'activities' });
+      const category = CATEGORY_RULES.find(([rule]) => rule.test(slot.title))?.[1] ?? 'activities';
+      slots.push({ ...slot, startMinute, endMinute, category,
+        track: TRACKS.find(t => t.categories.includes(category))!.id, topMinute: startMinute, left: 0, width: 1, depth: 0, layer: 0, nudged: false,
+        state: relativeNow === null || relativeNow < startMinute ? 'upcoming' : relativeNow >= endMinute ? 'past' : 'current' });
     }
     slots.sort((a, b) => a.startMinute - b.startMinute);
-    let group: TimelineSlot[] = [];
-    let laneEnds: number[] = [];
-    const finishGroup = () => { for (const slot of group) slot.laneCount = laneEnds.length; };
-    for (const slot of slots) {
-      if (laneEnds.length && laneEnds.every(end => end <= slot.startMinute)) {
-        finishGroup(); group = []; laneEnds = [];
-      }
-      const available = laneEnds.findIndex(end => end <= slot.startMinute);
-      slot.lane = available < 0 ? laneEnds.length : available;
-      laneEnds[slot.lane] = slot.endMinute;
-      group.push(slot);
-    }
-    finishGroup();
+    layout(slots);
     const first = Math.min(...slots.map(s => s.startMinute));
     const last = Math.max(...slots.map(s => s.endMinute));
     return { label: section.label, slots, unscheduled,

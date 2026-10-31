@@ -101,7 +101,7 @@ export function Participants({ slug, badgeOrigin }: { slug: string; badgeOrigin:
   }
 
   const nfc = useNfcReader({
-    prefKey: 'passline:linker',
+    prefKey: 'station:linker',
     defaultOn: false,
     autoStart: false,
     onTag: (tag, reader) => {

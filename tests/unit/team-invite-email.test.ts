@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { renderTeamInviteEmail } from '@/lib/email/templates/team-invite';
 
 it('T-TEAM-06: invite email escapes names, links only to Team, has text and stays under 60 KB', () => {
-  const origin = 'https://passline.example.test';
+  const origin = 'https://station.example.test';
   const email = renderTeamInviteEmail({ firstName: '<b>x</b>', inviter: '<b>x</b>', team: '<b>x</b>', event: '<b>x</b>', appOrigin: origin });
   expect(email.subject).toBe('<b>x</b> invited you to join <b>x</b> at <b>x</b>');
   expect(email.html).not.toContain('<b>x</b>');

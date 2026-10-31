@@ -10,21 +10,22 @@ const emailOf = async (id: string) => (await f.pool.query<{ email: string }>('se
 const screenshots = '/tmp/claude-0/-home-yvesd-Codebases-datathon-Datathon-QR-NFC/7675cf3a-51e9-4cc4-b5e7-a411639544b0/scratchpad';
 
 test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, opt out; private HTML and responsive screens', async ({ page, context, browser }) => {
+  // Listing is on by default (v0.11.19): start from everyone opted out so the test controls who is listed.
+  await f.pool.query('update participants set directory_opt_in = false where event_id = any($1)', [[f.e1.id, f.e2.id]]);
   await f.pool.query(`update participants set directory_opt_in = true, bio = 'Building with open data.\nCome say hello!', pace = 'balanced', linkedin_url = 'https://www.linkedin.com/in/ben-fixture', discord_username = 'ben.codes', website_url = 'https://example.test/' where id = $1`, [f.p.B]);
   await f.pool.query(`update participants set directory_opt_in = true, bio = 'Learning machine learning.', pace = 'casual', looking_for_team = true where id = $1`, [f.p.N]);
   await f.pool.query(`update participants set directory_opt_in = true, bio = 'Another event private bio' where id = $1`, [f.p.X]);
   const legacy = await f.addParticipant(f.e1.id);
-  await f.pool.query(`update participants set first_name = 'Legacy', looking_for_team = true, bio = 'Hidden legacy bio', discord_username = 'hidden.discord' where id = $1`, [legacy.id]);
+  await f.pool.query(`update participants set first_name = 'Legacy', looking_for_team = true, directory_opt_in = false, bio = 'Hidden legacy bio', discord_username = 'hidden.discord' where id = $1`, [legacy.id]);
   for (const [index, pace] of ['casual', 'balanced', 'competitive', null, 'balanced', 'casual'].entries()) {
     const extra = await f.addParticipant(f.e1.id);
     await f.pool.query(`update participants set first_name = $2, directory_opt_in = true, pace = $3, bio = 'Ready to build something together.' where id = $1`, [extra.id, ['Cleo', 'Dev', 'Emi', 'Farah', 'Gus', 'Hana'][index], pace]);
   }
+  // The contact is set on its own page (/me/emergency); stored here so the directory can be checked for leaks.
+  await f.pool.query(`update participants set emergency_name = 'Private contact sentinel', emergency_phone = '4165550123' where id = $1`, [f.p.A]);
   const email = await emailOf(f.p.A);
   await createAccount(email);
   await signIn(page, email, '/me/profile?setup=1');
-  await page.getByLabel('Emergency contact name').fill('Private contact sentinel');
-  await page.getByLabel('Emergency contact phone').fill('4165550123');
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
   await page.getByRole('radio', { name: 'Not sure yet', exact: true }).check();
   await page.getByRole('radio', { name: 'I plan to go solo', exact: true }).check();
   await page.getByRole('button', { name: 'Next', exact: true }).click();

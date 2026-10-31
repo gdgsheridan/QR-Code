@@ -12,7 +12,7 @@ export function adminClient(over: Partial<AdminDeps> = {}) {
   const scheduled: Array<() => Promise<unknown>> = [];
   // Until idle: other files' leftover due rows must not crowd this test's row out of a batch.
   const drain = () =>
-    drainUntilIdle({ db, provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
+    drainUntilIdle({ db, provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
   const api = createAdminApi({
     db,
     authenticate: bearerAuth,

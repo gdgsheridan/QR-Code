@@ -10,7 +10,11 @@ import { createStandardFixture, type StandardFixture } from '../fixtures/standar
 
 let f: StandardFixture;
 const db = serviceClient();
-beforeAll(async () => { f = await createStandardFixture(); });
+beforeAll(async () => {
+  f = await createStandardFixture();
+  // These cases cover the names-only Looking listing, so start everyone out of the full directory (on by default since v0.11.19).
+  await f.pool.query('update participants set directory_opt_in = false where event_id = any($1)', [[f.e1.id, f.e2.id]]);
+});
 afterAll(async () => { await f.close(); });
 const as = async (id: string) => ({ id: f.staff.vol1, email: (await f.pool.query<{ email: string }>('select email from participants where id = $1', [id])).rows[0]?.email ?? '' });
 const teamOf = async (id: string) => (await f.pool.query<{ team_id: string }>('select team_id from participants where id = $1', [id])).rows[0]?.team_id ?? '';
@@ -21,7 +25,7 @@ const pageFor = async (id: string) => {
   return { ...await myTeam(db, me), directory: await hackerDirectory(db, me, (await as(id)).email, { looking: true, search: '', pace: '' }) };
 };
 const mail = mockProvider();
-const drain = () => drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://passline.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
+const drain = () => drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://station.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
 
 it('T-TEAM-05: opt-in directory, invite and email, consent and cleanup; own rows and same event only', async () => {
   await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
@@ -47,7 +51,7 @@ it('T-TEAM-05: opt-in directory, invite and email, consent and cleanup; own rows
   const email = onlyEmailTo(mail.sent, n.email);
   const joinCode = (await f.pool.query<{ join_code: string }>('select join_code from teams where id = $1', [teamId])).rows[0]?.join_code ?? '';
   expect(email.subject).toBe(`Ada invited you to join Data Wizards at ${f.e1.name}`);
-  expect(email.text).toContain('https://passline.example.test/me/team');
+  expect(email.text).toContain('https://station.example.test/me/team');
   expect(email.html).toContain('Data Wizards');
   expect(email.html).toContain('Ada');
   expect(email.html + email.text).not.toContain(joinCode);
@@ -132,7 +136,8 @@ it('T-TEAM-05: directory excludes your own row with or without a team; SQL refus
   const viewer = await f.addParticipant(f.e1.id, { status: 'accepted' });
   const other = await f.addParticipant(f.e1.id, { status: 'accepted' });
   const user = await as(viewer.id);
-  await f.pool.query('update participants set looking_for_team = true where id = any($1)', [[viewer.id, other.id]]);
+  // Names-only Looking rows: not in the full directory (which is on by default and lists the viewer as "you").
+  await f.pool.query('update participants set looking_for_team = true, directory_opt_in = false where id = any($1)', [[viewer.id, other.id]]);
   const directory = (await pageFor(viewer.id)).directory;
   expect(directory.map((p) => p.id)).toContain(other.id);
   expect(directory.map((p) => p.id)).not.toContain(viewer.id);
@@ -168,7 +173,7 @@ it('T-TEAM-05: same-name rows under different emails remain distinct; self-invit
   const other = await f.addParticipant(f.e1.id, { status: 'accepted' });
   const user = await as(viewer.id), otherUser = await as(other.id);
   expect(user.email).not.toBe(otherUser.email);
-  await f.pool.query("update participants set first_name = 'Same', last_name = 'Name', looking_for_team = true where id = any($1)", [[viewer.id, other.id]]);
+  await f.pool.query("update participants set first_name = 'Same', last_name = 'Name', looking_for_team = true, directory_opt_in = false where id = any($1)", [[viewer.id, other.id]]);
   const directory = (await pageFor(viewer.id)).directory;
   expect(directory).toContainEqual({ id: other.id, name: 'Same Name' });
   expect(directory.map((p) => p.id)).not.toContain(viewer.id);

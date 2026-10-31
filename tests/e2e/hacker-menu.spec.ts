@@ -56,6 +56,9 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
 
   const menu = page.getByRole('navigation', { name: 'Hacker menu' });
   for (const item of ['Hacker profile', 'Schedule', 'Emergency contact']) await expect(menu.getByRole('link', { name: item })).toBeVisible();
+  // Menu order (v0.11.18): Hackers, Schedule, Team, Emergency contact, Hacker profile.
+  const order = await menu.locator('li a').evaluateAll(links => links.map(link => link.getAttribute('href')));
+  expect(order).toEqual(['/me/hackers', '/me/schedule', '/me/team', '/me/emergency', '/me/profile']);
   await expect(menu.getByText('My pass')).toBeVisible();
   await expect(menu.getByText('In your email')).toBeVisible(); // A's fixture pass predates derived tokens
   await expect(menu.getByText('Finish setting up')).toBeVisible(); // v0.9: no profile setup yet
@@ -124,7 +127,7 @@ test('T-ADM-08: the organizer sees the emergency contact on the participant deta
 });
 
 
-test('T-ME-11: poster calendar keeps all events, overlap lanes and phone day controls', async ({ page }) => {
+test('T-ME-11: poster calendar keeps all events, poster columns with stacked overlaps and phone day controls', async ({ page }) => {
   const schedule = readFileSync(new URL('../fixtures/schedule/official.txt', import.meta.url), 'utf8');
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
   const saved = await page.request.patch(`/api/admin/${f.slug}/event`, { data: { schedule } });
@@ -138,6 +141,8 @@ test('T-ME-11: poster calendar keeps all events, overlap lanes and phone day con
   const heights = await saturday.getByRole('listitem').evaluateAll(blocks => blocks.map(block => block.getBoundingClientRect().height));
   expect(Math.min(...heights)).toBe(30); // SPEC F14: 30-minute slots on a 64px/hour axis, minus the 2px gap.
   const calendar = page.getByRole('region', { name: 'Sat Nov 7 calendar' });
+  await expect(calendar).toHaveCSS('background-color', 'rgb(10, 16, 41)'); // v0.11.21: the site's dark surface on desktop too
+  if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/schedule-desktop.png`, fullPage: true });
   const hour = calendar.getByText('10 AM', { exact: true });
   await expect(hour).toHaveCSS('font-size', '13px');
   await expect(hour).toHaveCSS('text-align', 'center');
@@ -159,6 +164,22 @@ test('T-ME-11: poster calendar keeps all events, overlap lanes and phone day con
   const hacking = (await saturday.getByRole('listitem').filter({ hasText: 'Hacking Begins!' }).boundingBox())!;
   const formation = (await saturday.getByRole('listitem').filter({ hasText: 'Team formation' }).boundingBox())!;
   expect(formation.y - hacking.y - hacking.height).toBeCloseTo(2, 1);
+  // Like the Hacker Package poster: workshops share one column and Lunch stacks on top of Hacking Begins.
+  const workshopBoxes = await saturday.getByRole('listitem').filter({ hasText: 'Workshop:' }).evaluateAll(blocks => blocks.map(block => {
+    const box = block.getBoundingClientRect();
+    return [box.x, box.width];
+  }));
+  expect(workshopBoxes).toHaveLength(5);
+  expect(new Set(workshopBoxes.map(box => box.join()))).toHaveProperty('size', 1);
+  const lunch = (await saturday.getByRole('listitem').filter({ hasText: 'Lunch' }).boundingBox())!;
+  expect(lunch.x).toBeLessThan(hacking.x + hacking.width);
+  expect(lunch.y).toBeLessThan(hacking.y + hacking.height);
+  expect(lunch.y).toBeGreaterThan(hacking.y);
+  // Photo Booth (12–8) is drawn from 1 PM, an hour below Sponsor Station, but still says 12:00 PM.
+  const sponsor = (await saturday.getByRole('listitem').filter({ hasText: 'Sponsor Station' }).boundingBox())!;
+  const booth = saturday.getByRole('listitem').filter({ hasText: 'Photo Booth' });
+  expect((await booth.boundingBox())!.y - sponsor.y).toBeCloseTo(64, 0);
+  await expect(booth).toContainText('12:00 PM to 8:00 PM');
   if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/hover-calendar-axis.png`, clip: { x: ten.x, y: ten.y - 64, width: 160, height: 256 } });
   await expect(sunday.getByRole('listitem')).toHaveCount(6);
   await expect(page.getByRole('heading', { name: 'SAT NOV 7' })).toBeVisible();
@@ -166,26 +187,39 @@ test('T-ME-11: poster calendar keeps all events, overlap lanes and phone day con
   await expect(saturday.getByText('Magic: The Gathering', { exact: true })).toBeVisible();
   await expect(sunday.getByText('Demos + Judging', { exact: true })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Event categories' }).getByRole('listitem')).toHaveCount(5);
+  // The busier day gets the wider column.
+  const satWidth = (await page.getByRole('region', { name: 'Sat Nov 7 calendar' }).boundingBox())!.width;
+  const sunWidth = (await page.getByRole('region', { name: 'Sun Nov 8 calendar' }).boundingBox())!.width;
+  expect(satWidth).toBeGreaterThan(sunWidth * 1.5);
+  // Each event opens a dialog with its details; Escape or Close returns focus to it.
   const workshop = saturday.getByRole('listitem').filter({ hasText: 'Workshop: Google' });
-  await workshop.scrollIntoViewIfNeeded();
-  const before = await workshop.boundingBox();
-  await workshop.hover();
-  const card = page.getByTestId('hover-details');
-  await expect(card).toContainText('ADK, MCP & Cloud DBs');
-  await expect(card).toContainText('2:30 PM to 3:30 PM · 5F');
-  await expect(card).toContainText('Workshops');
-  expect(await workshop.boundingBox()).toEqual(before);
-  if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/hover-calendar-desktop.png` });
-  await page.mouse.move(0, 0);
-  await expect(card).toHaveCount(0);
-  await workshop.focus();
-  await expect(card).toBeVisible();
-  expect(await workshop.boundingBox()).toEqual(before);
-  await page.keyboard.press('Escape');
-  await expect(card).toHaveCount(0);
+  const opener = workshop.getByRole('button');
   await expect(workshop).toContainText('ADK, MCP & Cloud DBs');
   await expect(workshop).toContainText('2:30 PM to 3:30 PM · 5F');
   await expect(workshop).toContainText('Workshops');
+  await opener.scrollIntoViewIfNeeded();
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'Workshop: Google' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('ADK, MCP & Cloud DBs');
+  await expect(dialog).toContainText('Saturday, Nov 7');
+  await expect(dialog).toContainText('2:30 PM to 3:30 PM');
+  await expect(dialog).toContainText('(1 h)');
+  await expect(dialog).toContainText('5F');
+  await expect(dialog).toContainText('Workshops');
+  // The dialog follows the site: dark popover, light title, Fira Code (v0.11.21).
+  await expect(dialog.getByRole('heading', { name: 'Workshop: Google' })).toHaveCSS('color', 'rgb(232, 242, 255)');
+  await expect(dialog).toHaveCSS('background-color', 'rgb(10, 16, 41)');
+  await expect(dialog).toHaveCSS('font-family', /Fira Code/);
+  if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/event-dialog-desktop.png` });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   const satButton = page.getByRole('button', { name: 'Sat Nov 7', exact: true });
   const sunButton = page.getByRole('button', { name: 'Sun Nov 8', exact: true });
@@ -201,34 +235,32 @@ test('T-ME-11: poster calendar keeps all events, overlap lanes and phone day con
   expect((await sunButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
 });
 
-test('T-ME-11: touch details flip inside the viewport and dismiss outside or on Escape', async ({ browser }) => {
+test('T-ME-11: on a phone, tapping an event opens its details inside the viewport; a tap outside closes them', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: E2E_ORIGIN, viewport: { width: 390, height: 844 }, hasTouch: true });
   const page = await context.newPage();
   try {
     await signIn(page, await emailOf(f.p.A), '/me/schedule');
     await page.getByRole('button', { name: 'Sat Nov 7', exact: true }).click();
     const calendar = page.getByRole('region', { name: 'Sat Nov 7 calendar' });
-    const block = calendar.getByRole('listitem').filter({ hasText: 'MLH Meetup' });
+    const block = calendar.getByRole('listitem').filter({ hasText: 'Caricatures' });
     await block.scrollIntoViewIfNeeded();
-    const before = await block.boundingBox();
-    await block.tap();
-    const card = page.getByTestId('hover-details');
-    await expect(card).toContainText('MLH Meetup');
-    await expect(card).toContainText('TechTogether');
-    expect(await block.boundingBox()).toEqual(before);
-    const box = (await card.boundingBox())!;
-    expect(box.x).toBeLessThan(before!.x);
+    await block.getByRole('button').tap();
+    const dialog = page.getByRole('dialog', { name: 'Caricatures' });
+    await expect(dialog).toContainText('6:00 PM to 9:00 PM');
+    await expect(dialog).toContainText('(3 h)');
+    await expect(dialog).toContainText('1F');
+    const box = (await dialog.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(8);
     expect(box.x + box.width).toBeLessThanOrEqual(382);
     expect(box.y).toBeGreaterThanOrEqual(8);
     expect(box.y + box.height).toBeLessThanOrEqual(836);
-    if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/hover-calendar-touch.png` });
-    await page.getByRole('heading', { name: 'SAT NOV 7' }).tap();
-    await expect(card).toHaveCount(0);
-    await block.tap();
-    await expect(card).toBeVisible();
+    if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/event-dialog-phone.png` });
+    await page.touchscreen.tap(195, 20); // the backdrop
+    await expect(dialog).toBeHidden();
+    await block.getByRole('button').tap();
+    await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(card).toHaveCount(0);
+    await expect(dialog).toBeHidden();
   } finally { await context.close(); }
 });
 
@@ -243,19 +275,19 @@ test('T-ME-11: live event-time marker updates each minute and past events are gr
   const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
   const morning = saturday.getByRole('listitem').filter({ hasText: 'Check-in' });
   await expect(morning).toHaveAttribute('data-state', 'past');
-  await expect(morning).toHaveCSS('background-color', 'rgb(34, 41, 54)');
-  await expect(morning).toHaveCSS('color', 'rgb(143, 160, 196)');
+  await expect(morning).toHaveCSS('background-color', 'rgb(241, 243, 244)');
+  await expect(morning).toHaveCSS('color', 'rgb(95, 99, 104)');
   await expect(saturday.getByRole('listitem').filter({ hasText: 'Workshop: Google' })).toHaveAttribute('data-state', 'current');
   const marker = await line.evaluate(el => {
     const [rule, dot] = Array.from(el.children).map(child => child.getBoundingClientRect());
-    return { rule: rule!.x, dot: dot!.x + dot!.width / 2, edge: el.getBoundingClientRect().x + 64 };
+    // The time column is 44px on phones and 64px from lg (v0.11.21).
+    return { rule: rule!.x, dot: dot!.x + dot!.width / 2, edge: el.getBoundingClientRect().x + parseFloat(getComputedStyle(el).getPropertyValue('--time-column')) };
   });
   expect(marker.rule).toBeCloseTo(marker.edge, 1);
   expect(marker.dot).toBeCloseTo(marker.edge, 1);
   if (process.env.AXIS_SCREENSHOTS) {
     mkdirSync(process.env.AXIS_SCREENSHOTS, { recursive: true });
     await page.mouse.move(0, 0);
-    await expect(page.getByTestId('hover-details')).toHaveCount(0);
     const style = 'nextjs-portal { visibility: hidden; }';
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.screenshot({ path: `${process.env.AXIS_SCREENSHOTS}/axis-style-desktop-full.png`, fullPage: true, style });
@@ -276,7 +308,7 @@ test('T-ME-11: live event-time marker updates each minute and past events are gr
 });
 
 
-test('T-ME-11: on a phone the Schedule page keeps the page width, scrolls dense lanes inside the grid and switches days', async ({ page }) => {
+test('T-ME-11: on a phone the Schedule fits the screen on the site\'s dark surface, compacts narrow cards, keeps text at the top and switches days', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-11-07T19:40:00Z') });
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page, await emailOf(f.p.A), '/me/schedule');
@@ -288,7 +320,23 @@ test('T-ME-11: on a phone the Schedule page keeps the page width, scrolls dense 
   await expect(page.getByRole('button', { name: 'Sat Nov 7', exact: true })).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const calendar = page.getByRole('region', { name: 'Sat Nov 7 calendar' });
-  expect(await calendar.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  // v0.11.21: the poster columns fit a 390px phone instead of scrolling sideways.
+  expect(await calendar.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await expect(calendar).toHaveCSS('background-color', 'rgb(10, 16, 41)'); // the site's --surface, not the light poster panel
+  // Each card's title sits at its top (a button centres its content by default): Sponsor Station's shows above Photo Booth.
+  for (const name of ['Sponsor Station', 'Photo Booth']) {
+    const card = (await saturday.getByRole('listitem').filter({ hasText: name }).boundingBox())!;
+    const title = (await saturday.getByRole('listitem').filter({ hasText: name }).locator('strong').boundingBox())!;
+    expect(title.y - card.y).toBeLessThan(12);
+  }
+  // Narrow cards drop the redundant "Workshop:" (workshops are yellow) and shorten the time.
+  const google = saturday.getByRole('listitem').filter({ hasText: 'Google' }).locator('strong');
+  await expect(google).toHaveText(/Workshop: Google/); // still in the accessible text
+  expect(await google.innerText()).toBe('Google');
+  await expect(saturday.getByRole('listitem').filter({ hasText: 'Google' })).toContainText('2:30–3:30 PM');
+  const snacks = saturday.getByRole('listitem').filter({ hasText: 'Snack Cart' }).locator('strong');
+  expect(await snacks.innerText()).toBe('Snack Cart'); // ", by Accenture" drops on a narrow card
+  if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/schedule-phone.png`, fullPage: true });
   await page.getByRole('button', { name: 'Sun Nov 8', exact: true }).click();
   await expect(page.getByRole('list', { name: 'Sunday, Nov 8', exact: true }).getByRole('listitem')).toHaveCount(6);
   await expect(saturday).toBeHidden();
@@ -308,30 +356,25 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
   try {
     await profile.goto('/me/profile');
     const nav = profile.getByRole('navigation', { name: 'Profile sections' });
-    await expect(nav.getByRole('link')).toHaveCount(4);
-    await expect(nav.getByRole('link', { name: 'Emergency contact · needs answer' })).toHaveAttribute('aria-current', 'page');
-    await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toBeVisible();
+    await expect(nav.getByRole('link')).toHaveCount(3);
+    expect(await nav.getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href')))).toEqual(
+      ['/me/profile?tab=networking', '/me/profile?tab=event', '/me/profile?tab=health']);
+    await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toHaveAttribute('aria-current', 'page');
     await expect(profile.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
     await expect(profile.getByLabel('LinkedIn (optional)')).toHaveCount(0);
+    // The emergency contact has its own page: no fields here, only a link while it's missing.
+    await expect(profile.getByLabel('Emergency contact name')).toHaveCount(0);
+    await expect(profile.getByRole('link', { name: 'Add your emergency contact →' })).toHaveAttribute('href', '/me/emergency');
     let before = await stored();
-    await profile.getByLabel('Emergency contact name').fill('Tab contact');
-    await profile.getByLabel('Emergency contact phone').fill('4165550123');
-    await profile.getByLabel('Relationship (optional)').fill('Friend');
-    await profile.getByRole('button', { name: 'Save profile' }).click();
-    await expect(profile).toHaveURL(/tab=emergency&saved=1/);
-    await expect(profile.getByRole('status')).toContainText('✓ Saved.');
-    expect(await stored()).toEqual({ ...before, emergency_name: 'Tab contact', emergency_phone: '4165550123', emergency_relation: 'Friend' });
-    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
-    await profile.goto('/me/profile');
-    await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toHaveAttribute('aria-current', 'page');
-    before = await stored();
     await profile.getByRole('radio', { name: 'Not sure yet', exact: true }).check();
     await profile.getByRole('radio', { name: 'I plan to go solo', exact: true }).check();
     await profile.getByRole('button', { name: 'Save profile' }).click();
     await expect(profile).toHaveURL(/tab=event&saved=1/);
+    await expect(profile.getByRole('status')).toContainText('✓ Saved.');
     expect(await stored()).toEqual({ ...before, overnight: 'unsure', team_status: 'solo' });
     await expect(profile.getByRole('heading', { name: 'Hacker profile', exact: true })).toBeVisible();
     await expect(nav).not.toContainText('needs answer');
+    await expect(profile.getByRole('link', { name: 'Add your emergency contact →' })).toBeVisible();
     await nav.getByRole('link', { name: 'Health and access', exact: true }).click();
     before = await stored();
     await profile.getByLabel('Allergies (optional)').fill('Peanuts');
@@ -349,7 +392,7 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     expect(await stored()).toEqual({ ...before, bio: 'Data and maps', pace: 'balanced' });
     for (const [width, height] of [[390, 844], [1280, 800]] as const) {
       await profile.setViewportSize({ width, height });
-      for (const tab of ['emergency', 'event', 'health', 'networking']) {
+      for (const tab of ['event', 'health', 'networking']) {
         await nav.locator(`a[href="/me/profile?tab=${tab}"]`).click();
         await expect(nav.locator('[aria-current="page"]')).toHaveAttribute('href', `/me/profile?tab=${tab}`);
         expect(await profile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -358,22 +401,22 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
         await profile.screenshot({ path: `${screenshots}/profile-tabs-${tab}-${width}.png`, fullPage: true });
       }
     }
-    await profile.goto('/me/profile');
-    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
+    await profile.goto('/me/profile?tab=health');
     before = await stored();
-    await profile.getByLabel('Emergency contact phone').fill('12');
+    await profile.getByLabel('Allergies (optional)').fill('Shellfish');
+    await profile.getByLabel('How severe?').selectOption('');
     await profile.locator('form').evaluate(form => { (form as HTMLFormElement).noValidate = true; });
     await profile.getByRole('button', { name: 'Save profile' }).click();
-    await expect(profile).toHaveURL(/tab=emergency&error=INVALID_CONTACT/);
-    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(profile.getByRole('alert')).toContainText('Not saved. Enter your emergency contact');
+    await expect(profile).toHaveURL(/tab=health&error=INVALID_ALLERGY/);
+    await expect(nav.getByRole('link', { name: 'Health and access', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(profile.getByRole('alert')).toContainText('Not saved. Pick how severe your allergy is');
     expect(await stored()).toEqual(before);
     for (const [width, height] of [[390, 844], [1280, 800]] as const) {
       await profile.setViewportSize({ width, height });
       await profile.screenshot({ path: `${screenshots}/profile-tabs-error-${width}.png`, fullPage: true });
     }
-    await profile.goto('/me/profile?tab=networking&error=INVALID_CONTACT');
-    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(profile.getByRole('alert')).toContainText('Not saved. Enter your emergency contact');
+    await profile.goto('/me/profile?tab=networking&error=INVALID_ALLERGY');
+    await expect(nav.getByRole('link', { name: 'Health and access', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(profile.getByRole('alert')).toContainText('Not saved. Pick how severe your allergy is');
   } finally { await context.close(); }
 });

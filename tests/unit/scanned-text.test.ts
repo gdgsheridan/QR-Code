@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseScannedText } from '@/lib/domain/scanned-text';
 
-const ORIGIN = 'https://passline.example.com';
+const ORIGIN = 'https://station.example.com';
 const TOKEN = 'Ab3_-xYz0123456789abcdefGHIJKLMN';
 
 function malformed(raw: string, origin = ORIGIN) {
@@ -26,8 +26,8 @@ describe('parseScannedText (SPEC §6.4)', () => {
 
   it('T-TOK-04: other origins, http in prod, wrong paths, wrong lengths, bad chars, extra params are MALFORMED', () => {
     malformed(`https://evil.example.com/p#${TOKEN}`);
-    malformed(`https://passline.example.com.evil.com/p#${TOKEN}`);
-    malformed(`http://passline.example.com/p#${TOKEN}`);
+    malformed(`https://station.example.com.evil.com/p#${TOKEN}`);
+    malformed(`http://station.example.com/p#${TOKEN}`);
     malformed(`${ORIGIN}/p?t=${TOKEN}`);
     malformed(`${ORIGIN}/pass#${TOKEN}`);
     malformed(`${ORIGIN}/p#${TOKEN.slice(1)}`);
@@ -39,7 +39,7 @@ describe('parseScannedText (SPEC §6.4)', () => {
     malformed(`${ORIGIN}/p#${TOKEN}&x=1`);
     malformed(`${ORIGIN}/p#${TOKEN}#x`);
     // Regex metacharacters in the origin are literal: '.' must not match any char.
-    malformed(`https://passlineXexample.com/p#${TOKEN}`);
+    malformed(`https://stationXexample.com/p#${TOKEN}`);
   });
 
   it('T-TOK-05: Wi-Fi codes, vCards, empty strings, 5 KB strings and emoji are MALFORMED without throwing', () => {

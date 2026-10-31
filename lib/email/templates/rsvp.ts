@@ -1,7 +1,7 @@
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { escapeHtml } from '@/lib/domain/html';
 import type { RenderedEmail } from './pass';
-import { button, details, emailPage, HEADLINE, p } from './layout';
+import { button, details, emailPage, HEADLINE, p, SIGN_OFF_TEXT } from './layout';
 
 export interface RsvpEmailInput {
   firstName: string;
@@ -26,7 +26,7 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
     url: escapeHtml(input.rsvpUrl),
   };
 
-  const html = emailPage(new URL(input.rsvpUrl).origin, input.reminder ? 'Reminder' : 'Invitation', [
+  const html = emailPage(new URL(input.rsvpUrl).origin, input.reminder ? 'Reminder: please reply' : 'You’re invited', [
     p(`Hi ${e.first},`),
     p(`${input.reminder ? `A reminder: you're invited to <strong>${e.event}</strong>, and we haven't heard back yet.` : `You're invited to <strong>${e.event}</strong>.`} Will you be there?`, HEADLINE),
     details([['When', e.when], ['Where', e.venue]]),
@@ -44,6 +44,8 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
     '',
     ...(deadline ? [deadline, ''] : []),
     `Reply to the invitation: ${input.rsvpUrl}`,
+    '',
+    SIGN_OFF_TEXT,
     '',
     `We use your details only to run ${input.event.name}: admission, meals, attendance and emergencies. Dietary notes and emergency contacts are deleted 30 days after the event.`,
   ].join('\n');

@@ -1,6 +1,6 @@
-# CLAUDE.md — Passline
+# CLAUDE.md — Station
 
-Passline emails QR passes to accepted event applicants and scans them for door check-in, meals, sessions and custom checkpoints. It is a Next.js + Supabase app used by a student club.
+Station emails QR passes to accepted event applicants and scans them for door check-in, meals, sessions and custom checkpoints. It is a Next.js + Supabase app used by a student club.
 
 **@SPEC.md is the source of truth for behaviour.** This file is the source of truth for *how you work*. If they conflict on behaviour, SPEC.md wins. Stop and tell me about the conflict.
 

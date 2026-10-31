@@ -1,6 +1,6 @@
 import { escapeHtml } from '@/lib/domain/html';
 import type { RenderedEmail } from './pass';
-import { button, emailPage, HEADLINE, p } from './layout';
+import { button, emailPage, HEADLINE, p, SIGN_OFF_TEXT } from './layout';
 
 export interface TeamInviteEmailInput {
   firstName: string;
@@ -19,6 +19,6 @@ export function renderTeamInviteEmail(input: TeamInviteEmailInput): RenderedEmai
     p(`${escapeHtml(sentence)}.`, HEADLINE),
     button(escapeHtml(url), 'Open your Team page'),
   ].join('\n'));
-  const text = [`Hi ${input.firstName},`, '', `${sentence}.`, '', `Open your Team page: ${url}`].join('\n');
+  const text = [`Hi ${input.firstName},`, '', `${sentence}.`, '', `Open your Team page: ${url}`, '', SIGN_OFF_TEXT].join('\n');
   return { subject: sentence, html, text, inlineImages: [] };
 }

@@ -17,7 +17,7 @@ afterEach(async () => {
 const db = serviceClient();
 // Until idle: rows other files left due would otherwise crowd this test's row out of a 20-row batch.
 const drain = (provider: EmailProvider, extra: Partial<DrainOptions> = {}) =>
-  drainUntilIdle({ db, provider, appOrigin: 'http://localhost:3100', from: 'Passline <passes@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET'), ...extra });
+  drainUntilIdle({ db, provider, appOrigin: 'http://localhost:3100', from: 'Station <passes@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET'), ...extra });
 
 async function enqueue(participantId: string, kind = 'pass_issued'): Promise<string> {
   const { rows } = await f.pool.query<{ id: string }>(
@@ -60,7 +60,7 @@ describe('outbox drain (SPEC F4)', () => {
     const people = await Promise.all(Array.from({ length: 50 }, () => f.addParticipant(f.e1.id, { withPass: false })));
     const ids = await Promise.all(people.map((p) => enqueue(p.id)));
     const { provider, sent } = mockProvider(() => new Promise((r) => setTimeout(r, 5)));
-    const opts = { db, provider, appOrigin: 'http://localhost:3100', from: 'Passline <passes@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') };
+    const opts = { db, provider, appOrigin: 'http://localhost:3100', from: 'Station <passes@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') };
     const loop = async () => {
       for (;;) {
         const r = await drainOutbox(opts);
