@@ -113,20 +113,27 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
     await page.screenshot({ path: `${screenshots}/dir-accordion-${width}.png`, fullPage: true });
     await ben.screenshot({ path: `${screenshots}/directory-contacts-${width}.png` });
   }
+  // v0.11.25: filters apply as they change; no Apply button.
+  await expect(page.getByRole('button', { name: 'Apply filters' })).toHaveCount(0);
   await page.getByLabel('Looking for a team', { exact: true }).check();
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(/looking=1/);
   await expect(directory.getByText('Legacy Fixture')).toBeVisible();
   await expect(directory.getByRole('article', { name: 'Legacy Fixture', exact: true }).getByRole('img', { name: 'Pace not shared (0 of 3)', exact: true })).toBeVisible();
   await expect(directory).not.toContainText('Hidden legacy bio');
   await expect(directory.getByText('Ben Fixture')).toHaveCount(0);
   await page.getByLabel('Pace', { exact: true }).selectOption('casual');
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(/pace=casual/);
   await expect(directory.getByText('Nia Fixture')).toBeVisible();
   await expect(directory.getByText('Legacy Fixture')).toHaveCount(0);
   await page.goto('/me/hackers');
   await page.getByLabel('Search by name').fill('  BÉN  ');
-  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(/q=/); // shortly after typing stops
+  await expect(page.getByLabel('Search by name')).toBeFocused();
   await expect(ben).toBeVisible();
+  // Refresh reloads the list, then rests for a few seconds.
+  const refresh = page.getByRole('button', { name: 'Refresh' });
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
   await expect(directory.getByText('Nia Fixture')).toHaveCount(0);
   await page.goto('/me/team');
   await expect(page.getByRole('link', { name: 'Find teammates in the Hacker directory' })).toHaveAttribute('href', '/me/hackers?looking=1');
@@ -174,4 +181,18 @@ test('T-DIR-05 (v0.11.25): the directory shows 50 hackers, and Show more adds th
   expect(await cards.count()).toBeGreaterThan(60);
   await expect(page.getByRole('link', { name: 'Show more' })).toHaveCount(0);
   await f.pool.query(`delete from participants where event_id = $1 and email like 'more%'`, [f.e2.id]);
+});
+
+test('T-DIR-05 (v0.11.25): directory reads are rate limited per hacker', async ({ page }) => {
+  const email = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.C])).rows[0]!.email;
+  await f.pool.query(`update participants set status = 'accepted' where id = $1`, [f.p.C]);
+  await createAccount(email);
+  await signIn(page, email, '/me');
+  await f.pool.query(
+    `insert into rate_limits (key, window_start, hits) values ($1, to_timestamp(floor(extract(epoch from now()) / 60) * 60), 1000)
+     on conflict (key, window_start) do update set hits = 1000`, [`directory:${f.p.C}`]);
+  await page.goto('/me/hackers');
+  await expect(page.getByRole('alert').filter({ hasText: 'Too many refreshes' })).toHaveText('Too many refreshes. Wait a minute, then try again.');
+  await expect(page.getByRole('region', { name: 'Hacker directory' }).getByRole('article')).toHaveCount(0);
+  await f.pool.query(`update participants set status = 'waitlisted' where id = $1`, [f.p.C]);
 });

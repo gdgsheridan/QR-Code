@@ -16,9 +16,12 @@ import { emailFrom, getProvider } from '@/lib/email';
 import { drainUntilIdle } from '@/lib/email/drain';
 import { env } from '@/lib/env';
 import { CopyButton } from '@/app/profile/[uid]/copy-button';
+import { withinLimit } from '@/lib/pass/handlers';
 import { loadMyEvent, menuMetadata } from '../load';
+import { AutoFilters, RefreshButton } from './filters';
 
 export const metadata = menuMetadata('Hackers');
+const DIRECTORY_READS_PER_MIN = 60;
 
 async function invite(formData: FormData) {
   'use server';
@@ -45,8 +48,10 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
   const pace = params.pace && Object.hasOwn(PACE, params.pace) ? params.pace : '';
   // v0.11.25: 50 at a time; Show more asks for 50 more (a plain link, so it works without JavaScript).
   const show = Math.min(Math.max(Math.floor(Number(params.show)) || DIRECTORY_PAGE, DIRECTORY_PAGE), DIRECTORY_MAX);
+  // v0.11.25: filters apply as they change, so directory reads are limited per hacker (60 a minute).
+  const allowed = await withinLimit(db(), `directory:${me.participantId}`, 60, DIRECTORY_READS_PER_MIN);
   const [{ people, more }, { team }] = await Promise.all([
-    hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace, show }),
+    allowed ? hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace, show }) : Promise.resolve({ people: [], more: false }),
     myTeam(db(), me),
   ]);
   const canInvite = me.event.teamsOpen && Date.parse(me.event.endsAt) > now.getTime() && team && team.members.length < 4;
@@ -59,21 +64,22 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
     </div>
     <h1>Hackers</h1>
     <Link href="/me/profile#networking" className="inline-flex min-h-11 items-center self-start">Edit my directory profile →</Link>
-    <form className="grid items-end gap-4 sm:grid-cols-[1fr_1fr_auto]" aria-label="Filter hackers" action="/me/hackers">
+    <AutoFilters className="grid items-end gap-4 sm:grid-cols-[1fr_1fr_auto]">
       <div className="grid gap-2"><Label htmlFor="search">Search by name</Label><Input id="search" name="q" type="search" defaultValue={params.q ?? ''} className="min-h-12 w-full" /></div>
       <div className="grid gap-2"><Label htmlFor="pace">Pace</Label><NativeSelect id="pace" name="pace" aria-describedby="pace-legend" defaultValue={pace} className="min-h-12 w-full">
         <option value="">All paces</option>{Object.entries(PACE).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </NativeSelect></div>
-      <Button type="submit">Apply filters</Button>
+      <RefreshButton />
       <div className="flex flex-wrap items-center justify-between gap-x-4 sm:col-span-3">
         <Label className="flex min-h-11 items-center gap-3"><input className="size-[22px]" type="checkbox" name="looking" value="1" defaultChecked={looking} />Looking for a team</Label>
         <p id="pace-legend" className="m-0 text-xs text-muted-foreground">Pace bar: learn → win · 1–3 segments</p>
       </div>
-    </form>
+    </AutoFilters>
     {notice && <p role={params.r === 'INVITED' ? 'status' : 'alert'}>{notice}</p>}
+    {!allowed && <p role="alert">Too many refreshes. Wait a minute, then try again.</p>}
     {looking && !team && <p className="copy m-0 text-muted-foreground">Create a team to invite them. <Link className="inline-flex min-h-11 items-center" href="/me/team">Open Team →</Link></p>}
     <section aria-label="Hacker directory" className="grid items-start gap-3 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 min-[1440px]:grid-cols-4">
-      {people.length === 0 && <p className="copy text-muted-foreground col-span-full">No hackers match these filters.</p>}
+      {allowed && people.length === 0 && <p className="copy text-muted-foreground col-span-full">No hackers match these filters.</p>}
       {people.map((person) => {
         const self = person.id === me.participantId;
         const full = 'bio' in person;
