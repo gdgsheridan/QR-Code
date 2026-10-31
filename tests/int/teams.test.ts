@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { generateToken } from '@/lib/domain/token';
 import { createTeam, joinTeam, leaveTeam, setTeamTrack } from '@/lib/me/team';
 import { serviceClient } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -122,7 +123,7 @@ describe('hacker teams (SPEC F15, v0.7)', () => {
     const team = await teamRow('Leavers');
     for (const m of members.slice(1)) expect(await joinTeam(db(), await as(m.id), m.id, { code: team?.join_code ?? '' })).toBe('JOINED');
     // No: through the RSVP answer itself.
-    const token = 'n'.repeat(32);
+    const token = generateToken();
     await f.pool.query(`update participants set rsvp_token_hash = encode(sha256($2::bytea), 'hex') where id = $1`, [members[1]!.id, token]);
     expect((await f.pool.query('select rsvp_respond(encode(sha256($1::bytea), \'hex\'), false) as r', [token])).rows[0]?.r).toBe('NOT_GOING');
     expect(await teamOf(members[1]!.id)).toBeNull();
