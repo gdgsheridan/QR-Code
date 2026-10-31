@@ -250,3 +250,34 @@ test('T-DIR-05 (v0.11.25): directory reads are rate limited per hacker', async (
   await expect(page.getByRole('alert').filter({ hasText: 'Too many refreshes' })).toHaveText('Too many refreshes. Wait a minute, then try again.');
   await expect(page.getByRole('region', { name: 'Hacker directory' }).getByRole('article')).toHaveCount(0);
 });
+
+test('T-DIR-07: Teams tab searches team names and shows counts with only opted-in member names', async ({ page }) => {
+  const viewer = await f.addParticipant(f.e1.id);
+  const privateMember = await f.addParticipant(f.e1.id);
+  const email = await emailOf(viewer.id);
+  const team = (await f.pool.query<{ id: string }>(
+    `insert into teams(event_id, name, join_code) values ($1, 'Zoë Builders', 'STUVWXYZ') returning id`, [f.e1.id],
+  )).rows[0]!.id;
+  await f.pool.query(`update participants set team_id = $1, first_name = 'Listed', directory_opt_in = true where id = $2`, [team, viewer.id]);
+  await f.pool.query(`update participants set team_id = $1, first_name = 'Private sentinel', directory_opt_in = false where id = $2`, [team, privateMember.id]);
+  await f.pool.query('update events set tracks_released = false where id = $1', [f.e1.id]);
+  await createAccount(email);
+  await signIn(page, email, '/me/hackers');
+  const tabs = page.getByRole('navigation', { name: 'Directory sections' });
+  await expect(tabs.getByRole('link', { name: 'Hackers', exact: true })).toHaveAttribute('aria-current', 'page');
+  await tabs.getByRole('link', { name: 'Teams', exact: true }).click();
+  await expect(page).toHaveURL(/view=teams/);
+  await expect(tabs.getByRole('link', { name: 'Teams', exact: true })).toHaveAttribute('aria-current', 'page');
+  await page.getByLabel('Search by team name', { exact: true }).fill('  ZÓE  ');
+  await expect(page).toHaveURL(/q=/);
+  await expect(page).toHaveURL(/view=teams/);
+  const card = page.getByRole('article', { name: 'Zoë Builders (your team)', exact: true });
+  await expect(card).toContainText('2 of 4 members');
+  await expect(card).toContainText('2 spots left');
+  await expect(card).toContainText('Listed Fixture (you)');
+  await expect(card).toContainText('+1 more');
+  await expect(page.getByRole('region', { name: 'Team directory' })).not.toContainText('Private sentinel');
+  await expect(page.getByLabel('Track', { exact: true })).toHaveCount(0);
+  await expect(card.getByRole('button')).toHaveCount(0);
+  await expect(card.getByRole('link')).toHaveCount(0);
+});

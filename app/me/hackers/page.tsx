@@ -21,6 +21,7 @@ import { CopyButton } from '@/app/profile/[uid]/copy-button';
 import { withinLimit } from '@/lib/pass/handlers';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AutoFilters, RefreshButton } from './filters';
+import { TeamsView } from './teams-view';
 
 export const metadata = menuMetadata('Hackers');
 const DIRECTORY_READS_PER_MIN = 60;
@@ -61,9 +62,10 @@ const NOTICES: Record<string, string> = {
   NOT_FOUND: 'Something changed. Reload the page and try again.',
 };
 
-export default async function HackersPage({ searchParams }: { searchParams: Promise<{ q?: string; looking?: string; pace?: string; track?: string; r?: string; show?: string }> }) {
+export default async function HackersPage({ searchParams }: { searchParams: Promise<{ view?: string; room?: string; q?: string; looking?: string; pace?: string; track?: string; r?: string; show?: string }> }) {
   const params = await searchParams;
   const { me, user, now } = await loadMyEvent('/me/hackers');
+  const view = params.view === 'teams' ? 'teams' : 'hackers';
   const looking = params.looking === '1';
   const pace = directoryPace(params.pace);
   // v0.11.25: 50 at a time; Show more asks for 50 more (a plain link, so it works without JavaScript).
@@ -73,9 +75,9 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
   // An unknown track id just matches nobody (the SQL checks it); the list below only offers this event's tracks.
   const track = params.track ?? '';
   const [{ people, more }, { team, tracks }, invited] = await Promise.all([
-    allowed ? hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace, track, show }) : Promise.resolve({ people: [], more: false }),
-    myTeam(db(), me),
-    invitedByMyTeam(db(), me),
+    allowed && view === 'hackers' ? hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace, track, show }) : Promise.resolve({ people: [], more: false }),
+    view === 'hackers' ? myTeam(db(), me) : Promise.resolve({ team: null, tracks: [] }),
+    view === 'hackers' ? invitedByMyTeam(db(), me) : Promise.resolve(new Set<string>()),
   ]);
   const back = new URLSearchParams();
   for (const key of FILTER_KEYS) { const value = params[key]; if (value) back.set(key, value); }
@@ -89,6 +91,13 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
       <span aria-hidden="true" className="h-px min-w-3 flex-1 bg-[var(--edge)]" />
     </div>
     <h1>Hackers</h1>
+    <nav aria-label="Directory sections" className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden">
+      {([['hackers', 'Hackers'], ['teams', 'Teams']] as const).map(([value, label]) => <a key={value} href={value === 'teams' ? '/me/hackers?view=teams' : '/me/hackers'} aria-current={view === value ? 'page' : undefined}
+        className="inline-flex min-h-12 shrink-0 items-center whitespace-nowrap rounded-t-lg border-b-2 border-transparent px-3 text-sm font-semibold text-muted-foreground no-underline hover:bg-accent/6 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-3 aria-[current=page]:border-accent aria-[current=page]:bg-accent/8 aria-[current=page]:text-accent aria-[current=page]:font-bold">
+        {label}
+      </a>)}
+    </nav>
+    {view === 'teams' ? <TeamsView me={me} params={params} allowed={allowed} /> : <>
     <Link href="/me/profile?tab=networking" className="inline-flex min-h-11 items-center self-start">Edit my directory profile →</Link>
     {/* Owner's request: the filters stack in one column. They apply as they change (v0.11.25). */}
     <AutoFilters className="grid max-w-[760px] gap-4">
@@ -171,5 +180,6 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
       const firstNew = people.at(-1)?.id;
       return <Button variant="outline" className="self-center" asChild><Link href={`/me/hackers?${next.toString()}${firstNew ? `#h-${firstNew}` : ''}`} scroll={false}>Show more</Link></Button>;
     })()}
+    </>}
   </main></Entrance>;
 }
