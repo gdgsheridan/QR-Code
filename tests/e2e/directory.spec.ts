@@ -279,5 +279,6 @@ test('T-DIR-07: Teams tab searches team names and shows counts with only opted-i
   await expect(page.getByRole('region', { name: 'Team directory' })).not.toContainText('Private sentinel');
   await expect(page.getByLabel('Track', { exact: true })).toHaveCount(0);
   await expect(card.getByRole('button')).toHaveCount(0);
-  await expect(card.getByRole('link')).toHaveCount(0);
+  await expect(card.getByRole('link')).toHaveCount(1);
+  await expect(card.getByRole('link', { name: 'Open my team →', exact: true })).toHaveAttribute('href', '/me/team');
 });

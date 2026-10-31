@@ -33,7 +33,7 @@ test('/me tells a never-invited applicant they applied, and a withdrawn hacker w
   await ctx.clearCookies();
 
   // No deadline: the invitation never closes, so they can reopen it.
-  await signIn(p, await applicant('Open', 'withdrawn', true), '/me');
+  await signIn(p, await applicant('Wanda', 'withdrawn', true), '/me');
   await expect(p.getByText('Changed your mind? Open your invitation link again before the RSVP deadline.', { exact: false })).toBeVisible();
   await ctx.clearCookies();
 
