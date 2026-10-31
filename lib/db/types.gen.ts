@@ -91,14 +91,14 @@ isOneToOne: false
                   ]
                 },"email_outbox": {
                   Row: {
-                    "attempts": number,"created_at": string,"event_id": string | null,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string | null,"provider_message_id": string | null,"rate_limit_hits": number,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"],"user_id": string | null
+                    "attempts": number,"claim_token": string,"created_at": string,"event_id": string | null,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string | null,"provider_message_id": string | null,"rate_limit_hits": number,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"],"user_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind": string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
+                    "attempts"?: number,"claim_token"?: string,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind": string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
                   }
                   Update: {
-                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
+                    "attempts"?: number,"claim_token"?: string,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -148,6 +148,20 @@ isOneToOne: false
                   }
                   Relationships: [
                     
+                  ]
+                },"ingest_seen_requests": {
+                  Row: {
+                    "request_key": string,"seen_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "request_key": string,"seen_at"?: string
+                  }
+                  Update: {
+                    "request_key"?: string,"seen_at"?: string
+                  }
+                  Relationships: [
+
                   ]
                 },"participant_tracks": {
                   Row: {
@@ -442,7 +456,7 @@ isOneToOne: false
           Views: {
             "v_checkpoint_counts": {
                   Row: {
-                    "capacity": number | null,"checkpoint_id": string,"event_id": string,"kind": Database["public"]['Enums']["checkpoint_kind"],"live_scans": number | null,"name": string
+                    "capacity": number | null,"checkpoint_id": string | null,"event_id": string | null,"kind": Database["public"]['Enums']["checkpoint_kind"] | null,"live_scans": number | null,"name": string | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -486,6 +500,7 @@ isOneToOne: false
 "claim_outbox":
 { Args: { "p_limit"?: number }; Returns: {
               "attempts": number,
+"claim_token": string,
 "created_at": string,
 "event_id": string | null,
 "id": string,
@@ -525,7 +540,7 @@ isOneToOne: false
 { Args: { "p_event_id": string,"p_now"?: string }; Returns: Json
                            },
 "finish_outbox":
-{ Args: { "p_id": string,"p_last_error"?: string,"p_next_attempt_at"?: string,"p_provider_message_id"?: string,"p_rate_limited"?: boolean,"p_refund"?: boolean,"p_status": Database["public"]['Enums']["outbox_status"] }; Returns: boolean
+{ Args: { "p_claim_token"?: string,"p_id": string,"p_last_error"?: string,"p_next_attempt_at"?: string,"p_provider_message_id"?: string,"p_rate_limited"?: boolean,"p_refund"?: boolean,"p_status": Database["public"]['Enums']["outbox_status"] }; Returns: boolean
                            },
 "grant_admin_roles":
 { Args: { "p_user_id": string }; Returns: number
@@ -560,6 +575,9 @@ isOneToOne: false
 "record_badge_scan":
 { Args: { "p_badge_uid": string,"p_checkpoint_id": string,"p_client_scan_id": string,"p_client_scanned_at": string,"p_staff_user_id": string }; Returns: Json
                            },
+"record_ingest_request":
+{ Args: { "p_key": string }; Returns: boolean
+                           },
 "record_scan":
 { Args: { "p_checkpoint_id": string,"p_client_scan_id": string,"p_client_scanned_at": string,"p_method": Database["public"]['Enums']["scan_method"],"p_participant_id": string,"p_staff_user_id": string,"p_token_hash": string }; Returns: Json
                            },
@@ -586,6 +604,9 @@ isOneToOne: false
                            },
 "save_hacker_profile":
 { Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_bio"?: string,"p_dietary_notes"?: string,"p_directory_opt_in"?: boolean,"p_discord"?: string,"p_email": string,"p_emergency_name"?: string,"p_emergency_phone"?: string,"p_emergency_relation"?: string,"p_linkedin_url"?: string,"p_overnight"?: string,"p_pace"?: string,"p_participant_id": string,"p_public"?: boolean,"p_team_status"?: string,"p_user_id": string,"p_website"?: string }; Returns: boolean
+                           },
+"scan_rate_reserve":
+{ Args: { "p_not_found_limit": number,"p_per_minute_limit": number,"p_staff_user_id": string }; Returns: Json
                            },
 "search_participants":
 { Args: { "p_checkpoint_id"?: string,"p_event_id": string,"p_query": string }; Returns: {

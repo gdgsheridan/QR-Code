@@ -4,6 +4,7 @@ import type { Database } from '@/lib/db/types.gen';
 import { passState, type PassLookup } from '@/lib/domain/pass-state';
 import { sha256hex } from '@/lib/domain/token';
 import { formalVenue } from '@/lib/email/links';
+import { clientIpKey } from '@/lib/http/ip';
 
 type Db = SupabaseClient<Database>;
 
@@ -39,8 +40,7 @@ export async function withinLimit(db: Db, key: string, windowSeconds: number, li
 
 // The IP is only used hashed, so no raw address is stored (I-11).
 export function ipKey(headers: Headers, scope = 'pass'): string {
-  const ip = headers.get('x-forwarded-for')?.split(',')[0]?.trim() || headers.get('x-real-ip') || 'unknown';
-  return `${scope}:ip:${sha256hex(ip).slice(0, 32)}`;
+  return clientIpKey(headers, scope);
 }
 
 // v0.11.25 (§15): link-holder endpoints count per link, since a whole venue or campus can share one IP;

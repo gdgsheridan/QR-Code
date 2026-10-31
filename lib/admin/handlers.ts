@@ -9,8 +9,11 @@ import { bucketLabel, doorClosedWarning } from '@/lib/domain/dashboard';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { normalizeEmail, toSearchText } from '@/lib/domain/normalize';
 import { parseSheetId } from '@/lib/domain/sheet';
+import { sha256hex } from '@/lib/domain/token';
 import { generateJoinCode, parseTeamName, parseTrackNames } from '@/lib/domain/team';
+import { isJsonContentType } from '@/lib/http/content-type';
 import { syncSheet } from '@/lib/ingest/sync';
+import { withinLimit } from '@/lib/pass/handlers';
 import { PHOTO_BUCKET } from '@/lib/storage/photos';
 
 type Db = SupabaseClient<Database>;
@@ -124,10 +127,14 @@ const checkpointView = (c: CheckpointRow) => ({
 });
 
 function csvResponse(slug: string, kind: string, body: string): Response {
+  // L12: the filename comes from the already-matched kind allowlist in exportCsv plus the slug, never
+  // raw params; anything outside [A-Za-z0-9._-] becomes '_' so a quote or backslash can't confuse a
+  // client (CRLF can't arrive through fetch Headers, but defense here is one line).
+  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]/g, '_');
   return new Response(body, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${slug}-${kind}"`,
+      'Content-Disposition': `attachment; filename="${safe(slug)}-${safe(kind)}"`,
       ...NO_STORE,
     },
   });
@@ -140,6 +147,18 @@ export function createAdminApi(deps: AdminDeps) {
   const now = () => (deps.now ?? (() => new Date()))();
 
   async function guard(request: Request, params: Params): Promise<{ userId: string; eventId: string } | Response> {
+    // L13/A07: state-changing admin requests must be JSON (a cross-site form can't send one), mirroring
+    // /api/rsvp — checked here once, before any body parsing, for every handler below. Bodyless
+    // POST/DELETEs from our own UI send no content-type, so only requests that declare a body (or any
+    // non-JSON content-type) are gated; the rest rely on SameSite=Lax cookies, which a cross-site POST
+    // never carries.
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      const contentType = request.headers.get('content-type');
+      const declaredLength = Number(request.headers.get('content-length') ?? 0);
+      const hasBody = Number.isFinite(declaredLength) && declaredLength > 0;
+      const chunked = request.headers.get('transfer-encoding') !== null;
+      if (!isJsonContentType(contentType) && (hasBody || chunked || contentType !== null)) return json({ error: 'invalid_body' }, 400);
+    }
     const user = await deps.authenticate(request);
     if (!user) return json({ error: 'unauthorized' }, 401);
     const staff = await requireStaffBySlug(db, user.id, params.slug ?? '', 'organizer');
@@ -502,24 +521,36 @@ export function createAdminApi(deps: AdminDeps) {
     },
 
     // POST /api/admin/[slug]/staff/invites  { email, role }
+    // M4: the response is identical whether or not the address has an account — ADDED vs INVITED was a
+    // platform-wide account oracle. The DB and audit rows keep the distinction (I-11: role + result
+    // only, never the address). Staff invites are rare human actions: 60/hour per organizer and
+    // 120/hour per event stops scripted enumeration without bothering the Staff page.
     async inviteStaff(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
       const body = inviteBody.safeParse(await readJson(request));
       if (!body.success) return badRequest();
+      // Hashed keys only, like every other limiter here (I-11).
+      if (!(await withinLimit(db, `staff-invite:user:${sha256hex(g.userId).slice(0, 32)}`, 3600, 60))) return json({ error: 'rate_limited' }, 429);
+      if (!(await withinLimit(db, `staff-invite:event:${sha256hex(g.eventId).slice(0, 32)}`, 3600, 120))) return json({ error: 'rate_limited' }, 429);
       const { data, error } = await db.rpc('invite_staff', { p_event_id: g.eventId, p_email: body.data.email, p_role: body.data.role, p_actor: g.userId });
       if (error) throw new Error(`invite_staff failed (${error.code})`);
+      // A06: refusing to demote the last organizer stays visible (same code + 409 as removeStaff).
+      if (data === 'LAST_ORGANIZER') return json({ code: data }, 409);
       // v0.11.12: an existing account was added and invite_staff queued their "Sign in" email (staff_added).
       if (data === 'ADDED') deps.scheduleDrain(deps.drain);
-      if (data !== 'INVITED') return json({ code: data });
-      // F9 (v0.4): no account yet, so the auth server emails a link to set a password, then onboarding.
-      const home = body.data.role === 'organizer' ? `/admin/${params.slug}` : `/scan/${params.slug}`;
-      const sent = await db.auth.admin.inviteUserByEmail(body.data.email, {
-        redirectTo: `${deps.appOrigin}/auth/confirm?type=invite&next=${encodeURIComponent(home)}`,
-      });
-      // Rate limit or SMTP trouble at the auth server: the page says so, and "Forgot password" covers it. No address (I-11).
-      if (sent.error) console.error(JSON.stringify({ level: 'warn', msg: 'staff_invite_email_failed', code: sent.error.code ?? null, status: sent.error.status ?? null }));
-      return json({ code: data, emailed: !sent.error });
+      if (data === 'INVITED') {
+        // F9 (v0.4): no account yet, so the auth server emails a link to set a password, then onboarding.
+        const home = body.data.role === 'organizer' ? `/admin/${params.slug}` : `/scan/${params.slug}`;
+        const sent = await db.auth.admin.inviteUserByEmail(body.data.email, {
+          redirectTo: `${deps.appOrigin}/auth/confirm?type=invite&next=${encodeURIComponent(home)}`,
+        });
+        // Rate limit or SMTP trouble at the auth server: the page says so, and "Forgot password" covers it. No address (I-11).
+        if (sent.error) console.error(JSON.stringify({ level: 'warn', msg: 'staff_invite_email_failed', code: sent.error.code ?? null, status: sent.error.status ?? null }));
+        if (sent.error) return json({ code: 'INVITED', emailed: false });
+      }
+      // Uniform success either way: an email (sign-in link or password setup) is on its way.
+      return json({ code: 'INVITED', emailed: true });
     },
 
     // DELETE /api/admin/[slug]/staff/invites/[email]

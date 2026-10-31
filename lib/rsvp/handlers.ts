@@ -46,6 +46,9 @@ const rsvpBody = z
     token: z.string().max(512),
     going: z.boolean().optional(),
     password: z.string().max(200).optional(),
+    // L6: the destructive answer needs an explicit confirm step (the UI types "give away" first),
+    // so a leaked link alone cannot silently revoke the spot.
+    confirmNo: z.boolean().optional(),
     // Optional since v0.9 (the Yes form sends only the password; the profile is set up after, F14). Still
     // accepted, and checked, from older pages.
     emergencyName: field,
@@ -79,6 +82,9 @@ export function createRsvpHandler(deps: RsvpDeps) {
     }
     const body = rsvpBody.safeParse(raw);
     if (!body.success) return json({ error: 'invalid_body' }, 400);
+    // Before any lookup or rate-limit burn: a No without the confirm step is refused, so the
+    // emailed link alone cannot revoke. Same response for unknown tokens (no oracle).
+    if (body.data.going === false && body.data.confirmNo !== true) return json({ error: 'confirm_required' }, 400);
     if (await overLinkLimit(deps.db, 'rsvp', body.data.token)) return json({ error: 'rate_limited' }, 429);
 
     const hash = sha256hex(body.data.token);

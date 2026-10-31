@@ -21,3 +21,4 @@ tests/e2e/.auth/
 
 # e2e server log + run marker (T-SEC-05)
 .e2e/
+.tokensave

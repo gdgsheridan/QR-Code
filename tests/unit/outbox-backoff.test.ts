@@ -26,6 +26,25 @@ describe('outbox retry policy (SPEC F4)', () => {
     expect(nextAttempt({ attempts: 1, now, rateLimitHits: MAX_RATE_LIMIT_RETRIES })).toEqual({ status: 'failed' });
   });
 
+  it('T-MAIL-15: only consecutive 429s give up — a send or non-429 failure resets the streak (A10)', () => {
+    // Mirror of the finish_outbox rule (20261101090400): a 429 extends the streak, a refunded handoff
+    // preserves it, and any other finish (success or real non-429 failure) resets it to 0.
+    let hits = 0;
+    const rateLimited = () => {
+      hits += 1;
+      return nextAttempt({ attempts: 1, now, rateLimitHits: hits });
+    };
+    const recovered = () => {
+      hits = 0;
+    };
+    for (let i = 0; i < 10; i++) expect(rateLimited().status).toBe('pending');
+    recovered(); // e.g. a send went out, then the provider started limiting again
+    for (let i = 0; i < MAX_RATE_LIMIT_RETRIES - 1; i++) expect(rateLimited().status).toBe('pending');
+    expect(rateLimited().status).toBe('failed'); // 20 in a row after the reset, despite 30 lifetime
+    recovered(); // a non-429 failure also restarts the streak
+    expect(rateLimited()).toEqual({ status: 'pending', at: later(60) });
+  });
+
   it('T-MAIL-03: last_error has no email address or token, and is at most 500 chars', () => {
     const err = Object.assign(new Error(`rejected ada.l+x@Gmail.com token Ab3_-xYz0123456789abcdefGHIJKLMN ${'z'.repeat(900)}`), {
       status: 500,

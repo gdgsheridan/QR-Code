@@ -14,7 +14,14 @@ export const serverEnvSchema = z
     NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
     SHEET_INGEST_SECRET: z.string().min(32, 'must be at least 32 characters'),
-    DRAIN_SECRET: z.string().min(32, 'must be at least 32 characters'),
+    // L1: the mail-drain credential is separate from the scheduler credential. Vercel Cron sends
+    // `Authorization: Bearer $CRON_SECRET` and cannot attach a custom header, so both cron-invoked
+    // endpoints (/api/cron, /api/retention) share CRON_SECRET by design; /api/email/drain gets its
+    // own EMAIL_DRAIN_SECRET. DRAIN_SECRET is the deprecated alias: when set, it backs both until
+    // deployments set the new names (then remove it).
+    DRAIN_SECRET: z.string().min(32, 'must be at least 32 characters').optional(),
+    CRON_SECRET: z.string().min(32, 'must be at least 32 characters').optional(),
+    EMAIL_DRAIN_SECRET: z.string().min(32, 'must be at least 32 characters').optional(),
     /** §6.1: pass tokens are derived from it. Changing it hides older passes on /me (scanning still works). */
     PASS_TOKEN_SECRET: z.string().min(32, 'must be at least 32 characters'),
     /** F9 (v0.4.1): comma-separated; these accounts are organizer on every event. */
@@ -33,9 +40,24 @@ export const serverEnvSchema = z
         if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when EMAIL_PROVIDER=resend' });
       }
     }
+    // Either the new name or the legacy DRAIN_SECRET must back each credential.
+    if (!env.CRON_SECRET && !env.DRAIN_SECRET)
+      ctx.addIssue({ code: 'custom', path: ['CRON_SECRET'], message: 'required (legacy DRAIN_SECRET accepted as fallback)' });
+    if (!env.EMAIL_DRAIN_SECRET && !env.DRAIN_SECRET)
+      ctx.addIssue({ code: 'custom', path: ['EMAIL_DRAIN_SECRET'], message: 'required (legacy DRAIN_SECRET accepted as fallback)' });
   });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
+
+/** Scheduler credential for the Vercel-cron endpoints (/api/cron, /api/retention). */
+export function cronSecret(e: ServerEnv): string {
+  return e.CRON_SECRET ?? e.DRAIN_SECRET ?? '';
+}
+
+/** Mail-drain credential for /api/email/drain (never the scheduler credential). */
+export function emailDrainSecret(e: ServerEnv): string {
+  return e.EMAIL_DRAIN_SECRET ?? e.DRAIN_SECRET ?? '';
+}
 
 export function parseServerEnv(source: Record<string, string | undefined>): ServerEnv {
   // Empty strings in .env files mean "unset".

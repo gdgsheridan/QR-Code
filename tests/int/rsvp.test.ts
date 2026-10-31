@@ -136,7 +136,10 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect(await outbox(p.id)).toEqual([{ kind: 'pass_issued', status: 'pending' }]);
     expect(drains).toEqual(['scheduled', 'scheduled']);
 
-    expect((await call({ token, going: false })).body).toEqual({ code: 'NOT_GOING', signedIn: false });
+    // L6: No without the confirm step is refused and changes nothing.
+    expect(await call({ token, going: false })).toEqual({ status: 400, body: { error: 'confirm_required' } });
+    expect(await statusOf(p.id)).toBe('accepted');
+    expect((await call({ token, going: false, confirmNo: true })).body).toEqual({ code: 'NOT_GOING', signedIn: false });
     expect(await statusOf(p.id)).toBe('withdrawn');
     expect(await outbox(p.id)).toEqual([{ kind: 'pass_issued', status: 'cancelled' }]);
     const { rows } = await f.pool.query<{ action: string }>(`select action from audit_log where subject_id = $1 order by id`, [p.id]);
@@ -169,7 +172,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect((await f.pool.query<{ r: string }>('select revoke_pass($1, $2, $3) as r', [f.e1.id, p.id, f.staff.org1])).rows[0]?.r).toBe('REVOKED');
 
     expect((await call({ token, going: true, ...YES })).body).toMatchObject({ code: 'GOING' });
-    expect((await call({ token, going: false })).body).toMatchObject({ code: 'NOT_GOING' });
+    expect((await call({ token, going: false, confirmNo: true })).body).toMatchObject({ code: 'NOT_GOING' });
     expect((await call({ token, going: true, ...YES })).body).toMatchObject({ code: 'GOING' });
     const pending = (await outbox(p.id)).filter((o) => o.status === 'pending');
     expect(pending).toEqual([]);
@@ -183,7 +186,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
       [p.id],
     );
     const job = rows[0]?.id;
-    await call({ token: old, going: false }); // answers No with the previous link: cancels the job
+    await call({ token: old, going: false, confirmNo: true }); // answers No with the previous link: cancels the job
     const fresh = sha256hex(generateToken());
     // v0.9: set_rsvp_token answers when the invitation closes, or null when it refuses.
     expect((await f.pool.query<{ ok: unknown }>('select set_rsvp_token($1, $2) as ok', [job, fresh])).rows[0]?.ok).toBeNull();
@@ -195,7 +198,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     const token = await rsvpToken(p.id);
     await call({ token, going: true, ...YES });
     await f.linkBadge(p.id);
-    await call({ token, going: false });
+    await call({ token, going: false, confirmNo: true });
     expect((await f.pool.query('select 1 from badges where participant_id = $1', [p.id])).rows).toEqual([]);
   });
 
@@ -358,7 +361,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect((await call({ token, going: true, emergencyName: 1 })).status).toBe(400);
     expect(await statusOf(p.id)).toBe('pending');
     expect((await f.pool.query('select 1 from auth.users where email = $1', [p.email])).rows).toHaveLength(0);
-    expect((await call({ token, going: false })).body).toMatchObject({ code: 'NOT_GOING' }); // No needs no form
+    expect((await call({ token, going: false, confirmNo: true })).body).toMatchObject({ code: 'NOT_GOING' }); // No needs no form
     expect((await call({ token, going: true, password: 'my-event-password' })).body).toMatchObject({ code: 'GOING' });
     expect((await f.pool.query('select emergency_name from participants where id = $1', [p.id])).rows).toEqual([{ emergency_name: null }]);
   });
@@ -395,7 +398,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     // An answer without the form (SQL) leaves the profile as it is; so does No.
     await f.pool.query('select rsvp_respond($1, true)', [sha256hex(token)]);
     expect(await row()).toEqual(saved);
-    await call({ token, going: false, ...YES, emergencyName: 'Someone Else' });
+    await call({ token, going: false, confirmNo: true, ...YES, emergencyName: 'Someone Else' });
     expect(await row()).toEqual({ ...saved, status: 'withdrawn' });
   });
 });

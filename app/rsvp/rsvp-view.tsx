@@ -152,6 +152,7 @@ export function RsvpView() {
       return setError('That isn’t your Datathon password. Try again, or reset it on the sign-in page.');
     }
     if (r.status === 400 && r.data.error === 'password_required') return setError('Enter your password.');
+    if (r.status === 400 && r.data.error === 'confirm_required') return setError('Please confirm giving your spot away first.');
     if (r.status === 404) return setView({ kind: 'not_found' });
     if (r.status === 409 && r.data.error === 'closed') return setView((v) => (v.kind === 'invite' ? { ...v, invite: { ...v.invite, closed: true } } : v));
     if (r.status !== 200) return setError(r.status === 429 ? 'Too many tries. Wait a minute and try again.' : 'Something went wrong. Try again.');
@@ -226,7 +227,7 @@ export function RsvpView() {
         )}
         {view.kind === 'invite' && view.confirmNo && (
           <GiveAwayConfirm accepted={view.invite.status === 'accepted'} busy={busy}
-            onConfirm={() => void respond(false)} onCancel={() => setView({ ...view, confirmNo: false })} />
+            onConfirm={() => void respond(false, { confirmNo: true })} onCancel={() => setView({ ...view, confirmNo: false })} />
         )}
         {view.kind === 'invite' && !view.confirmNo && view.invite.status === 'accepted' && (
           // v0.11.25: hackers reopen the invitation to find their pass; they're in, so say so.

@@ -13,7 +13,9 @@ export function passClient() {
     profile(
       new Request('http://localhost/api/pass', {
         method: 'PATCH',
-        headers: { 'content-type': 'application/json', 'x-forwarded-for': `${ip}, 172.16.0.1` },
+        // M2: the platform appends the real client IP last, so that rightmost hop is the trusted one;
+        // the first entry stands in for a client-supplied (spoofable) hop.
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': `203.0.113.9, ${ip}` },
         body: JSON.stringify(body),
       }),
     );
@@ -22,7 +24,7 @@ export function passClient() {
     pass(
       new Request('http://localhost/api/pass', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-forwarded-for': `${ip}, 172.16.0.1`, ...headers },
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': `203.0.113.9, ${ip}`, ...headers },
         body: typeof body === 'string' ? body : JSON.stringify(body),
       }),
     );

@@ -53,7 +53,7 @@ export async function drainOutbox(opts: DrainOptions): Promise<DrainResult> {
       result.retrying += 1;
       result.rateLimited = true;
       for (const rest of rows.slice(i + 1)) {
-        await finish(opts.db, { p_id: rest.id, p_status: 'pending', p_refund: true });
+        await finish(opts.db, { p_id: rest.id, p_status: 'pending', p_refund: true, p_claim_token: rest.claim_token });
         result.retrying += 1;
       }
       break;
@@ -75,6 +75,9 @@ export async function drainUntilIdle(opts: DrainOptions, budgetMs = 25_000): Pro
 }
 
 async function finish(db: Db, args: FinishArgs): Promise<void> {
+  // A09: finish_outbox is fenced by claim_token. A row reclaimed after this batch's lease expired
+  // no longer matches, so a stale finish returns false and changes nothing instead of overwriting
+  // the new owner's result.
   const { error } = await db.rpc('finish_outbox', args);
   if (error) throw new Error(`finish_outbox failed (${error.code})`);
 }
@@ -87,7 +90,7 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<'sent' | 
   try {
     const message = row.kind === 'staff_added' ? await staffEmail(opts, row) : await participantEmail(opts, row);
     if (!message) {
-      await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
+      await finish(opts.db, { p_id: row.id, p_status: 'cancelled', p_claim_token: row.claim_token });
       return 'cancelled';
     }
     // 3. Send.
@@ -105,7 +108,7 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<'sent' | 
     const lastError = sanitizeError(err);
     const charge = { p_refund: rateLimited, p_rate_limited: rateLimited };
     if (next.status === 'failed') {
-      await finish(opts.db, { p_id: row.id, p_status: 'failed', p_last_error: lastError, ...charge });
+      await finish(opts.db, { p_id: row.id, p_status: 'failed', p_last_error: lastError, p_claim_token: row.claim_token, ...charge });
       return 'failed';
     }
     await finish(opts.db, {
@@ -113,6 +116,7 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<'sent' | 
       p_status: 'pending',
       p_next_attempt_at: next.at.toISOString(),
       p_last_error: lastError,
+      p_claim_token: row.claim_token,
       ...charge,
     });
     return rateLimited ? 'rateLimited' : 'retrying';
@@ -120,7 +124,7 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<'sent' | 
 
   // 4. Success. If this write fails, the row is retried and a second email goes out with a newer
   // code; only the newest works (accepted edge, SPEC F4).
-  await finish(opts.db, { p_id: row.id, p_status: 'sent', p_provider_message_id: providerId });
+  await finish(opts.db, { p_id: row.id, p_status: 'sent', p_provider_message_id: providerId, p_claim_token: row.claim_token });
   return 'sent';
 }
 
