@@ -9,4 +9,23 @@ describe('post-login redirect target', () => {
       expect(safeNextPath(bad)).toBe('/');
     }
   });
+  it('M1: control characters and backslashes cannot smuggle an off-site redirect', () => {
+    // The premise: WHATWG parsing strips the tab, so this resolves to https://example.invalid/.
+    expect(new URL('/\t//example.invalid', 'https://app.invalid').origin).toBe('https://example.invalid');
+    for (const bad of [
+      '/\t//example.invalid',
+      '/\n//example.invalid',
+      '/\r//example.invalid',
+      '/\x00//example.invalid',
+      '/\x7f//example.invalid',
+      '/\t/example.invalid',
+      '\t/scan/demo',
+      '/scan/demo?q=\n',
+      '/ /example.invalid',
+      '/\\example.invalid',
+    ]) {
+      expect(safeNextPath(bad)).toBe('/');
+    }
+    expect(safeNextPath('/scan/demo', '/me')).toBe('/scan/demo');
+  });
 });
