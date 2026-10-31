@@ -168,7 +168,7 @@ test('T-UI-03: Atom floats beside attendee content only when there is room, and 
   };
   await besideContent();
   // Include the tightest gutter, and both wider attendee columns at their own thresholds.
-  for (const [route, width] of [['/me', 1200], ['/me/schedule', 1840], ['/me/hackers', 2040]] as const) {
+  for (const [route, width] of [['/me', 1060], ['/me/schedule', 1700], ['/me/hackers', 1900]] as const) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(route);
     await expect(atom).toBeVisible();
@@ -182,7 +182,15 @@ test('T-UI-03: Atom floats beside attendee content only when there is room, and 
     await page.setViewportSize(viewport);
     await expect(atom).toBeHidden();
     await expect(atom).toHaveCSS('display', 'none');
+    // Without room beside the column, a small Atom waves from the hero card's corner, clear of its heading.
+    const corner = page.locator('img[data-atom-corner]');
+    await expect(corner).toBeVisible();
+    await expect(corner).toHaveAttribute('aria-hidden', 'true');
+    const [img, heading] = await Promise.all([corner.boundingBox(), page.getByRole('heading', { level: 1 }).boundingBox()]);
+    expect(img && heading && heading.x + heading.width <= img.x).toBe(true);
   }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.locator('img[data-atom-corner]')).toBeHidden();
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(atom).toBeVisible();
