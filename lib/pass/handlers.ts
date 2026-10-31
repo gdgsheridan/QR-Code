@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { passState, type PassLookup } from '@/lib/domain/pass-state';
 import { sha256hex } from '@/lib/domain/token';
+import { formalVenue } from '@/lib/email/links';
 
 type Db = SupabaseClient<Database>;
 
@@ -86,7 +87,7 @@ export function createPassHandler(deps: { db: Db }) {
       state,
       firstName: participant.firstName,
       lastName: me.last_name,
-      event,
+      event: { ...event, venue: formalVenue(event.venue) }, // v0.11.28: the venue's formal name
       team: me.teams ? { name: me.teams.name, track: me.teams.tracks?.name ?? null } : null,
       links: me.profile_public ? { linkedinUrl: me.linkedin_url, discord: me.discord_username, websiteUrl: me.website_url } : null,
     });

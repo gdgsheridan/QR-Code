@@ -33,6 +33,16 @@ async function invite(formData: FormData) {
   redirect(`/me/hackers?looking=1&r=${result}`);
 }
 
+// A website shown by its domain ("aleksbrsc.com"), not its whole URL.
+function siteLabel(url: string): string {
+  try {
+    const { host, pathname } = new URL(url);
+    return host.replace(/^www\./, '') + (pathname === '/' ? '' : pathname);
+  } catch {
+    return url;
+  }
+}
+
 const NOTICES: Record<string, string> = {
   INVITED: '✓ Invite sent. They can accept on their Team page.',
   ALREADY_INVITED: 'You’ve already invited them.',
@@ -69,12 +79,15 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
     <h1>Hackers</h1>
     <Link href="/me/profile#networking" className="inline-flex min-h-11 items-center self-start">Edit my directory profile →</Link>
     {/* Owner's request: the filters stack in one column. They apply as they change (v0.11.25). */}
-    <AutoFilters className="grid max-w-[640px] gap-4">
-      <div className="grid min-w-0 gap-2"><Label htmlFor="search">Search by name</Label><Input id="search" name="q" type="search" defaultValue={params.q ?? ''} className="min-h-12 w-full" /></div>
+    <AutoFilters className="grid max-w-[760px] gap-4">
+      {/* Owner's request: search and track side by side (stacked on phones), the pace slider below them. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-2"><Label htmlFor="search">Search by name</Label><Input id="search" name="q" type="search" defaultValue={params.q ?? ''} className="min-h-12 w-full" /></div>
+        <div className="grid min-w-0 gap-2"><Label htmlFor="track">Track</Label><NativeSelect id="track" name="track" defaultValue={track} className="min-h-12 w-full">
+          <option value="">All tracks</option>{tracks.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </NativeSelect></div>
+      </div>
       <PaceSlider key={pace} value={pace} filter />
-      <div className="grid gap-2"><Label htmlFor="track">Track</Label><NativeSelect id="track" name="track" defaultValue={track} className="min-h-12 w-full">
-        <option value="">All tracks</option>{tracks.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-      </NativeSelect></div>
       <Label className="flex min-h-11 items-center gap-3"><input className="size-[22px]" type="checkbox" name="looking" value="1" defaultChecked={looking} />Looking for a team</Label>
       <div className="justify-self-start"><RefreshButton /></div>
     </AutoFilters>
@@ -101,18 +114,28 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
                 <path d="m6 9 6 6 6-6" />
               </svg>
             </summary>
-            <div className="grid gap-3 border-t border-border px-4 py-4">
-              <p className="m-0 text-sm text-muted-foreground">{paceLabel}</p>
-              {full && <>
-                <p className="copy m-0 text-sm text-muted-foreground">{person.teamName ? `In a team: ${person.teamName}` : person.looking ? 'Looking for a team' : 'Going solo'}</p>
-                {person.tracks.length > 0 && <p className="copy m-0 text-sm">Wants to do: {person.tracks.join(', ')}</p>}
-                {person.bio && <p className="copy m-0 whitespace-pre-line">{person.bio}</p>}
-                {!self && <div className="grid gap-1">
-                  {person.linkedinUrl && <a className="inline-flex min-h-11 items-center" href={person.linkedinUrl} rel="nofollow ugc">LinkedIn →</a>}
-                  {person.discord && <div className="flex min-h-11 flex-wrap items-center gap-3"><span className="min-w-0 flex-1">Discord: @{person.discord}</span><CopyButton text={person.discord} label={`Copy ${person.name}’s Discord username`} /></div>}
-                  {person.websiteUrl && <a className="inline-flex min-h-11 items-center" href={person.websiteUrl} rel="nofollow ugc">{person.websiteUrl} →</a>}
+            {/* Owner's request (v0.11.28): facts as label/value rows, then the bio, then contacts as one consistent group. */}
+            <div className="grid gap-4 border-t border-border px-4 py-4">
+              <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+                <dt className="text-muted-foreground">Pace</dt>
+                <dd className="m-0">{full ? person.pace ? PACE[person.pace] : 'Not set' : 'Not shared'}</dd>
+                {full && <>
+                  <dt className="text-muted-foreground">Team</dt>
+                  <dd className="m-0 [overflow-wrap:anywhere]">{person.teamName ?? (person.looking ? 'Looking for a team' : 'Going solo')}</dd>
+                  {person.tracks.length > 0 && <><dt className="text-muted-foreground">Wants to do</dt><dd className="m-0">{person.tracks.join(', ')}</dd></>}
+                </>}
+              </dl>
+              {full && person.bio && <p className="copy m-0 whitespace-pre-line">{person.bio}</p>}
+              {full && !self && (person.linkedinUrl || person.websiteUrl || person.discord) && <div className="grid gap-2 border-t border-border pt-3">
+                {(person.linkedinUrl || person.websiteUrl) && <div className="flex flex-wrap gap-2">
+                  {person.linkedinUrl && <Button asChild variant="outline" size="sm"><a href={person.linkedinUrl} rel="nofollow ugc">LinkedIn ↗</a></Button>}
+                  {person.websiteUrl && <Button asChild variant="outline" size="sm"><a href={person.websiteUrl} rel="nofollow ugc" className="max-w-full [overflow-wrap:anywhere]">{siteLabel(person.websiteUrl)} ↗</a></Button>}
                 </div>}
-              </>}
+                {person.discord && <div className="flex min-h-11 items-center justify-between gap-3 text-sm">
+                  <span className="min-w-0 [overflow-wrap:anywhere]"><span className="text-muted-foreground">Discord </span>@{person.discord}</span>
+                  <CopyButton text={person.discord} label={`Copy ${person.name}’s Discord username`} />
+                </div>}
+              </div>}
               {!self && targetLooking && canInvite && <form action={invite}>
                 <input type="hidden" name="inviteeId" value={person.id} />
                 <Button type="submit" variant="outline" aria-label={`Invite ${person.name}`}>Invite</Button>

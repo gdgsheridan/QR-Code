@@ -160,6 +160,6 @@ test('T-TEAM-08 (v0.11.25): a hacker picks the tracks they want under Looking, b
   await expect(ada).toBeVisible();
   await expect(directory.getByRole('article')).toHaveCount(1);
   await ada.locator('summary').click();
-  await expect(ada.getByText('Wants to do: Best AI')).toBeVisible();
+  await expect(ada.locator('dt', { hasText: 'Wants to do' }).locator('xpath=following-sibling::dd[1]')).toHaveText('Best AI');
   await b.context.close();
 });

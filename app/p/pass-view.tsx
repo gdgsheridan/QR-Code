@@ -10,6 +10,7 @@ import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { QR_OPTIONS } from '@/lib/qr/options';
+import { venueMapUrl } from '@/lib/email/links';
 
 interface ActivePass {
   state: 'active';
@@ -202,7 +203,10 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
           </div>
           <div>
             <dt>Where</dt>
-            <dd>{pass.event.venue}</dd>
+            <dd>{(() => {
+              const mapUrl = venueMapUrl(pass.event.venue);
+              return mapUrl ? <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline focus-visible:outline-2 focus-visible:outline-offset-2">{pass.event.venue}</a> : pass.event.venue;
+            })()}</dd>
           </div>
           {pass.team && (
             <div>

@@ -81,7 +81,7 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   }
   await expect(ben.getByText('Building with open data.', { exact: false })).not.toBeVisible();
   await expect(ben.getByRole('link', { name: 'LinkedIn', includeHidden: true })).not.toBeVisible();
-  await expect(ben.getByRole('link', { name: /https:\/\/example.test/, includeHidden: true })).not.toBeVisible();
+  await expect(ben.getByRole('link', { name: /^example\.test/, includeHidden: true })).not.toBeVisible();
   await expect(ben.getByRole('button', { name: 'Copy Ben Fixture’s Discord username', includeHidden: true })).not.toBeVisible();
   await ben.locator('summary').focus();
   await page.keyboard.press('Enter');
@@ -90,7 +90,7 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(ben.getByText('Balanced', { exact: true })).toBeVisible();
   await self.locator('summary').click();
   await expect(ben.getByRole('link', { name: 'LinkedIn' })).toHaveAttribute('href', 'https://www.linkedin.com/in/ben-fixture');
-  await expect(ben.getByRole('link', { name: /https:\/\/example.test/ })).toHaveAttribute('rel', 'nofollow ugc');
+  await expect(ben.getByRole('link', { name: /^example\.test/ })).toHaveAttribute('rel', 'nofollow ugc');
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await ben.getByRole('button', { name: 'Copy Ben Fixture’s Discord username' }).click();
   await expect(ben.getByRole('status')).toContainText('Discord username copied.');

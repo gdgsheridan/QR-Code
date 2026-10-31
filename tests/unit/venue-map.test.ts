@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { venueMapUrl } from '@/lib/email/links';
+import { formalVenue, venueMapUrl } from '@/lib/email/links';
 import { renderPassEmail } from '@/lib/email/templates/pass';
 import { renderRsvpEmail } from '@/lib/email/templates/rsvp';
 
@@ -50,4 +50,16 @@ describe.each([
     expect(email.html).not.toContain('google.com/maps');
     expect(email.text.split('\n')).toContain(`Where: ${venue}`);
   });
+});
+
+it('T-MAIL-07: emails and the pass give HMC Campus its formal name, which keeps the map link (v0.11.28)', () => {
+  const formal = 'Sheridan College - Hazel McCallion Campus';
+  expect(formalVenue('HMC Campus')).toBe(formal);
+  expect(formalVenue(' hmc campus ')).toBe(formal);
+  expect(formalVenue('Fixture Hall')).toBe('Fixture Hall');
+  expect(venueMapUrl(formal)).toBe(mapUrl);
+  const email = renderPassEmail({ ...base, event: { ...base.event, venue: formal } });
+  expect(email.html).toContain(`href="${escapedMapUrl}"`);
+  expect(email.html).toContain(formal);
+  expect(email.text).toContain(`Where: ${formal}: ${mapUrl}`);
 });

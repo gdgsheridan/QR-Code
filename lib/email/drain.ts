@@ -13,7 +13,7 @@ import { renderProfileReminderEmail } from './templates/profile-reminder';
 import { renderRsvpEmail } from './templates/rsvp';
 import { renderStaffAddedEmail } from './templates/staff-added';
 import { renderTeamInviteEmail } from './templates/team-invite';
-import { emailEventName } from './links';
+import { emailEventName, formalVenue } from './links';
 
 type Db = SupabaseClient<Database>;
 type OutboxRow = Database['public']['Tables']['email_outbox']['Row'];
@@ -138,7 +138,7 @@ async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Out
   const accepted = p.status === 'accepted';
   const rsvp = row.kind === 'rsvp' || row.kind === 'rsvp_reminder';
   if (p.deleted_at !== null || (rsvp ? accepted : !accepted)) return null;
-  const event = { name: emailEventName(p.events.slug, p.events.name), venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone };
+  const event = { name: emailEventName(p.events.slug, p.events.name), venue: formalVenue(p.events.venue), startsAt: p.events.starts_at, timezone: p.events.timezone };
 
   let email: RenderedEmail;
   if (rsvp) {
