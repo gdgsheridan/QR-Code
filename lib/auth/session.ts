@@ -35,7 +35,10 @@ export async function supabaseForRequest() {
       getAll: () => store.getAll(),
       setAll: (toSet) => {
         try {
-          for (const { name, value, options } of toSet) store.set(name, value, options);
+          // L13/A07: pin SameSite=Lax explicitly. @supabase/ssr already defaults to it
+          // (DEFAULT_COOKIE_OPTIONS in its utils/constants), but saying it here keeps a library
+          // bump from silently relaxing it; no admin or auth flow needs cross-site posts.
+          for (const { name, value, options } of toSet) store.set(name, value, { ...options, sameSite: 'lax' as const });
         } catch {
           // Server components can't set cookies; proxy.ts refreshes them instead.
         }

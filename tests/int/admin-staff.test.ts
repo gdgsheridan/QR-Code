@@ -19,7 +19,7 @@ afterAll(async () => {
 describe('staff admin (SPEC F9)', () => {
   it('F9: inviting an existing user adds them directly; a new email becomes a pending invite (normalized)', async () => {
     const existing = await c.call('inviteStaff', org, { slug: f.slug }, { body: { email: f.staffEmail.vol3.toUpperCase(), role: 'volunteer' } });
-    expect(existing.body).toEqual({ code: 'ADDED' });
+    expect(existing.body).toEqual({ code: 'INVITED', emailed: true });
     const fresh = await c.call('inviteStaff', org, { slug: f.slug }, { body: { email: ` New+${f.slug}@Example.TEST `, role: 'organizer' } });
     // T-AUTH-03 (I): a new address also gets an email from the auth server to set a password.
     expect(fresh.body).toEqual({ code: 'INVITED', emailed: true });
@@ -38,10 +38,12 @@ describe('staff admin (SPEC F9)', () => {
     const email = `twice-${f.slug}@example.test`;
     expect((await c.call('inviteStaff', org, { slug: f.slug }, { body: { email, role: 'organizer' } })).body).toMatchObject({ code: 'INVITED' });
     // The invite email made an account (no password yet), so the second invite adds them directly.
-    expect((await c.call('inviteStaff', org, { slug: f.slug }, { body: { email, role: 'volunteer' } })).body).toEqual({ code: 'ADDED' });
+    expect((await c.call('inviteStaff', org, { slug: f.slug }, { body: { email, role: 'volunteer' } })).body).toEqual({ code: 'INVITED', emailed: true });
     const { rows: invites } = await f.pool.query('select role from staff_invites where event_id = $1 and email = $2', [f.e1.id, email]);
     expect(invites).toEqual([]);
     const { rows: users } = await f.pool.query<{ id: string }>('select id from auth.users where email = $1', [email]);
+    // M3: consuming needs a confirmed email; the invite link confirms it in the real flow.
+    await f.pool.query('update auth.users set email_confirmed_at = now() where id = $1', [users[0]?.id]);
     await f.pool.query('select consume_staff_invites($1, $2)', [users[0]?.id, email]);
     const { rows } = await f.pool.query('select role from event_staff where event_id = $1 and user_id = $2', [f.e1.id, users[0]?.id]);
     expect(rows).toEqual([{ role: 'volunteer' }]);
@@ -52,7 +54,7 @@ describe('staff admin (SPEC F9)', () => {
     const email = rows[0]?.email ?? '';
     const userId = await createAccount(email); // what an RSVP Yes does (F13)
     const scheduled = c.scheduled.length;
-    expect((await c.call('inviteStaff', org, { slug: f.slug }, { body: { email, role: 'volunteer' } })).body).toEqual({ code: 'ADDED' });
+    expect((await c.call('inviteStaff', org, { slug: f.slug }, { body: { email, role: 'volunteer' } })).body).toEqual({ code: 'INVITED', emailed: true });
     // Queued, then drained after the response, never sent inside the request.
     expect(c.scheduled.length).toBe(scheduled + 1);
     expect(sentTo(c.mail.sent, email)).toHaveLength(0);
