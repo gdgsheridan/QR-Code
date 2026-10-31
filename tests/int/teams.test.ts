@@ -115,4 +115,29 @@ describe('hacker teams (SPEC F15, v0.7)', () => {
       else expect([joined, now], `round ${round}`).toEqual(['BAD_CODE', null]);
     }
   });
+  it('T-RSVP-03 (v0.11.25): a member who says No, has their RSVP revoked or misses the deadline leaves their team; an emptied team is deleted', async () => {
+    await setOpen(f.e1.id, true);
+    const members = await Promise.all(Array.from({ length: 4 }, () => f.addParticipant(f.e1.id, { withPass: false })));
+    expect(await createTeam(db(), await as(members[0]!.id), members[0]!.id, 'Leavers')).toBe('CREATED');
+    const team = await teamRow('Leavers');
+    for (const m of members.slice(1)) expect(await joinTeam(db(), await as(m.id), m.id, { code: team?.join_code ?? '' })).toBe('JOINED');
+    // No: through the RSVP answer itself.
+    const token = 'n'.repeat(32);
+    await f.pool.query(`update participants set rsvp_token_hash = encode(sha256($2::bytea), 'hex') where id = $1`, [members[1]!.id, token]);
+    expect((await f.pool.query('select rsvp_respond(encode(sha256($1::bytea), \'hex\'), false) as r', [token])).rows[0]?.r).toBe('NOT_GOING');
+    expect(await teamOf(members[1]!.id)).toBeNull();
+    // Revoked RSVP (back to pending).
+    await f.pool.query('select revoke_rsvp($1, $2, $3)', [f.e1.id, members[2]!.id, f.staff.org1]);
+    expect(await teamOf(members[2]!.id)).toBeNull();
+    // A 4-member team that lost two has room again.
+    const newcomer = await f.addParticipant(f.e1.id, { withPass: false });
+    expect(await joinTeam(db(), await as(newcomer.id), newcomer.id, { code: team?.join_code ?? '' })).toBe('JOINED');
+    // The deadline job withdraws by status; the rest leave too, and the emptied team goes.
+    await f.pool.query(`update participants set status = 'withdrawn' where id = any($1)`, [[members[0]!.id, members[3]!.id, newcomer.id]]);
+    expect(await teamRow('Leavers')).toBeUndefined();
+    // An organizer's team made empty on purpose isn't touched by this rule.
+    await f.pool.query(`insert into teams (event_id, name, join_code) values ($1, 'Prepared empty', 'PRPRMPTY')`, [f.e1.id]);
+    await f.pool.query(`update participants set status = 'withdrawn' where id = $1`, [f.p.Wd]);
+    expect(await teamRow('Prepared empty')).toBeDefined();
+  });
 });
