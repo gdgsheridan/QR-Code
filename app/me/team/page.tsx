@@ -17,6 +17,7 @@ import { formatJoinCode } from '@/lib/domain/team';
 import { myEvent } from '@/lib/me/profile';
 import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, setLooking, setTeamTrack, setTrackInterests, type TeamCode } from '@/lib/me/team';
 import { loadMyEvent, menuMetadata } from '../load';
+import { CopyCode } from './copy-code';
 
 export const metadata: Metadata = menuMetadata('Team');
 
@@ -63,7 +64,9 @@ async function act(formData: FormData) {
         : op === 'leave'
           ? await leaveTeam(db(), user, m.participantId)
           : await setTeamTrack(db(), user, m.participantId, field('trackId'));
-  redirect(`/me/team?r=${r}`);
+  // A refused join code comes back to its field (a join code isn't a secret, F15), so it can be fixed instead of retyped.
+  const back = op === 'join' && r !== 'JOINED' ? `&code=${encodeURIComponent(field('code').slice(0, 20))}` : '';
+  redirect(`/me/team?r=${r}${back}`);
 }
 
 // v0.11.25: Looking and the tracks they want to do save together.
@@ -72,13 +75,18 @@ async function saveLooking(user: { id: string; email: string | null }, participa
   return looking === 'SAVED' ? setTrackInterests(db(), user, participantId, tracks) : looking;
 }
 
-export default async function TeamPage(props: { searchParams: Promise<{ r?: string }> }) {
-  const { r } = await props.searchParams;
+export default async function TeamPage(props: { searchParams: Promise<{ r?: string; code?: string }> }) {
+  const { r, code: typedCode } = await props.searchParams;
   const { me: m, now } = await loadMyEvent('/me/team');
   const { tracks, team, invites, myTrackIds } = await myTeam(db(), m);
   const live = Date.parse(m.event.endsAt) > now.getTime();
   const open = m.event.teamsOpen && live;
-  const notice = r === 'SAVED' && !team ? '✓ Directory preference saved.' : r && r in NOTICES ? NOTICES[r as TeamCode] : null;
+  // Without a team, SAVED is the Looking switch and track interests (saved together).
+  const saved = m.lookingForTeam ? '✓ Saved. You’re listed under Looking for a team.' : '✓ Saved.';
+  const message = r === 'SAVED' && !team ? saved : r && r in NOTICES ? NOTICES[r as TeamCode] : null;
+  // A refused join shows its error next to the code field, not up here.
+  const joinError = typedCode !== undefined && !team && open && message?.startsWith('✕') ? message : null;
+  const notice = joinError ? null : message;
   const trackName = tracks.find((t) => t.id === team?.trackId)?.name;
 
   return (
@@ -122,7 +130,7 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
                 </Label>
               ))}
             </fieldset>}
-            <Button type="submit">Save directory preference</Button>
+            <Button type="submit">Save</Button>
           </form>
         </section></Card>
       )}
@@ -141,6 +149,7 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
                 <p>
                   {invite.from} invited you to join {invite.teamName}.
                 </p>
+                {!open && live && <p className="text-muted-foreground text-[14px] [flex-basis:100%]">Accepting opens when team forming opens.</p>}
                 <div className="flex flex-wrap gap-[8px]">
                   {open && (
                     <form action={act}>
@@ -166,8 +175,8 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
         <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="team-name" >
           <h2 id="team-name">{team.name}</h2>
           <ul className="m-0 p-0 list-none grid gap-[8px] [&_li]:flex [&_li]:items-center [&_li]:gap-[12px]">
-            {team.members.map((name) => (
-              <li key={name}>
+            {team.members.map(({ id, name }) => (
+              <li key={id}>
                 <span className="grid [place-items:center] [flex:0_0_auto] w-[32px] h-[32px] rounded-[50%] [background:var(--raised)]
 
           [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
@@ -175,7 +184,7 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] text-link text-[12px] font-semibold" aria-hidden="true">
                   {initials(name)}
                 </span>
-                {name}
+                {name}{id === m.participantId && ' (you)'}
               </li>
             ))}
           </ul>
@@ -193,11 +202,12 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
             <SectionLabel className="mb-0">Join code</SectionLabel>
             <strong className="text-accent text-[26px] font-semibold tracking-[0.12em]">{formatJoinCode(team.code)}</strong>
             <span className="m-0 text-muted-foreground text-[14px]">Share it with your teammates (4 people at most).</span>
+            <CopyCode text={formatJoinCode(team.code)} />
           </div>
           <div className="pt-[16px] [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
             <h3>Track</h3>
             {!m.event.tracksReleased ? (
-              <p className="copy">Tracks are announced at the hackathon.</p>
+              <p className="copy">{tracks.length > 0 ? 'Your team picks its track once organizers open track picks.' : 'Tracks are announced at the hackathon.'}</p>
             ) : live && tracks.length > 0 ? (
               <form action={act} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
@@ -241,6 +251,11 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
               </ConfirmSubmit>
             </form>
           )}
+          {!open && live && (
+            <p className="pt-[16px] [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)] text-muted-foreground text-[14px]">
+              Team changes are closed. Ask an organizer if you need to leave.
+            </p>
+          )}
         </section></Card>
       ) : !open ? (
         <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section >
@@ -274,7 +289,9 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
               <input type="hidden" name="op" value="join" />
               <Label htmlFor="code">Join code</Label>
-              <Input id="code" name="code" required maxLength={20} autoComplete="off" autoCapitalize="characters" placeholder="ABCD-EFGH" className="min-h-12 w-full" />
+              <Input id="code" name="code" required maxLength={20} autoComplete="off" autoCapitalize="characters" placeholder="ABCD-EFGH" className="min-h-12 w-full"
+                defaultValue={joinError ? typedCode : undefined} autoFocus={!!joinError} aria-invalid={joinError ? true : undefined} aria-describedby={joinError ? 'code-error' : undefined} />
+              {joinError && <p id="code-error" role="alert" className="m-0 text-bad">{joinError}</p>}
               <Button type="submit">Join team</Button>
             </form>
           </section></Card>
