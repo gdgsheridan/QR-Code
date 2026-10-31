@@ -93,7 +93,8 @@ test('T-TEAM-07: N opts into the directory, A invites by email, N accepts and bo
   await n.page.getByRole('link', { name: 'Find teammates in the Hacker directory' }).click();
   await expect(n.page.getByText('Create a team to invite them.', { exact: false })).toBeVisible();
   const ownDirectory = n.page.getByRole('region', { name: 'Hacker directory' });
-  await expect(ownDirectory.getByText('Nia Fixture')).toHaveCount(0);
+  // Listed by default since v0.11.19: her own card is marked (you), with no actions (F16).
+  await expect(ownDirectory.getByRole('article', { name: 'Nia Fixture (you)' })).toBeVisible();
   await expect(ownDirectory.getByRole('button', { name: /Invite/ })).toHaveCount(0);
   await a.goto('/me/hackers?looking=1');
   const directory = a.getByRole('region', { name: 'Hacker directory' });
