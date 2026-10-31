@@ -428,3 +428,10 @@
 @media (prefers-reduced-motion: reduce) {
   .setup-progress-fill { transition: none !important; }
 }
+
+/* v0.11.29: Team page Tracks chart. Bars grow from the baseline on load; nothing moves under reduced motion. */
+.track-bar { transform-origin: left; transition: transform 0.5s var(--ease); }
+@starting-style { .track-bar { transform: scaleX(0); } }
+@keyframes tracks-tip { from { opacity: 0; translate: 0 4px; } }
+.tracks-tip { animation: tracks-tip 0.15s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .track-bar { transition: none; } .tracks-tip { animation: none; } }

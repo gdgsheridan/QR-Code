@@ -51,11 +51,13 @@ test('T-TEAM-09: Tracks hides unreleased names, then shows teams and counts; lin
     await expect(page.getByText(/Best AI|Best Hardware|Data Wizards|Undecided/)).toHaveCount(0);
     await f.pool.query('update events set tracks_released = true where id = $1', [f.e1.id]);
     await page.reload();
-    const aiCard = page.getByRole('region', { name: 'Best AI', exact: true });
-    await expect(aiCard).toContainText('2 teams');
-    await expect(aiCard.getByRole('listitem')).toHaveText(['Data Wizards · 2 members (your team)', 'Zebras · 0 members']);
-    await expect(page.getByRole('region', { name: 'Best Hardware' })).toContainText('No teams yet');
-    await expect(page.getByRole('region', { name: 'No track yet' })).toContainText('Undecided · 0 members');
+    // v0.11.29: a stacked bar chart; each block is a team, a button with a spoken name (no JavaScript needed to read it).
+    const aiCard = page.getByRole('group', { name: 'Best AI: 2 teams · 2 hackers' });
+    await expect(aiCard.getByRole('button')).toHaveCount(2);
+    await expect(aiCard.getByRole('button', { name: 'Data Wizards · 2 members (your team)', exact: true })).toBeVisible();
+    await expect(aiCard.getByRole('button', { name: 'Zebras · 0 members', exact: true })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Best Hardware: No teams yet' })).toContainText('No teams yet');
+    await expect(page.getByRole('group', { name: 'No track yet: 1 team · 0 hackers' }).getByRole('button', { name: 'Undecided · 0 members' })).toBeVisible();
     await expect(page.getByText(/Other event track|Other event team|Ada Fixture|Ben Fixture|DDDD-DDDD/)).toHaveCount(0);
     await tabs.getByRole('link', { name: 'My team', exact: true }).click();
     await expect(page).toHaveURL(`${E2E_ORIGIN}/me/team`);
@@ -64,6 +66,15 @@ test('T-TEAM-09: Tracks hides unreleased names, then shows teams and counts; lin
     await expect(page.getByText('Ada Fixture')).toBeVisible();
     await tabs.getByRole('link', { name: 'Tracks', exact: true }).click();
     await expect(aiCard).toBeVisible();
+    // With JavaScript, tapping a block shows its team.
+    await a.page.goto('/me/team?tab=tracks');
+    await a.page.getByRole('button', { name: 'Data Wizards · 2 members (your team)' }).click();
+    const tip = a.page.getByRole('tooltip');
+    await expect(tip).toContainText('Data Wizards');
+    await expect(tip).toContainText('2 members · Best AI');
+    await expect(tip).toContainText('Your team');
+    await a.page.keyboard.press('Escape');
+    await expect(tip).toHaveCount(0);
   } finally {
     await context.close();
     await a.context.close();

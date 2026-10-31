@@ -16,6 +16,7 @@ import { db } from '@/lib/db/server';
 import { formatJoinCode } from '@/lib/domain/team';
 import { myEvent, type MyEvent } from '@/lib/me/profile';
 import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, tracksWithTeams, setLooking, setTeamTrack, setTrackInterests, type TeamCode } from '@/lib/me/team';
+import { TracksChart } from './tracks-chart';
 import { loadMyEvent, menuMetadata } from '../load';
 
 export const metadata: Metadata = menuMetadata('Team');
@@ -105,24 +106,16 @@ async function TracksContent({ me }: { me: MyEvent }) {
   const tracks = await tracksWithTeams(db(), me);
   if (tracks === null) return <p className="copy">Tracks are announced at the hackathon.</p>;
   if (tracks.length === 0) return <p className="copy">No tracks yet.</p>;
-  return tracks.map((track, index) => (
-    <Card key={track.id ?? 'unassigned'} className="[&>p]:m-0 [&>h2]:text-lg" asChild>
-      <section aria-labelledby={`track-${index}`}>
-        <h2 id={`track-${index}`}>{track.name}</h2>
-        <p>{track.teams.length} {track.teams.length === 1 ? 'team' : 'teams'}</p>
-        {track.teams.length === 0 ? <p>No teams yet</p> : (
-          <ul className="m-0 p-0 list-none grid gap-2 break-words">
-            {track.teams.map((team) => (
-              <li key={team.id}>
-                {team.name} · {team.memberCount} {team.memberCount === 1 ? 'member' : 'members'}
-                {team.id === me.teamId && <strong> (your team)</strong>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+  return (
+    <Card className="grid gap-3 [&>p]:m-0">
+      <h2 className="m-0 text-lg">Teams per track</h2>
+      <p className="text-sm text-muted-foreground">Hackers on each track. Each block is a team: hover or tap it.</p>
+      <TracksChart tracks={tracks.map((track) => ({
+        key: track.id ?? 'unassigned', name: track.name, unassigned: track.id === null,
+        teams: track.teams.map((team) => ({ id: team.id, name: team.name, members: team.memberCount, mine: team.id === me.teamId })),
+      }))} />
     </Card>
-  ));
+  );
 }
 
 async function MyTeamContent({ me: m, now, r }: { me: MyEvent; now: Date; r?: string }) {
