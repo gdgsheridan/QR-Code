@@ -16,7 +16,10 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // forbidden() in the admin layout returns a real 403 (T-ADM-01). Experimental in Next 16.
   experimental: { authInterrupts: true },
-  // T-SEC-06: on every response, pages and API routes alike.
+  // T-SEC-06: every response gets these static headers, including a nonce-less CSP fallback. Proxy
+  // routes (all dynamic) additionally get a per-request nonce CSP from proxy.ts; browsers intersect
+  // multiple CSP headers, so those pages get the stricter policy while prerendered pages and /api/*
+  // keep the static one instead of losing CSP entirely.
   async headers() {
     return [
       {
