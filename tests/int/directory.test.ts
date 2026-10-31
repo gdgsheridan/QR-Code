@@ -20,7 +20,7 @@ it('T-DIR-02: same event accepted undeleted opted-in hackers only; Looking adds 
   const email = await emailOf(f.p.A);
   const rows = await directory(email);
   expect(rows.map((p) => p.id).sort()).toEqual([f.p.A, f.p.B].sort());
-  expect(rows.find((p) => p.id === f.p.A)).toEqual({ id: f.p.A, name: 'Ada Fixture', bio: 'Secret bio', pace: 'balanced', teamName: null, looking: false, linkedinUrl: null, discord: null, websiteUrl: null });
+  expect(rows.find((p) => p.id === f.p.A)).toEqual({ id: f.p.A, name: 'Ada Fixture', bio: 'Secret bio', pace: 'balanced', teamName: null, looking: false, linkedinUrl: null, discord: null, websiteUrl: null, tracks: [] });
   expect((await directory(email, true)).find((p) => p.id === f.p.N)).toEqual({ id: f.p.N, name: 'Nia Fixture' });
   expect(JSON.stringify(rows)).not.toMatch(/email|emergency|phone|dietary|allerg|accessibility|status|Emergency secret/);
   expect(await directory(email, false, f.e2.id)).toEqual([]);

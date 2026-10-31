@@ -149,6 +149,32 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"participant_tracks": {
+                  Row: {
+                    "created_at": string,"event_id": string,"participant_id": string,"track_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"event_id": string,"participant_id": string,"track_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"event_id"?: string,"participant_id"?: string,"track_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "participant_tracks_participant_id_event_id_fkey"
+      columns: ["participant_id","event_id"]
+isOneToOne: false
+      referencedRelation: "participants"
+      referencedColumns: ["id","event_id"]
+    },{
+      foreignKeyName: "participant_tracks_track_id_event_id_fkey"
+      columns: ["track_id","event_id"]
+isOneToOne: false
+      referencedRelation: "tracks"
+      referencedColumns: ["id","event_id"]
+    }
+                  ]
                 },"participants": {
                   Row: {
                     "accessibility": string | null,"allergies": string | null,"allergy_severity": string | null,"bio": string | null,"created_at": string,"deleted_at": string | null,"dietary_notes": string | null,"dietary_set_at": string | null,"directory_opt_in": boolean,"discord_username": string | null,"email": string,"emergency_name": string | null,"emergency_phone": string | null,"emergency_relation": string | null,"event_id": string,"external_id": string | null,"first_name": string,"id": string,"is_test": boolean,"last_name": string,"linkedin_set_at": string | null,"linkedin_url": string | null,"looking_for_team": boolean,"overnight": string | null,"pace": string | null,"photo_path": string | null,"photo_updated_at": string | null,"profile_public": boolean,"rsvp_sent_at": string | null,"rsvp_token_hash": string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id": string | null,"team_status": string | null,"updated_at": string,"website_url": string | null
@@ -505,7 +531,7 @@ isOneToOne: false
 { Args: { "p_user_id": string }; Returns: number
                            },
 "hacker_directory":
-{ Args: { "p_email": string,"p_event_id": string,"p_limit"?: number,"p_looking"?: boolean,"p_pace"?: string,"p_query"?: string }; Returns: Json
+{ Args: { "p_email": string,"p_event_id": string,"p_limit"?: number,"p_looking"?: boolean,"p_pace"?: string,"p_query"?: string,"p_track"?: string }; Returns: Json
                            },
 "ingest_sheet_row":
 { Args: { "p_dietary_notes"?: string,"p_dry_run"?: boolean,"p_email": string,"p_event_id": string,"p_external_id": string,"p_first_name": string,"p_last_name": string,"p_linkedin_url"?: string,"p_search_text": string }; Returns: string
@@ -571,6 +597,9 @@ isOneToOne: false
                            },
 "set_rsvp_token":
 { Args: { "p_outbox_id": string,"p_token_hash": string }; Returns: Json
+                           },
+"set_track_interests":
+{ Args: { "p_email": string,"p_participant_id": string,"p_track_ids": (string)[],"p_user_id": string }; Returns: string
                            },
 "staff_email_target":
 { Args: { "p_outbox_id": string }; Returns: Json

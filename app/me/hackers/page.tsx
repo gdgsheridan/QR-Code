@@ -41,7 +41,7 @@ const NOTICES: Record<string, string> = {
   NOT_FOUND: 'Something changed. Reload the page and try again.',
 };
 
-export default async function HackersPage({ searchParams }: { searchParams: Promise<{ q?: string; looking?: string; pace?: string; r?: string; show?: string }> }) {
+export default async function HackersPage({ searchParams }: { searchParams: Promise<{ q?: string; looking?: string; pace?: string; track?: string; r?: string; show?: string }> }) {
   const params = await searchParams;
   const { me, user, now } = await loadMyEvent('/me/hackers');
   const looking = params.looking === '1';
@@ -50,8 +50,10 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
   const show = Math.min(Math.max(Math.floor(Number(params.show)) || DIRECTORY_PAGE, DIRECTORY_PAGE), DIRECTORY_MAX);
   // v0.11.25: filters apply as they change, so directory reads are limited per hacker (60 a minute).
   const allowed = await withinLimit(db(), `directory:${me.participantId}`, 60, DIRECTORY_READS_PER_MIN);
-  const [{ people, more }, { team }] = await Promise.all([
-    allowed ? hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace, show }) : Promise.resolve({ people: [], more: false }),
+  // An unknown track id just matches nobody (the SQL checks it); the list below only offers this event's tracks.
+  const track = params.track ?? '';
+  const [{ people, more }, { team, tracks }] = await Promise.all([
+    allowed ? hackerDirectory(db(), me, user.email ?? '', { looking, search: params.q ?? '', pace, track, show }) : Promise.resolve({ people: [], more: false }),
     myTeam(db(), me),
   ]);
   const canInvite = me.event.teamsOpen && Date.parse(me.event.endsAt) > now.getTime() && team && team.members.length < 4;
@@ -64,13 +66,16 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
     </div>
     <h1>Hackers</h1>
     <Link href="/me/profile#networking" className="inline-flex min-h-11 items-center self-start">Edit my directory profile →</Link>
-    <AutoFilters className="grid items-end gap-4 sm:grid-cols-[1fr_1fr_auto]">
+    <AutoFilters className="grid items-end gap-4 sm:grid-cols-[1fr_1fr_1fr_auto]">
       <div className="grid gap-2"><Label htmlFor="search">Search by name</Label><Input id="search" name="q" type="search" defaultValue={params.q ?? ''} className="min-h-12 w-full" /></div>
       <div className="grid gap-2"><Label htmlFor="pace">Pace</Label><NativeSelect id="pace" name="pace" aria-describedby="pace-legend" defaultValue={pace} className="min-h-12 w-full">
         <option value="">All paces</option>{Object.entries(PACE).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </NativeSelect></div>
+      <div className="grid gap-2"><Label htmlFor="track">Track</Label><NativeSelect id="track" name="track" defaultValue={track} className="min-h-12 w-full">
+        <option value="">All tracks</option>{tracks.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+      </NativeSelect></div>
       <RefreshButton />
-      <div className="flex flex-wrap items-center justify-between gap-x-4 sm:col-span-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 sm:col-span-4">
         <Label className="flex min-h-11 items-center gap-3"><input className="size-[22px]" type="checkbox" name="looking" value="1" defaultChecked={looking} />Looking for a team</Label>
         <p id="pace-legend" className="m-0 text-xs text-muted-foreground">Pace bar: learn → win · 1–3 segments</p>
       </div>
@@ -102,6 +107,7 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
               <p className="m-0 text-sm text-muted-foreground">{paceLabel}</p>
               {full && <>
                 <p className="copy m-0 text-sm text-muted-foreground">{person.teamName ? `In a team: ${person.teamName}` : person.looking ? 'Looking for a team' : 'Going solo'}</p>
+                {person.tracks.length > 0 && <p className="copy m-0 text-sm">Wants to do: {person.tracks.join(', ')}</p>}
                 {person.bio && <p className="copy m-0 whitespace-pre-line">{person.bio}</p>}
                 {!self && <div className="grid gap-1">
                   {person.linkedinUrl && <a className="inline-flex min-h-11 items-center" href={person.linkedinUrl} rel="nofollow ugc">LinkedIn →</a>}
@@ -119,7 +125,7 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
       })}
     </section>
     {more && show < DIRECTORY_MAX && (() => {
-      const next = new URLSearchParams({ ...(params.q && { q: params.q }), ...(looking && { looking: '1' }), ...(pace && { pace }), show: String(show + DIRECTORY_PAGE) });
+      const next = new URLSearchParams({ ...(params.q && { q: params.q }), ...(looking && { looking: '1' }), ...(pace && { pace }), ...(track && { track }), show: String(show + DIRECTORY_PAGE) });
       const firstNew = people.at(-1)?.id;
       return <Button variant="outline" className="self-center" asChild><Link href={`/me/hackers?${next.toString()}${firstNew ? `#h-${firstNew}` : ''}`} scroll={false}>Show more</Link></Button>;
     })()}

@@ -137,3 +137,29 @@ test('T-TEAM-07 (v0.11.25): Leave team asks first in a dialog; Keep my team keep
   await expect(a.page.getByRole('button', { name: 'Create team' })).toBeVisible();
   await a.context.close();
 });
+
+test('T-TEAM-08 (v0.11.25): a hacker picks the tracks they want under Looking, before release; others see and filter by them', async ({ browser }) => {
+  await f.pool.query('update events set tracks_released = false where id = $1', [f.e1.id]);
+  await f.pool.query(`insert into tracks (event_id, name) values ($1, 'Best AI'), ($1, 'Best Hardware')`, [f.e1.id]);
+  const a = await hacker(browser, f.p.A);
+  await a.page.goto('/me/team');
+  await a.page.getByLabel('Looking for a team', { exact: true }).check();
+  await a.page.getByRole('group', { name: 'Tracks I want to do' }).getByLabel('Best AI').check();
+  await a.page.getByRole('button', { name: 'Save directory preference' }).click();
+  await expect(a.page.getByText('✓ Directory preference saved.')).toBeVisible();
+  await expect(a.page.getByLabel('Best AI')).toBeChecked();
+  await expect(a.page.getByLabel('Best Hardware')).not.toBeChecked();
+  await a.context.close();
+
+  const b = await hacker(browser, f.p.B);
+  await b.page.goto('/me/hackers');
+  await b.page.getByLabel('Track', { exact: true }).selectOption({ label: 'Best AI' });
+  await expect(b.page).toHaveURL(/track=/);
+  const directory = b.page.getByRole('region', { name: 'Hacker directory' });
+  const ada = directory.getByRole('article', { name: 'Ada Fixture', exact: true });
+  await expect(ada).toBeVisible();
+  await expect(directory.getByRole('article')).toHaveCount(1);
+  await ada.locator('summary').click();
+  await expect(ada.getByText('Wants to do: Best AI')).toBeVisible();
+  await b.context.close();
+});
