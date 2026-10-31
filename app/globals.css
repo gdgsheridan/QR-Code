@@ -82,7 +82,7 @@
     height: 100%;
     border-radius: inherit;
     background: var(--pace-track);
-    clip-path: inset(0 calc(100% - var(--pace-position)) 0 0);
+    clip-path: inset(0 calc(100% - var(--pace-fill, var(--pace-position))) 0 0);
     transition: clip-path 180ms var(--ease);
   }
   .pace-visual::before {

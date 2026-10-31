@@ -32,7 +32,7 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await page.getByLabel('Emergency contact name').fill('Dee Fixture');
   await page.getByLabel('Emergency contact phone').fill('416 555 0101');
-  await page.getByRole('button', { name: 'Save profile', exact: true }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible();
   await page.getByLabel('List me in the Hacker directory').check();
   await page.getByLabel('Prefer not to say', { exact: true }).uncheck();
@@ -51,6 +51,8 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   // Start a fresh document: client navigation retains the previous menu's bootstrap scripts (own email).
   await page.reload();
   const directory = page.getByRole('region', { name: 'Hacker directory', exact: true });
+  await expect(page.getByRole('link', { name: 'Edit my directory profile →' })).toHaveAttribute('href', '/me/profile?tab=networking');
+  await expect(page.getByText('Pace bar: 1 = here to learn, 2 = balanced, 3 = going for the win.')).toBeVisible();
   const self = directory.getByRole('article', { name: 'Ada Fixture (you)' });
   await expect(directory.locator('details[open]')).toHaveCount(0);
   await expect(directory.getByRole('article')).toHaveCount(9);
@@ -115,6 +117,11 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(nativePage).toHaveURL(/pace=0/);
   await expect(nativePage.getByRole('slider', { name: 'Pace', exact: true })).toHaveAttribute('aria-valuetext', 'Any pace');
   await expect(nativeBen).toBeVisible();
+  // Without JavaScript, Apply submits the checkbox too.
+  await nativePage.getByLabel('Looking for a team', { exact: true }).check();
+  await nativePage.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(nativePage).toHaveURL(/looking=1/);
+  await expect(nativeBen).toHaveCount(0);
   await noJs.close();
   const html = await page.content();
   for (const secret of [email, 'Private contact sentinel', '4165550123', 'Another event private bio', 'Hidden legacy bio', 'hidden.discord']) expect(html).not.toContain(secret);
@@ -133,7 +140,10 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await page.getByLabel('Looking for a team', { exact: true }).check();
   await expect(page).toHaveURL(/looking=1/);
   await expect(directory.getByText('Legacy Fixture')).toBeVisible();
-  await expect(directory.getByRole('article', { name: 'Legacy Fixture', exact: true }).getByRole('img', { name: 'Pace not shared (0 of 3)', exact: true })).toBeVisible();
+  const legacyCard = directory.getByRole('article', { name: 'Legacy Fixture', exact: true });
+  await expect(legacyCard.getByRole('img', { name: 'Pace not shared (0 of 3)', exact: true })).toBeVisible();
+  await legacyCard.locator('summary').click();
+  await expect(legacyCard).toContainText('Looking for a team');
   await expect(directory).not.toContainText('Hidden legacy bio');
   await expect(directory.getByText('Ben Fixture')).toHaveCount(0);
   await page.getByRole('slider', { name: 'Pace', exact: true }).press('Home');
@@ -141,6 +151,8 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(page.getByRole('slider', { name: 'Pace', exact: true })).toHaveAttribute('aria-valuetext', 'Here to learn and meet people');
   // v0.11.25: filters apply as they change (no Apply button).
   await expect(page).toHaveURL(/pace=1/);
+  // The slider isn't remounted by the navigation, so keyboard focus stays on it.
+  await expect(page.getByRole('slider', { name: 'Pace', exact: true })).toBeFocused();
   await expect(directory.getByText('Nia Fixture')).toBeVisible();
   await expect(directory.getByText('Legacy Fixture')).toHaveCount(0);
   await page.goto('/me/hackers?looking=1&pace=casual');
@@ -166,10 +178,27 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await page.goto('/me/profile');
   await page.getByRole('navigation', { name: 'Profile sections' }).getByRole('link', { name: 'Networking', exact: true }).click();
   await page.getByLabel('List me in the Hacker directory').uncheck();
-  await page.getByRole('button', { name: 'Save links', exact: true }).click();
+  await page.getByRole('button', { name: 'Save networking', exact: true }).click();
   await expect(page.getByText('✓ Saved.', { exact: true })).toBeVisible();
   await page.goto('/me/hackers');
   await expect(directory.getByText('Ada Fixture')).toHaveCount(0);
+  // Invite from a filtered list: back to the same filters and the card, which now says Invited.
+  const { rows: [team] } = await f.pool.query<{ id: string }>(`insert into teams (event_id, name, join_code) values ($1, 'Directory team', 'DRCTRYTM') returning id`, [f.e1.id]);
+  await f.pool.query('update participants set team_id = $2 where id = $1', [f.p.A, team!.id]);
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  await page.goto('/me/hackers?looking=1&pace=1');
+  const nia = directory.getByRole('article', { name: 'Nia Fixture', exact: true });
+  await expect(nia.locator('details[open]')).toHaveCount(0);
+  await nia.getByRole('button', { name: 'Invite Nia Fixture' }).click(); // visible without expanding
+  await expect(page).toHaveURL(new RegExp(`looking=1&pace=1&r=INVITED#h-${f.p.N}$`));
+  await expect(page.getByRole('status').filter({ hasText: 'Invite sent' })).toBeVisible();
+  await expect(nia).toContainText('✓ Invited');
+  await expect(nia.getByRole('button', { name: 'Invite Nia Fixture' })).toHaveCount(0);
+  // Only Looking on, and nobody looking: say so plainly.
+  await f.pool.query('update participants set looking_for_team = false where event_id = $1', [f.e1.id]);
+  await page.goto('/me/hackers?looking=1');
+  await expect(directory.getByText('Nobody is looking for a team right now.')).toBeVisible();
+  await f.pool.query('update participants set team_id = null where id = $1', [f.p.A]);
 });
 
 test('T-DIR-06: waitlisted and withdrawn viewers get 404; signed-out visitors must sign in', async ({ page, browser }) => {
@@ -206,15 +235,18 @@ test('T-DIR-05 (v0.11.25): the directory shows 50 hackers, and Show more adds th
 });
 
 test('T-DIR-05 (v0.11.25): directory reads are rate limited per hacker', async ({ page }) => {
-  const email = (await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.C])).rows[0]!.email;
-  await f.pool.query(`update participants set status = 'accepted' where id = $1`, [f.p.C]);
+  // Its own hacker: T-DIR-06 already made accounts for C and Wd in this file.
+  const email = `limit-${f.slug}@example.test`;
+  const { rows } = await f.pool.query<{ id: string }>(
+    `insert into participants (event_id, email, first_name, last_name, search_text, status, source, directory_opt_in)
+     values ($1, $2, 'Lim', 'Hacker', 'lim hacker', 'accepted', 'seed', false) returning id`, [f.e1.id, email]);
+  const id = rows[0]!.id;
   await createAccount(email);
   await signIn(page, email, '/me');
   await f.pool.query(
     `insert into rate_limits (key, window_start, hits) values ($1, to_timestamp(floor(extract(epoch from now()) / 60) * 60), 1000)
-     on conflict (key, window_start) do update set hits = 1000`, [`directory:${f.p.C}`]);
+     on conflict (key, window_start) do update set hits = 1000`, [`directory:${id}`]);
   await page.goto('/me/hackers');
   await expect(page.getByRole('alert').filter({ hasText: 'Too many refreshes' })).toHaveText('Too many refreshes. Wait a minute, then try again.');
   await expect(page.getByRole('region', { name: 'Hacker directory' }).getByRole('article')).toHaveCount(0);
-  await f.pool.query(`update participants set status = 'waitlisted' where id = $1`, [f.p.C]);
 });

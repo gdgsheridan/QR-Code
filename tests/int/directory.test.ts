@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { hackerDirectory } from '@/lib/me/hackers';
+import { hackerDirectory, invitedByMyTeam } from '@/lib/me/hackers';
 import { saveBadgeProfile, myEvent } from '@/lib/me/profile';
 import { serviceClient } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -87,4 +87,19 @@ it('T-DIR-02 (v0.11.25): name, pace and self filter in the database before the p
   expect(all.more).toBe(false);
   expect(new Set(all.people.map((p) => p.id)).size).toBe(all.people.length);
   await f.pool.query(`delete from participants where event_id = $1 and source = 'seed' and email like '%' || $2 || '@example.test' and (email like 'bulk%' or email like 'zoe%')`, [f.e1.id, f.slug]);
+});
+
+it('T-DIR-05: pending invites from the viewer’s team mark those cards Invited; nobody else’s invites count', async () => {
+  const email = await emailOf(f.p.A);
+  const before = (await myEvent(serviceClient(), email, new Date()))!;
+  expect(await invitedByMyTeam(serviceClient(), before)).toEqual(new Set()); // no team yet
+  const team = (n: string, code: string) => f.pool.query<{ id: string }>('insert into teams (event_id, name, join_code) values ($1, $2, $3) returning id', [f.e1.id, n, code]).then((r) => r.rows[0]!.id);
+  const mine = await team('Invited mine', 'NVTDMNNN');
+  const other = await team('Invited other', 'NVTDTHRR');
+  await f.pool.query('update participants set team_id = $2 where id = $1', [f.p.A, mine]);
+  const extra = await f.addParticipant(f.e1.id);
+  await f.pool.query('insert into team_invites (team_id, participant_id, event_id) values ($1, $2, $4), ($3, $5, $4)', [mine, f.p.N, other, f.e1.id, extra.id]);
+  const me = (await myEvent(serviceClient(), email, new Date()))!;
+  expect(await invitedByMyTeam(serviceClient(), me)).toEqual(new Set([f.p.N]));
+  await f.pool.query('update participants set team_id = null where id = $1', [f.p.A]);
 });
