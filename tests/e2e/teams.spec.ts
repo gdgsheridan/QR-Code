@@ -1,5 +1,5 @@
 import { expect, test, type Browser } from '@playwright/test';
-import { consoleMailText, E2E_ORIGIN, signIn } from '../fixtures/e2e';
+import { consoleMailText, E2E_ORIGIN, signIn, NO_JS } from '../fixtures/e2e';
 import { createAccount, createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 // SPEC F15 / §11 Teams (v0.7): organizers open forming and release tracks; hackers team up from their menu.
@@ -23,6 +23,52 @@ async function hacker(browser: Browser, participantId: string) {
   await signIn(page, email, '/me');
   return { context, page };
 }
+
+test('T-TEAM-09: Tracks hides unreleased names, then shows teams and counts; link tabs work without JavaScript', async ({ browser }) => {
+  const track = async (eventId: string, name: string) => {
+    const { rows } = await f.pool.query<{ id: string }>('insert into tracks (event_id, name) values ($1, $2) returning id', [eventId, name]);
+    return rows[0]!.id;
+  };
+  const ai = await track(f.e1.id, 'Best AI');
+  await track(f.e1.id, 'Best Hardware');
+  const other = await track(f.e2.id, 'Other event track');
+  const { rows } = await f.pool.query<{ id: string }>(
+    `insert into teams (event_id, name, join_code, track_id) values
+      ($1, 'Data Wizards', 'DDDDDDDD', $2), ($1, 'Zebras', 'ZZZZZZZZ', $2),
+      ($1, 'Undecided', 'UUUUUUUU', null), ($3, 'Other event team', 'PPPPPPPP', $4) returning id`,
+    [f.e1.id, ai, f.e2.id, other],
+  );
+  await f.pool.query('update participants set team_id = $1 where id = any($2)', [rows[0]!.id, [f.p.A, f.p.B]]);
+  const a = await hacker(browser, f.p.A);
+  // Use the signed-in cookies in a script-free context: these tabs must be ordinary links.
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: await a.context.storageState(), ...NO_JS });
+  const page = await context.newPage();
+  try {
+    await page.goto('/me/team?tab=tracks');
+    const tabs = page.getByRole('navigation', { name: 'Team sections' });
+    await expect(tabs.getByRole('link', { name: 'Tracks', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByText('Tracks are announced at the hackathon.')).toBeVisible();
+    await expect(page.getByText(/Best AI|Best Hardware|Data Wizards|Undecided/)).toHaveCount(0);
+    await f.pool.query('update events set tracks_released = true where id = $1', [f.e1.id]);
+    await page.reload();
+    const aiCard = page.getByRole('region', { name: 'Best AI', exact: true });
+    await expect(aiCard).toContainText('2 teams');
+    await expect(aiCard.getByRole('listitem')).toHaveText(['Data Wizards · 2 members (your team)', 'Zebras · 0 members']);
+    await expect(page.getByRole('region', { name: 'Best Hardware' })).toContainText('No teams yet');
+    await expect(page.getByRole('region', { name: 'No track yet' })).toContainText('Undecided · 0 members');
+    await expect(page.getByText(/Other event track|Other event team|Ada Fixture|Ben Fixture|DDDD-DDDD/)).toHaveCount(0);
+    await tabs.getByRole('link', { name: 'My team', exact: true }).click();
+    await expect(page).toHaveURL(`${E2E_ORIGIN}/me/team`);
+    await expect(tabs.getByRole('link', { name: 'My team', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
+    await expect(page.getByText('Ada Fixture')).toBeVisible();
+    await tabs.getByRole('link', { name: 'Tracks', exact: true }).click();
+    await expect(aiCard).toBeVisible();
+  } finally {
+    await context.close();
+    await a.context.close();
+  }
+});
 
 test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joins with its code, A picks the released track', async ({ page, browser }) => {
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/teams`);

@@ -19,7 +19,9 @@ export function SetupWalkthrough({ enabled, initialStep, children }: { enabled: 
       {enabled && <div className="grid gap-2" role="status" aria-live="polite">
         <p className="m-0 text-sm text-muted-foreground">Step {step} of {TITLES.length}: {TITLES[step - 1]}</p>
         <div className="flex gap-2" aria-hidden="true">
-          {TITLES.map((title, index) => <span key={title} className={`h-1 flex-1 rounded-sm ${index < step ? 'bg-accent' : 'bg-border'}`} />)}
+          {TITLES.map((title, index) => <span key={title} className="h-1 flex-1 overflow-hidden rounded-sm bg-border">
+            <span data-setup-fill data-filled={index < step} className="setup-progress-fill block h-full bg-accent" />
+          </span>)}
         </div>
       </div>}
       {children}

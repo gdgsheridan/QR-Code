@@ -104,6 +104,33 @@ export interface MyTeam {
   team: { name: string; code: string; trackId: string | null; members: string[] } | null;
 }
 
+export interface TrackWithTeams {
+  id: string | null;
+  name: string;
+  teams: Array<{ id: string; name: string; memberCount: number }>;
+}
+
+// `me` is authorized by myEvent(); unreleased tracks must never reach this tab.
+export async function tracksWithTeams(db: Db, me: MyEvent): Promise<TrackWithTeams[] | null> {
+  if (!me.event.tracksReleased) return null;
+  const [tracks, teams] = await Promise.all([
+    db.from('tracks').select('id, name').eq('event_id', me.eventId).order('name'),
+    db.from('teams').select('id, name, track_id, participants(count)').eq('event_id', me.eventId)
+      .eq('participants.event_id', me.eventId).is('participants.deleted_at', null).order('name'),
+  ]);
+  if (tracks.error) throw new Error(`tracks load failed (${tracks.error.code})`);
+  if (teams.error) throw new Error(`track teams load failed (${teams.error.code})`);
+  const groups: TrackWithTeams[] = tracks.data.map((t) => ({ ...t, teams: [] }));
+  const unassigned: TrackWithTeams = { id: null, name: 'No track yet', teams: [] };
+  const byTrack = new Map(groups.map((t) => [t.id, t]));
+  for (const team of teams.data) {
+    const group = team.track_id === null ? unassigned : byTrack.get(team.track_id);
+    group?.teams.push({ id: team.id, name: team.name, memberCount: team.participants[0]?.count ?? 0 });
+  }
+  if (unassigned.teams.length > 0) groups.push(unassigned);
+  return groups;
+}
+
 // /me/team: the event's tracks and the attendee's own team (teammates' names only). `me` comes from myEvent().
 export async function myTeam(db: Db, me: MyEvent): Promise<MyTeam> {
   const [tracks, team, invites, mine] = await Promise.all([

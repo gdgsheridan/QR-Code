@@ -1,7 +1,8 @@
 'use client';
 
 import { BrandMark } from '@/components/brand-mark';
-import { Entrance } from '@/components/motion';
+import { PAGE_RISE_TRANSITION } from '@/components/page-transition';
+import { useAnimate } from 'motion/react';
 import { Typewriter } from '@/components/typewriter';
 import { Card } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
@@ -10,10 +11,10 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { formatEventDateTime } from '@/lib/domain/event-time';
-import { DISCORD_URL } from '@/lib/email/links';
+import { DISCORD_URL, formalVenue } from '@/lib/email/links';
 
 interface Invite {
   firstName: string;
@@ -80,6 +81,32 @@ export function RsvpView() {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [scope, animate] = useAnimate<HTMLElement>();
+  const step = view.kind === 'invite'
+    ? view.confirmNo ? 'confirm_no' : view.invite.status === 'accepted' ? 'accepted'
+      : view.invite.closed ? 'closed' : view.yesForm ? 'yes_form' : 'choice'
+    : view.kind;
+  const previousStep = useRef(step);
+  // Keep the typewriter mounted; only a new step (never typing or an inline error) replays the rise.
+  useLayoutEffect(() => {
+    if (previousStep.current === step) return; // The page template already animates the initial loading state.
+    previousStep.current = step;
+    if (!scope.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const blocks = Array.from(scope.current.children).flatMap((child) =>
+      child.matches('form, div') ? Array.from(child.children) : [child]);
+    if (!blocks.length) return;
+    const rise = animate(blocks, { opacity: [0, 1], y: [12, 0] }, PAGE_RISE_TRANSITION);
+    return () => {
+      rise.stop();
+      // Interrupted steps can reuse DOM nodes; leave no transform that could contain a fixed descendant.
+      blocks.forEach((block) => {
+        if (block instanceof HTMLElement) {
+          block.style.opacity = '1';
+          block.style.transform = 'none';
+        }
+      });
+    };
+  }, [animate, scope, step]);
   // v0.11.25: another invitation opened in this tab (mail apps reuse tabs) changes only the fragment.
   const [hashes, setHashes] = useState(0);
   useEffect(() => {
@@ -132,11 +159,11 @@ export function RsvpView() {
   }
 
   return (
-    <Entrance><main className="min-h-dvh justify-center max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
+    <main className="min-h-dvh justify-center max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
       <BrandMark name={view.kind === 'invite' ? view.invite.event.name : undefined} className="min-h-11" />
-      <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section >
+      <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section ref={scope} data-rsvp-step={step}>
         {view.kind === 'loading' && <Alert asChild role="status"><p role="status">Loading…</p></Alert>}
         {view.kind === 'not_found' && (
           <>
@@ -163,13 +190,13 @@ export function RsvpView() {
           </>
         )}
         {view.kind === 'signed_in' && (
-          <Entrance><div className="grid gap-[16px] [&>p]:m-0">
+          <div className="grid gap-[16px] [&>p]:m-0">
             <h1>You’re in, {view.firstName}</h1>
             <p className="copy">Your check-in pass is on its way by email.</p>
             <p className="copy text-muted-foreground text-[14px]">Set up your hacker profile: emergency contact, overnight stay, allergies and your team. You can also do it later from your menu.</p>
             <Button asChild><a href="/me/profile?setup=1">Set up my hacker profile</a></Button>
             <Button variant="link" className="font-normal" asChild><a href="/me">Later</a></Button>
-          </div></Entrance>
+          </div>
         )}
         {view.kind === 'not_going' && (
           <>
@@ -196,7 +223,7 @@ export function RsvpView() {
           <>
             <Typewriter heading={view.invite.event.name} details={
               <p className="m-0 text-muted-foreground text-[14px]">
-                {formatEventDateTime(view.invite.event.startsAt, view.invite.event.timezone)} · {view.invite.event.venue}
+                {formatEventDateTime(view.invite.event.startsAt, view.invite.event.timezone)} · {formalVenue(view.invite.event.venue)}
               </p>
             }>
               {view.invite.closed ? (
@@ -245,7 +272,6 @@ export function RsvpView() {
                   void respond(true, { password: text('password') });
                 }}
               >
-                <p className="copy m-0 text-muted-foreground text-[14px]">Then you can set up your hacker profile: emergency contact, overnight stay, allergies and your team.</p>
                 {view.invite.hasAccount ? (
                   <>
                     <Label htmlFor="password">Your Datathon password</Label>
@@ -301,6 +327,6 @@ export function RsvpView() {
           </>
         )}
       </section></Card>
-    </main></Entrance>
+    </main>
   );
 }

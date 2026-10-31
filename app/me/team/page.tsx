@@ -14,8 +14,8 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { formatJoinCode } from '@/lib/domain/team';
-import { myEvent } from '@/lib/me/profile';
-import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, setLooking, setTeamTrack, setTrackInterests, type TeamCode } from '@/lib/me/team';
+import { myEvent, type MyEvent } from '@/lib/me/profile';
+import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, tracksWithTeams, setLooking, setTeamTrack, setTrackInterests, type TeamCode } from '@/lib/me/team';
 import { loadMyEvent, menuMetadata } from '../load';
 
 export const metadata: Metadata = menuMetadata('Team');
@@ -72,15 +72,10 @@ async function saveLooking(user: { id: string; email: string | null }, participa
   return looking === 'SAVED' ? setTrackInterests(db(), user, participantId, tracks) : looking;
 }
 
-export default async function TeamPage(props: { searchParams: Promise<{ r?: string }> }) {
-  const { r } = await props.searchParams;
+export default async function TeamPage(props: { searchParams: Promise<{ r?: string; tab?: string | string[] }> }) {
+  const { r, tab: requestedTab } = await props.searchParams;
+  const tab = requestedTab === 'tracks' ? 'tracks' : 'team';
   const { me: m, now } = await loadMyEvent('/me/team');
-  const { tracks, team, invites, myTrackIds } = await myTeam(db(), m);
-  const live = Date.parse(m.event.endsAt) > now.getTime();
-  const open = m.event.teamsOpen && live;
-  const notice = r === 'SAVED' && !team ? '✓ Directory preference saved.' : r && r in NOTICES ? NOTICES[r as TeamCode] : null;
-  const trackName = tracks.find((t) => t.id === team?.trackId)?.name;
-
   return (
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
@@ -93,6 +88,52 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
         <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
       <h1>Team</h1>
+      <nav aria-label="Team sections" className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden">
+        {([['team', 'My team'], ['tracks', 'Tracks']] as const).map(([value, label]) => (
+          <a key={value} href={value === 'tracks' ? '/me/team?tab=tracks' : '/me/team'} aria-current={tab === value ? 'page' : undefined}
+            className="inline-flex min-h-12 shrink-0 items-center whitespace-nowrap rounded-t-lg border-b-2 border-transparent px-3 text-sm font-semibold text-muted-foreground no-underline hover:bg-accent/6 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-3 aria-[current=page]:border-accent aria-[current=page]:bg-accent/8 aria-[current=page]:text-accent aria-[current=page]:font-bold">
+            {label}
+          </a>
+        ))}
+      </nav>
+      {tab === 'tracks' ? <TracksContent me={m} /> : <MyTeamContent me={m} now={now} r={r} />}
+    </main></Entrance>
+  );
+}
+
+async function TracksContent({ me }: { me: MyEvent }) {
+  const tracks = await tracksWithTeams(db(), me);
+  if (tracks === null) return <p className="copy">Tracks are announced at the hackathon.</p>;
+  if (tracks.length === 0) return <p className="copy">No tracks yet.</p>;
+  return tracks.map((track, index) => (
+    <Card key={track.id ?? 'unassigned'} className="[&>p]:m-0 [&>h2]:text-lg" asChild>
+      <section aria-labelledby={`track-${index}`}>
+        <h2 id={`track-${index}`}>{track.name}</h2>
+        <p>{track.teams.length} {track.teams.length === 1 ? 'team' : 'teams'}</p>
+        {track.teams.length === 0 ? <p>No teams yet</p> : (
+          <ul className="m-0 p-0 list-none grid gap-2 break-words">
+            {track.teams.map((team) => (
+              <li key={team.id}>
+                {team.name} · {team.memberCount} {team.memberCount === 1 ? 'member' : 'members'}
+                {team.id === me.teamId && <strong> (your team)</strong>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </Card>
+  ));
+}
+
+async function MyTeamContent({ me: m, now, r }: { me: MyEvent; now: Date; r?: string }) {
+  const { tracks, team, invites, myTrackIds } = await myTeam(db(), m);
+  const live = Date.parse(m.event.endsAt) > now.getTime();
+  const open = m.event.teamsOpen && live;
+  const notice = r === 'SAVED' && !team ? '✓ Directory preference saved.' : r && r in NOTICES ? NOTICES[r as TeamCode] : null;
+  const trackName = tracks.find((t) => t.id === team?.trackId)?.name;
+
+  return (
+    <>
       {notice && (
         <p role={notice.startsWith('✓') ? 'status' : 'alert'} className={notice.startsWith('✓') ? " text-ok" : " text-bad"}>
           {notice}
@@ -281,6 +322,6 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
         </>
       )}
       <Link href="/me/hackers?looking=1" className="inline-flex min-h-11 items-center">Find teammates in the Hacker directory →</Link>
-    </main></Entrance>
+    </>
   );
 }

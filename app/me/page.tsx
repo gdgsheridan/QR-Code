@@ -10,9 +10,10 @@ import type { ReactNode } from 'react';
 import { db } from '@/lib/db/server';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { env } from '@/lib/env';
-import { venueMapUrl } from '@/lib/email/links';
+import { formalVenue, venueMapUrl } from '@/lib/email/links';
 import { myPasses } from '@/lib/pass/mine';
 import { ChevronIcon, EmergencyIcon, ProfileIcon, QrIcon, ScheduleIcon, TeamIcon } from './icons';
+import { LinksDropdown } from './links-dropdown';
 import { normalizeEmail } from '@/lib/domain/normalize';
 import { loadMe, menuMetadata } from './load';
 
@@ -123,10 +124,9 @@ export default async function MePage() {
           <header className="tw-me-hero grid gap-[4px] [overflow-wrap:anywhere] [&_h1]:m-[0px_0px_4px] [&_h1]:text-[32px]
 
           [&_h1]:leading-[1.15] [&_p]:m-0 [&_p]:text-muted-foreground [&_p]:text-[14px]">
-            <p>Hi {m.firstName}.</p>
-            <h1>{m.event.name}</h1>
+            <h1>Hello {m.firstName}</h1>
             <p>{formatEventDateTime(m.event.startsAt, m.event.timezone)}</p>
-            <p>{mapUrl ? <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline focus-visible:outline-2 focus-visible:outline-offset-2">{m.event.venue}</a> : m.event.venue}</p>
+            <p>{mapUrl ? <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline focus-visible:outline-2 focus-visible:outline-offset-2">{formalVenue(m.event.venue)}</a> : formalVenue(m.event.venue)}</p>
           </header>
           <nav aria-label="Hacker menu" className="tw-me-nav grid gap-[16px]">
             {typeof pass === 'object' ? (
@@ -224,6 +224,7 @@ export default async function MePage() {
                 hint={!profileSetUp ? 'Finish setting up' : m.badge ? 'Badge linked' : 'No badge linked yet'}
                 warn={!profileSetUp}
               />
+              <LinksDropdown />
             </ul></Entrance>
           </nav>
         </>

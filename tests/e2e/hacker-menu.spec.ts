@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { E2E_ORIGIN, signIn } from '../fixtures/e2e';
+import { E2E_ORIGIN, signIn, NO_JS } from '../fixtures/e2e';
 import { createAccount, createStandardFixture, type StandardFixture } from '../fixtures/standard';
+import { DISCORD_URL } from '@/lib/email/links';
 
 // SPEC F14 (v0.6): the hacker menu: own badge → menu → profile, schedule, emergency contact, pass.
 let f: StandardFixture;
@@ -65,8 +66,22 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   const menu = page.getByRole('navigation', { name: 'Hacker menu' });
   for (const item of ['Hacker profile', 'Schedule', 'Emergency contact']) await expect(menu.getByRole('link', { name: item })).toBeVisible();
   // Menu order (v0.11.18): Hackers, Schedule, Team, Emergency contact, Hacker profile.
-  const order = await menu.locator('li a').evaluateAll(links => links.map(link => link.getAttribute('href')));
+  const order = await menu.locator('li > a').evaluateAll(links => links.map(link => link.getAttribute('href')));
   expect(order).toEqual(['/me/hackers', '/me/schedule', '/me/team', '/me/emergency', '/me/profile']);
+  // v0.11.28: Links is a menu row that opens in place with the Discord, hacker package and Google Group.
+  const links = menu.getByRole('button', { name: /^Links/ });
+  await expect(links).toHaveAttribute('aria-expanded', 'false');
+  // Closed, the panel is clipped to nothing and inert: its links can't be tapped or reached with the keyboard.
+  const discord = menu.getByRole('link', { name: 'Discord', includeHidden: true });
+  expect(await discord.evaluate((el) => el.closest('[inert]') !== null)).toBe(true);
+  await links.click();
+  await expect(links).toHaveAttribute('aria-expanded', 'true');
+  expect(await discord.evaluate((el) => el.closest('[inert]') !== null)).toBe(false);
+  await expect(menu.getByRole('link', { name: 'Discord' })).toBeVisible();
+  await expect(menu.getByRole('link', { name: 'Discord' })).toHaveAttribute('href', DISCORD_URL);
+  await expect(menu.getByRole('link', { name: 'Google Group' })).toHaveAttribute('target', '_blank');
+  await links.click();
+  await expect(links).toHaveAttribute('aria-expanded', 'false');
   await expect(menu.getByText('My pass')).toBeVisible();
   await expect(menu.getByText('In your email')).toBeVisible(); // A's fixture pass predates derived tokens
   await expect(menu.getByText('Finish setting up')).toBeVisible(); // v0.9: no profile setup yet
@@ -356,7 +371,7 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
   const email = await emailOf(attendee.id);
   await createAccount(email);
   await signIn(page, email, '/me/profile');
-  const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: await page.context().storageState(), javaScriptEnabled: false });
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: await page.context().storageState(), ...NO_JS });
   const profile = await context.newPage();
   const screenshots = '/tmp/claude-0/-home-yvesd-Codebases-datathon-Datathon-QR-NFC/7675cf3a-51e9-4cc4-b5e7-a411639544b0/scratchpad';
   mkdirSync(screenshots, { recursive: true });

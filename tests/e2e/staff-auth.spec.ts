@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { consoleMailText, E2E_ORIGIN, signIn } from '../fixtures/e2e';
+import { consoleMailText, E2E_ORIGIN, signIn, NO_JS } from '../fixtures/e2e';
 import { countMailTo, latestAuthLink } from '../fixtures/mailpit';
 import { createAccount, createStandardFixture, STAFF_PASSWORD, type StandardFixture } from '../fixtures/standard';
 
@@ -154,7 +154,7 @@ test('T-AUTH-03: inviting a new address emails a link to set a password, then on
 test('T-AUTH-01 (forms before hydration): with JavaScript off, sign-in and set-password still work', async ({ browser }) => {
   // A slow phone can submit before React hydrates: the browser then posts the form itself, and the
   // server-action CSRF check needs a real Origin header on that post.
-  const noJs = await browser.newContext({ baseURL: E2E_ORIGIN, javaScriptEnabled: false });
+  const noJs = await browser.newContext({ baseURL: E2E_ORIGIN, ...NO_JS });
   const page = await noJs.newPage();
   await page.goto(`/login?next=${encodeURIComponent(`/scan/${f.slug}`)}`);
   await page.getByLabel('Email').fill(f.staffEmail.vol1);

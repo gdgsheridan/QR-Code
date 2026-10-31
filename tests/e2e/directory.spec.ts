@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { signIn } from '../fixtures/e2e';
+import { signIn, NO_JS } from '../fixtures/e2e';
 import { createAccount, createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 let f: StandardFixture;
@@ -95,7 +95,7 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await ben.getByRole('button', { name: 'Copy Ben Fixture’s Discord username' }).click();
   await expect(ben.getByRole('status')).toContainText('Discord username copied.');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('ben.codes');
-  const noJs = await browser.newContext({ storageState: await context.storageState(), javaScriptEnabled: false, baseURL: page.url() });
+  const noJs = await browser.newContext({ storageState: await context.storageState(), ...NO_JS, baseURL: page.url() });
   const nativePage = await noJs.newPage();
   await nativePage.goto('/me/hackers');
   const nativeBen = nativePage.getByRole('article', { name: 'Ben Fixture', exact: true });

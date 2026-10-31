@@ -8,6 +8,15 @@
         "value": "arial",
         "createdAt": "2026-10-16T21:55:48.675Z",
         "reason": "Claude: email HTML needs a web-safe font stack (clients don't load web fonts); matches the existing pass email template lib/email/templates/pass.ts"
+      },
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "app/me/team/page.tsx"
+        ],
+        "createdAt": "2026-10-31T20:12:42.087Z",
+        "reason": "Team page tab bar: a 2px bottom underline on top-rounded link tabs, the same pattern as the Hacker profile tabs (app/me/profile/page.tsx), not an accent border on a rounded card"
       }
     ]
   }
