@@ -1,9 +1,9 @@
 .atom {
   display: none;
   position: fixed;
-  right: 24px;
+  right: 16px;
   top: 55%;
-  width: clamp(180px, calc((100vw - var(--atom-column)) / 2 - 48px), 320px);
+  width: clamp(120px, calc((100vw - var(--atom-column)) / 2 - 30px), 320px);
   height: auto;
   translate: 0 -50%;
   pointer-events: none;
@@ -16,11 +16,11 @@
 .schedule { --atom-column: 1400px; }
 .directory { --atom-column: 1600px; }
 
-/* At each threshold the side gutter is 220px: 180px Atom + 24px edge + 16px clearance.
-   Rotation uses under 3px of that clearance; larger gutters only increase it. */
-@media (min-width: 1200px) { .standard { display: block; } }
-@media (min-width: 1840px) { .schedule { display: block; } }
-@media (min-width: 2040px) { .directory { display: block; } }
+/* At each threshold the side gutter is 150px: 120px Atom + 16px edge + 14px clearance; a wider gutter grows
+   Atom (up to 320px) and the clearance with it. Below the /me threshold, /me shows a small Atom in its hero card. */
+@media (min-width: 1060px) { .standard { display: block; } }
+@media (min-width: 1700px) { .schedule { display: block; } }
+@media (min-width: 1900px) { .directory { display: block; } }
 
 @keyframes float {
   0%, 100% { transform: translateY(4px) rotate(-0.5deg); }
