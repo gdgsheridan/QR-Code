@@ -150,8 +150,13 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect((await call({ token, going: 'yes' })).status).toBe(400);
     expect((await call({ token, extra: 1 })).status).toBe(400);
 
+    // v0.11.25: 30 a minute per invitation link, 600 per IP: a campus behind one IP isn't refused.
+    const campus: number[] = [];
+    for (let i = 0; i < 31; i++) campus.push((await call({ token: generateToken() }, '10.200.0.1')).status);
+    expect(campus.every((st) => st === 404)).toBe(true);
+    const hammered = generateToken();
     const statuses: number[] = [];
-    for (let i = 0; i < 31; i++) statuses.push((await call({ token: generateToken() }, '10.200.0.1')).status);
+    for (let i = 0; i < 31; i++) statuses.push((await call({ token: hammered })).status);
     expect(statuses.at(-1)).toBe(429);
   });
 

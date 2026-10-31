@@ -5,7 +5,7 @@ import { sanitizeError } from '@/lib/domain/outbox';
 import { parseProfileInput } from '@/lib/domain/profile';
 import { sha256hex } from '@/lib/domain/token';
 import { profileArgs } from '@/lib/me/profile';
-import { emailKey, ipKey, withinLimit } from '@/lib/pass/handlers';
+import { emailKey, overIpCeiling, overLinkLimit, withinLimit } from '@/lib/pass/handlers';
 
 type Db = SupabaseClient<Database>;
 
@@ -65,7 +65,7 @@ const rsvpBody = z
 // can't send one, so no other site can post a Yes and sign a visitor into someone else's account.
 export function createRsvpHandler(deps: RsvpDeps) {
   return async (request: Request): Promise<Response> => {
-    if (!(await withinLimit(deps.db, ipKey(request.headers, 'rsvp'), 60, 30))) return json({ error: 'rate_limited' }, 429);
+    if (await overIpCeiling(deps.db, request.headers, 'rsvp')) return json({ error: 'rate_limited' }, 429);
     if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return json({ error: 'invalid_body' }, 400);
 
     let raw: unknown;
@@ -76,6 +76,7 @@ export function createRsvpHandler(deps: RsvpDeps) {
     }
     const body = rsvpBody.safeParse(raw);
     if (!body.success) return json({ error: 'invalid_body' }, 400);
+    if (await overLinkLimit(deps.db, 'rsvp', body.data.token)) return json({ error: 'rate_limited' }, 429);
 
     const hash = sha256hex(body.data.token);
     const { data, error } = await deps.db.rpc('rsvp_lookup', { p_token_hash: hash });

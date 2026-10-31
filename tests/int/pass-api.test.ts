@@ -72,14 +72,26 @@ describe('POST /api/pass (SPEC F5)', () => {
     expect((await c.lookup('{nope')).status).toBe(400);
   });
 
-  it('§15: /api/pass allows 30 requests per minute per IP, then 429', async () => {
+  it('§15 (v0.11.25): /api/pass allows 30 requests per minute per pass, and 600 per IP, so a venue sharing one IP still works', async () => {
     await awaitFreshWindow(60);
+    // A whole venue behind one IP: 40 different passes all answer (unknown ones 404, never 429).
+    const venue: number[] = [];
+    for (let i = 0; i < 40; i++) venue.push((await c.lookup({ token: generateToken() })).status);
+    expect(venue.every((s) => s === 404)).toBe(true);
+    // One pass hammered: the 31st request in a minute is refused, from any IP.
+    const hammered = generateToken();
     const statuses: number[] = [];
-    for (let i = 0; i < 31; i++) statuses.push((await c.lookup({ token: generateToken() })).status);
+    for (let i = 0; i < 31; i++) statuses.push((await passClient().lookup({ token: hammered })).status);
     expect(statuses.slice(0, 30).every((s) => s === 404)).toBe(true);
     expect(statuses[30]).toBe(429);
-    const other = passClient();
-    expect((await other.lookup({ token: f.token.A })).status).toBe(200);
+    expect((await c.lookup({ token: f.token.A })).status).toBe(200);
+    // The per-IP ceiling still stops a scraper.
+    const scraper = passClient();
+    const results: number[] = [];
+    for (let sent = 0; sent < 601; sent += 20) {
+      results.push(...(await Promise.all(Array.from({ length: Math.min(20, 601 - sent) }, () => scraper.lookup({ token: generateToken() }).then((r) => r.status)))));
+    }
+    expect(results.filter((s) => s === 429)).toHaveLength(1);
   });
 
   it('§15: the rate-limit key stores a hash, never the raw IP (I-11)', async () => {

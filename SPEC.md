@@ -918,7 +918,7 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
-| `POST /api/pass` | token in body; 30 req/min/IP | Pass page data (F5) |
+| `POST /api/pass` | token in body; 30 req/min per pass, 600/min per IP (v0.11.25) | Pass page data (F5) |
 | `GET /api/events/:slug/participants/search?q=` | staff | Manual lookup (§10.4) |
 | `POST /api/scans/:id/void` | staff | F11 |
 | `POST /api/email/drain` | `Authorization: Bearer DRAIN_SECRET` or organizer session | F4 |
@@ -926,11 +926,11 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/events/:slug/badges` | staff | Link a badge: `{ participantId, uid }` → `{ code }` (§6.5); used by the Participants page (§11) and the scanner's Manual search (§10.4, v0.10) |
 | `DELETE /api/admin/:slug/participants/:id/badge` | organizer | v0.10: unlink their badge → `{ code: 'UNLINKED' }`, or 404 `{ code: 'NOT_FOUND' }` (no badge, or not in this event) (§6.5) |
 | `GET /api/events/:slug/checkpoints/:id/scans` | staff of the event | Who was scanned at that checkpoint (v0.8): live scans of undeleted people, newest first (at most 1000), `{ role, scans: [{ id, displayName, isTest, scannedAt, method, scannedByName, canRemove }] }`; names only, no emails; 404 for another event's checkpoint. `canRemove` only decides whether to offer Remove; removing is `POST /api/scans/:id/void` (§10.6, §11) |
-| `PATCH /api/pass` | token in body; 30 req/min/IP | Badge profile opt-in: `{ token, profilePublic }` |
+| `PATCH /api/pass` | token in body; 30 req/min per pass, 600/min per IP (v0.11.25) | Badge profile opt-in: `{ token, profilePublic }` |
 | `GET /profile/:uid` | anyone (v0.9) | Badge profile page (§6.5); an unlinked badge says staff link badges at the check-in desk (v0.10; no self-claim) |
 | `POST /api/cron` (also `GET`, v0.10.1, for Vercel Cron) | `Authorization: Bearer DRAIN_SECRET` | v0.9: `run_rsvp_jobs()` (deadline, reminders, F13), then drain the outbox even if the jobs failed; `{ jobs, claimed }`. Every 5 minutes from the scheduler (F4) |
 | `POST /api/admin/:slug/participants/rsvp` | organizer | Queue RSVPs: `{ ids }` → `{ queued }` (F13) |
-| `POST /api/rsvp` | RSVP token in body; 30 req/min/IP | `{ token }` → invitation + `profile` prefill; `{ token, going, password, emergencyName, emergencyPhone, emergencyRelation?, dietaryNotes?, linkedin?, profilePublic?, lookingForTeam? }` → `{ code: 'GOING' \| 'NOT_GOING', signedIn, next? }` (F13; `next` is where to go once signed in; JSON bodies only; the emergency contact and a password are required on Yes: 400 `password_required`, `weak_password` or `wrong_password`) |
+| `POST /api/rsvp` | RSVP token in body; 30 req/min per link, 600/min per IP (v0.11.25) | `{ token }` → invitation + `profile` prefill; `{ token, going, password, emergencyName, emergencyPhone, emergencyRelation?, dietaryNotes?, linkedin?, profilePublic?, lookingForTeam? }` → `{ code: 'GOING' \| 'NOT_GOING', signedIn, next? }` (F13; `next` is where to go once signed in; JSON bodies only; the emergency contact and a password are required on Yes: 400 `password_required`, `weak_password` or `wrong_password`) |
 | `GET /me` | signed in | The hacker menu for the signed-in person's event (F14, v0.6.1), with their pass (§6.1), and staff links |
 | `GET /me/profile`, `/me/schedule`, `/me/emergency` | signed-in accepted attendee | Hacker menu pages (F14); profile and emergency saves are server actions calling `save_hacker_profile()` |
 | `PATCH /api/admin/:slug/event` | organizer | `{ sheet?, schedule?, emergencyInfo?, teamsOpen?, tracksReleased?, rsvpDeadline? }`, strict, at least one key; `rsvpDeadline` is a future ISO instant or null (v0.9, F13); `{ sheet }` answers `{ sheetId }` as before (F10, §11 Info, §11 Teams) |
@@ -1491,8 +1491,8 @@ Target: at least 95% of attempts under 3 s.
   |-------|-------|
   | Scans per staff | 120 / min |
   | `NOT_FOUND` per staff | 30 / 5 min → 429 + alert |
-  | `/api/pass` per IP | 30 / min |
-  | `/api/rsvp` per IP | 30 / min |
+  | `/api/pass` per pass (v0.11.25: was per IP; a venue's Wi-Fi is one IP) | 30 / min, plus 600 / min per IP against scraping |
+  | `/api/rsvp` per invitation link (v0.11.25: was per IP) | 30 / min, plus 600 / min per IP |
   | Password sign-ins per email | 10 / 15 min (then refused like a wrong password) |
   | RSVP Yes password checks per email (v0.7.2; its own bucket) | 10 / 15 min (then refused like a wrong password) |
   | "Forgot or never set your password?" emails per address | 3 / h (over the limit looks the same) |
@@ -1622,7 +1622,7 @@ Each slice ends with its tests green in CI and a short demo.
 
 ## 20. Changelog
 
-- **v0.11.25 (2026-10-31)** — Pre-RSVP hardening from the stress tests (owner's go-ahead). A double-tapped Yes no longer returns 500 (F13; T-RSVP-04). Pass page: about its holder, the QR first, with their team, track and shared links; the badge-sharing switch moves to the Hacker profile as one line (owner's request; F5, §6.5; T-PASS-01, T-NFC-13/14). RSVP page: an accepted hacker reopening the invitation sees they're in, and No needs “give away” typed (F13; T-RSVP-05/08 E). Email: a provider 429 is no longer a failed attempt and ends the batch (`email_outbox.rate_limit_hits`, `finish_outbox(p_refund, p_rate_limited)`), and an invitation whose newest email failed is never auto-withdrawn and shows "RSVP email failed" (`_rsvp_undelivered()`); migration `20261031165623_outbox_rate_limits`. F4, F13, §11; new T-MAIL-15, T-RSVP-09 extended.
+- **v0.11.25 (2026-10-31)** — Pre-RSVP hardening from the stress tests (owner's go-ahead). `/api/pass` and `/api/rsvp` count 30 a minute per link with a 600-a-minute per-IP ceiling, so a venue or campus behind one IP isn't refused (§9.3, §15; tests §15 in pass-api, T-RSVP-03). A double-tapped Yes no longer returns 500 (F13; T-RSVP-04). Pass page: about its holder, the QR first, with their team, track and shared links; the badge-sharing switch moves to the Hacker profile as one line (owner's request; F5, §6.5; T-PASS-01, T-NFC-13/14). RSVP page: an accepted hacker reopening the invitation sees they're in, and No needs “give away” typed (F13; T-RSVP-05/08 E). Email: a provider 429 is no longer a failed attempt and ends the batch (`email_outbox.rate_limit_hits`, `finish_outbox(p_refund, p_rate_limited)`), and an invitation whose newest email failed is never auto-withdrawn and shows "RSVP email failed" (`_rsvp_undelivered()`); migration `20261031165623_outbox_rate_limits`. F4, F13, §11; new T-MAIL-15, T-RSVP-09 extended.
 
 - **v0.11.24 (2026-10-31)** — One typeface everywhere (owner's request): Geist is gone, Tailwind's sans font is Fira Code, and form controls inherit it instead of the system font, so login, RSVP, emergency contact and every other page match the schedule and the site. §15; new T-UI-01.
 
