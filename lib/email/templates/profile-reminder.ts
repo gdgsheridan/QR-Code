@@ -9,9 +9,9 @@ export interface ProfileReminderEmailInput {
 }
 
 // SPEC F14 / §12 (v0.9): two days before the event, to accepted hackers who haven't finished their profile.
-// No token: the link opens their signed-in menu.
+// No token: the link opens the signed-in guided walkthrough (?setup=1), not the tabs.
 export function renderProfileReminderEmail(input: ProfileReminderEmailInput): RenderedEmail {
-  const url = `${input.appOrigin}/me/profile`;
+  const url = `${input.appOrigin}/me/profile?setup=1`;
   const ask = "Your emergency contact, whether you're staying overnight, allergies, your team and any accessibility needs. It takes a minute.";
   const html = emailPage(input.appOrigin, 'Finish your profile', [
     p(`Hi ${escapeHtml(input.firstName)},`),

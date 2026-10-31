@@ -33,6 +33,15 @@ export const TeamIcon = ({ className }: { className?: string }) => (
   </Icon>
 );
 
+// Hackers: a directory card (Team keeps the two people).
+export const HackersIcon = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="9" cy="10.5" r="2.5" />
+    <path d="M5.5 16.5a3.5 3.5 0 0 1 7 0M15 9.5h3M15 13h3" />
+  </Icon>
+);
+
 export const ScheduleIcon = ({ className }: { className?: string }) => (
   <Icon className={className}>
     <rect x="3" y="4.5" width="18" height="16.5" rx="2" />

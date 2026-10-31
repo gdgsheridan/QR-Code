@@ -176,6 +176,14 @@ test('T-AUTH-04: a bad set-password link shows an error on the login page', asyn
   await expect(page.getByText("That link didn't work or has expired")).toBeVisible();
 });
 
+test('T-AUTH-04: a link that lost its #token says so and points to a new one, instead of a dead Continue', async ({ page }) => {
+  await page.goto('/auth/confirm?type=invite&next=/me');
+  await expect(page.getByText('This link is incomplete.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Request a new one' }).click();
+  await expect(page).toHaveURL(/\/login\?error=link/);
+});
+
 test('T-SCUI-10 (redirect half): a signed-out visit to /scan/<slug> goes to /login and remembers the way back', async ({ page }) => {
   await page.goto(`/scan/${f.slug}`);
   await expect(page).toHaveURL(`/login?next=${encodeURIComponent(`/scan/${f.slug}`)}`);
