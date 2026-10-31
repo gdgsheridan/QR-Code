@@ -131,10 +131,10 @@ export default async function MePage() {
         <>
           <header className="tw-me-hero grid gap-[4px] [overflow-wrap:anywhere] [&_h1]:m-[0px_0px_4px] [&_h1]:text-[32px]
 
-          [&_h1]:leading-[1.15] [&_p]:m-0 [&_p]:text-muted-foreground [&_p]:text-[14px] max-[1059px]:pr-[108px]!">
+          [&_h1]:leading-[1.15] [&_p]:m-0 [&_p]:text-muted-foreground [&_p]:text-[14px] max-[1059px]:pr-[84px]! sm:max-[1059px]:pr-[108px]!">
             {/* Where the side Atom (components/atom-float.tsx) has no room, a small one waves from the card's corner. */}
             <Image src="/atom.webp" alt="" aria-hidden="true" data-atom-corner="" width={640} height={640} unoptimized
-              className="pointer-events-none absolute right-3 top-3 w-[84px] h-auto min-[1060px]:hidden" />
+              className="pointer-events-none absolute right-3 top-3 w-[64px] sm:w-[84px] h-auto min-[1060px]:hidden" />
             <h1>Hello {m.firstName}</h1>
             <p>{formatEventDateTime(m.event.startsAt, m.event.timezone)}</p>
             <p>{mapUrl ? <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline focus-visible:outline-2 focus-visible:outline-offset-2">{formalVenue(m.event.venue)}</a> : formalVenue(m.event.venue)}</p>
