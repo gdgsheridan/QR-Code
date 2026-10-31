@@ -91,14 +91,14 @@ isOneToOne: false
                   ]
                 },"email_outbox": {
                   Row: {
-                    "attempts": number,"created_at": string,"event_id": string | null,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string | null,"provider_message_id": string | null,"rate_limit_hits": number,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"],"user_id": string | null
+                    "attempts": number,"claim_token": string,"created_at": string,"event_id": string | null,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string | null,"provider_message_id": string | null,"rate_limit_hits": number,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"],"user_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind": string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
+                    "attempts"?: number,"claim_token"?: string,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind": string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
                   }
                   Update: {
-                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
+                    "attempts"?: number,"claim_token"?: string,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"rate_limit_hits"?: number,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -486,6 +486,7 @@ isOneToOne: false
 "claim_outbox":
 { Args: { "p_limit"?: number }; Returns: {
               "attempts": number,
+"claim_token": string,
 "created_at": string,
 "event_id": string | null,
 "id": string,
@@ -525,7 +526,7 @@ isOneToOne: false
 { Args: { "p_event_id": string,"p_now"?: string }; Returns: Json
                            },
 "finish_outbox":
-{ Args: { "p_id": string,"p_last_error"?: string,"p_next_attempt_at"?: string,"p_provider_message_id"?: string,"p_rate_limited"?: boolean,"p_refund"?: boolean,"p_status": Database["public"]['Enums']["outbox_status"] }; Returns: boolean
+{ Args: { "p_claim_token": string,"p_id": string,"p_last_error"?: string,"p_next_attempt_at"?: string,"p_provider_message_id"?: string,"p_rate_limited"?: boolean,"p_refund"?: boolean,"p_status": Database["public"]['Enums']["outbox_status"] }; Returns: boolean
                            },
 "grant_admin_roles":
 { Args: { "p_user_id": string }; Returns: number

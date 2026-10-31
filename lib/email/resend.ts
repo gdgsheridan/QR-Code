@@ -4,7 +4,7 @@ import { ProviderError } from './provider';
 // Resend over plain fetch (SPEC §17 A1, verified: Idempotency-Key header, inline `content_id`).
 // Open/click tracking is a per-domain setting in Resend and MUST be off (SPEC §12).
 // v0.11.25: a hung request gives up after timeoutMs as a retryable 504 (it used to hold the row until the
-// 2-minute lease ran out, and a reclaimed row could be sent twice), and sends from one instance are spaced
+// 10-minute claim lease ran out, and a reclaimed row could be sent twice), and sends from one instance are spaced
 // minIntervalMs apart (5 a second, under Resend's default team limit); a 429 still ends the batch (F4).
 export function createResendProvider(opts: { apiKey: string; fetchImpl?: typeof fetch; timeoutMs?: number; minIntervalMs?: number }): EmailProvider {
   const doFetch = opts.fetchImpl ?? fetch;
