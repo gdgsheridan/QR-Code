@@ -133,6 +133,46 @@ describe('outbox drain (SPEC F4)', () => {
     expect(row.wait_s).toBeLessThan(125);
   });
 
+  it('T-MAIL-15: a 429 stops the batch and hands the rows back; a burst of 429s never ends in failed', async () => {
+    const people = await Promise.all(Array.from({ length: 6 }, () => f.addParticipant(f.e1.id, { withPass: false })));
+    const ids = await Promise.all(people.map((p) => enqueue(p.id)));
+    const mine = new Set(await Promise.all(people.map((p) => emailOf(p.id))));
+    // Rate limited for this test's first 3 sends, then accepting: like a provider's per-second window.
+    let limited = 3;
+    const { provider, sent } = mockProvider((m) => {
+      if (mine.has(m.to) && limited-- > 0) throw new ProviderError('rate limited', 429, 1);
+    });
+    const opts = { db, provider, appOrigin: 'http://localhost:3100', from: 'Station <passes@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') };
+    for (let round = 0; round < 12 && (await Promise.all(ids.map(outboxRow))).some((r) => r.status !== 'sent'); round++) {
+      const r = await drainOutbox(opts);
+      // A 429 ends the batch: at most one rate-limited send per drain.
+      expect(r.failed).toBe(0);
+      await f.pool.query(`update email_outbox set next_attempt_at = now() where id = any($1) and status = 'pending'`, [ids]);
+    }
+    const rows = await Promise.all(ids.map(outboxRow));
+    expect(rows.map((r) => r.status)).toEqual(ids.map(() => 'sent'));
+    // Handed-back rows weren't charged an attempt; each row's own successful try is its only one.
+    expect(rows.every((r) => r.attempts === 1)).toBe(true);
+    for (const p of people) expect(sentTo(sent, await emailOf(p.id))).toHaveLength(1);
+    const { rows: passes } = await f.pool.query<{ n: number }>(
+      `select count(*)::int as n from passes where participant_id = any($1) and revoked_at is null`, [people.map((p) => p.id)]);
+    expect(passes[0]?.n).toBe(6);
+  });
+
+  it('T-MAIL-15: twenty 429s in a row on one row end in failed, not sooner', async () => {
+    const person = await f.addParticipant(f.e1.id, { withPass: false });
+    const id = await enqueue(person.id);
+    const address = await emailOf(person.id);
+    const { provider } = mockProvider((m) => {
+      if (m.to === address) throw new ProviderError('rate limited', 429, 1);
+    });
+    const opts = { db, provider, appOrigin: 'http://localhost:3100', from: 'Station <passes@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') };
+    for (let i = 0; i < 19; i++) { await drainOutbox(opts); await makeDue(id); }
+    expect((await outboxRow(id)).status).toBe('pending');
+    await drainOutbox(opts);
+    expect(await outboxRow(id)).toMatchObject({ status: 'failed', attempts: 0 });
+  });
+
   it('T-MAIL-05: a claimed row whose drainer crashed is reclaimable once locked_until passes', async () => {
     const person = await f.addParticipant(f.e1.id, { withPass: false });
     const id = await enqueue(person.id);

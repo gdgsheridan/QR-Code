@@ -30,6 +30,7 @@ export interface Row {
   liveScans: number;
   checkedIn: boolean;
   rsvpSentAt: string | null;
+  rsvpFailed: boolean;
 }
 
 type Pending = { kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'unlink' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
@@ -311,7 +312,8 @@ export function Participants({ slug, badgeOrigin }: { slug: string; badgeOrigin:
                 [&.tw-admin-badgeBad]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
                 [&.tw-admin-badgeBad]:[background:color-mix(in_srgb,_var(--bad,_#f87171)_10%,_var(--card))]
                 [&.tw-admin-badgeBad]:[color:var(--bad,_#f87171)]` : ''}`}>{r.status}</Badge>
-                    {r.status === 'pending' && r.rsvpSentAt && <span className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]"> · RSVP sent</span>}
+                    {r.status === 'pending' && r.rsvpFailed && <span className="text-bad text-[12px] leading-[1.7]"> · ✕ RSVP email failed: send it again</span>}
+                    {r.status === 'pending' && r.rsvpSentAt && !r.rsvpFailed && <span className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]"> · RSVP sent</span>}
                   </TableCell>
                   <TableCell>{r.passState === 'active' ? 'Active' : r.passState === 'revoked' ? 'Revoked' : '—'}</TableCell>
                   <TableCell>{r.checkedIn ? '✓ Checked in' : '—'}</TableCell>

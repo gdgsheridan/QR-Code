@@ -296,6 +296,14 @@ export function createAdminApi(deps: AdminDeps) {
         p_no_show: url.searchParams.get('noShow') === '1',
       });
       if (error) throw new Error(`admin_participants failed (${error.code})`);
+      // v0.11.25: whose newest RSVP email (invitation or reminder) failed for good, so they never got a link.
+      const { data: rsvpMail, error: mailError } = await db.from('email_outbox')
+        .select('participant_id, status, participants!inner(event_id)')
+        .in('kind', ['rsvp', 'rsvp_reminder']).eq('participants.event_id', g.eventId)
+        .order('created_at', { ascending: false });
+      if (mailError) throw new Error(`rsvp outbox load failed (${mailError.code})`);
+      const newest = new Map<string, string>();
+      for (const m of rsvpMail) if (m.participant_id && !newest.has(m.participant_id)) newest.set(m.participant_id, m.status);
       return json({
         participants: data.map((p) => ({
           id: p.id,
@@ -310,6 +318,7 @@ export function createAdminApi(deps: AdminDeps) {
           hasBadge: p.has_badge,
           passState: p.pass_state,
           rsvpSentAt: p.rsvp_sent_at,
+          rsvpFailed: newest.get(p.id) === 'failed',
           liveScans: p.live_scans,
           checkedIn: p.checked_in,
         })),

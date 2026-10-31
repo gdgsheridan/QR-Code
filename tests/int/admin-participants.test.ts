@@ -170,8 +170,16 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     expect((obj(waitlisted.body).participants as Array<{ id: string }>).map((p) => p.id)).toEqual([f.p.C]);
     expect(Object.keys((obj(waitlisted.body).participants as Array<object>)[0] ?? {}).sort()).toEqual([
       'applicantId', 'checkedIn', 'dietaryNotes', 'email', 'firstName', 'hasBadge', 'id',
-      'isTest', 'lastName', 'liveScans', 'passState', 'rsvpSentAt', 'source', 'status',
+      'isTest', 'lastName', 'liveScans', 'passState', 'rsvpFailed', 'rsvpSentAt', 'source', 'status',
     ].sort());
+    // T-MAIL-15 (v0.11.25): C's newest RSVP email failed for good, so the row says so; an older failure doesn't count.
+    expect((obj(waitlisted.body).participants as Array<{ rsvpFailed: boolean }>)[0]?.rsvpFailed).toBe(false);
+    await f.pool.query(`insert into email_outbox (participant_id, kind, status, created_at) values ($1, 'rsvp', 'failed', now() - interval '1 day'), ($1, 'rsvp', 'sent', now() - interval '1 hour')`, [f.p.C]);
+    const older = await c.call('listParticipants', org, { slug: f.slug }, { query: { status: 'waitlisted' } });
+    expect((obj(older.body).participants as Array<{ rsvpFailed: boolean }>)[0]?.rsvpFailed).toBe(false);
+    await f.pool.query(`insert into email_outbox (participant_id, kind, status) values ($1, 'rsvp_reminder', 'failed')`, [f.p.C]);
+    const failed = await c.call('listParticipants', org, { slug: f.slug }, { query: { status: 'waitlisted' } });
+    expect((obj(failed.body).participants as Array<{ rsvpFailed: boolean }>)[0]?.rsvpFailed).toBe(true);
     const scan = await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.T });
     await f.voidScan(scan.scanId ?? '', f.staff.org1);
     const detail = await c.call('getParticipant', org, { slug: f.slug, id: f.p.T });

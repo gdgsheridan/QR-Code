@@ -124,11 +124,14 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     const resent = await invitee(events.past);
     await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'rsvp')`, [resent.id]);
     const over = await invitee(events.ended);
+    // Their newest invitation email failed for good (e.g. rate limits): they never got a working link.
+    const undelivered = await invitee(events.past);
+    await f.pool.query(`insert into email_outbox (participant_id, kind, status, created_at) values ($1, 'rsvp', 'sent', now() - interval '3 days'), ($1, 'rsvp_reminder', 'failed', now())`, [undelivered.id]);
 
     await jobs();
     expect(await row(missed.id)).toMatchObject({ status: 'withdrawn' });
     expect(await outbox(missed.id)).toEqual([{ kind: 'rsvp_reminder', status: 'cancelled' }]);
-    for (const p of [notInvited, late, resent, over]) expect(await row(p.id), p.email).toMatchObject({ status: 'pending' });
+    for (const p of [notInvited, late, resent, over, undelivered]) expect(await row(p.id), p.email).toMatchObject({ status: 'pending' });
     expect(await row(accepted.id)).toMatchObject({ status: 'accepted' });
     expect(await outbox(resent.id)).toEqual([{ kind: 'rsvp', status: 'pending' }]);
 

@@ -35,14 +35,29 @@ export interface DrainResult {
   retrying: number;
   failed: number;
   cancelled: number;
+  /** A 429 stopped this batch (v0.11.25). */
+  rateLimited: boolean;
 }
 
 // SPEC F4. Safe to run concurrently: rows are claimed with FOR UPDATE SKIP LOCKED.
 export async function drainOutbox(opts: DrainOptions): Promise<DrainResult> {
   const { data: rows, error } = await opts.db.rpc('claim_outbox', { p_limit: opts.limit ?? 20 });
   if (error) throw new Error(`claim_outbox failed (${error.code})`);
-  const result: DrainResult = { claimed: rows.length, sent: 0, retrying: 0, failed: 0, cancelled: 0 };
-  for (const row of rows) result[await processRow(opts, row)] += 1;
+  const result: DrainResult = { claimed: rows.length, sent: 0, retrying: 0, failed: 0, cancelled: 0, rateLimited: false };
+  for (const [i, row] of rows.entries()) {
+    const outcome = await processRow(opts, row);
+    if (outcome === 'rateLimited') {
+      // v0.11.25: the provider said slow down. Hand the rest of the batch back, uncharged, for after its wait.
+      result.retrying += 1;
+      result.rateLimited = true;
+      for (const rest of rows.slice(i + 1)) {
+        await finish(opts.db, { p_id: rest.id, p_status: 'pending', p_refund: true });
+        result.retrying += 1;
+      }
+      break;
+    }
+    result[outcome] += 1;
+  }
   return result;
 }
 
@@ -53,7 +68,7 @@ export async function drainUntilIdle(opts: DrainOptions, budgetMs = 25_000): Pro
   for (;;) {
     const r = await drainOutbox(opts);
     claimed += r.claimed;
-    if (r.claimed === 0 || Date.now() > deadline) return claimed;
+    if (r.claimed === 0 || r.rateLimited || Date.now() > deadline) return claimed;
   }
 }
 
@@ -65,7 +80,7 @@ async function finish(db: Db, args: FinishArgs): Promise<void> {
 // What the drainer sends for one row; null cancels it.
 type Outgoing = Pick<EmailMessage, 'to' | 'subject' | 'html' | 'text' | 'inlineImages' | 'fileLabel'>;
 
-async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<keyof DrainResult, 'claimed'>> {
+async function processRow(opts: DrainOptions, row: OutboxRow): Promise<'sent' | 'retrying' | 'failed' | 'cancelled' | 'rateLimited'> {
   let providerId: string;
   try {
     const message = row.kind === 'staff_added' ? await staffEmail(opts, row) : await participantEmail(opts, row);
@@ -77,14 +92,18 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
     ({ id: providerId } = await opts.provider.send({ ...message, from: opts.from, idempotencyKey: `${row.id}:${row.attempts}` }));
   } catch (err) {
     // 5. Failure: back off, or give up after the last attempt. last_error is sanitized (I-11).
+    // A 429 isn't charged as an attempt and has its own, larger allowance (v0.11.25).
+    const rateLimited = err instanceof ProviderError && err.status === 429;
     const next = nextAttempt({
       attempts: row.attempts,
       now: (opts.now ?? (() => new Date()))(),
       retryAfterSeconds: err instanceof ProviderError ? err.retryAfterSeconds : undefined,
+      rateLimitHits: rateLimited ? row.rate_limit_hits + 1 : undefined,
     });
     const lastError = sanitizeError(err);
+    const charge = { p_refund: rateLimited, p_rate_limited: rateLimited };
     if (next.status === 'failed') {
-      await finish(opts.db, { p_id: row.id, p_status: 'failed', p_last_error: lastError });
+      await finish(opts.db, { p_id: row.id, p_status: 'failed', p_last_error: lastError, ...charge });
       return 'failed';
     }
     await finish(opts.db, {
@@ -92,8 +111,9 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
       p_status: 'pending',
       p_next_attempt_at: next.at.toISOString(),
       p_last_error: lastError,
+      ...charge,
     });
-    return 'retrying';
+    return rateLimited ? 'rateLimited' : 'retrying';
   }
 
   // 4. Success. If this write fails, the row is retried and a second email goes out with a newer
