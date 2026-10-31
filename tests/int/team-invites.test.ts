@@ -184,3 +184,34 @@ it('T-TEAM-05: same-name rows under different emails remain distinct; self-invit
   expect(await inviteTeammate(db, user, viewer.id, other.id)).toBe('INVITED');
   expect(await invites(viewer.id)).toEqual([]);
 });
+
+it('T-TEAM-05 (v0.11.25): an invite racing a join never survives it, and no invite email goes to someone already in a team', async () => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const emailOf = async (id: string) => (await as(id)).email;
+  const inviter = await f.addParticipant(f.e1.id, { withPass: false });
+  expect(await createTeam(db, await as(inviter.id), inviter.id, 'Racing inviters')).toBe('CREATED');
+  const stray: string[] = [];
+  for (let round = 0; round < 60; round++) {
+    const [owner, target] = await Promise.all([f.addParticipant(f.e1.id, { withPass: false }), f.addParticipant(f.e1.id, { withPass: false })]);
+    expect(await createTeam(db, await as(owner.id), owner.id, `Join target ${round}`)).toBe('CREATED');
+    const { rows: [t] } = await f.pool.query<{ join_code: string }>('select join_code from teams where name = $1 and event_id = $2', [`Join target ${round}`, f.e1.id]);
+    await f.pool.query('update participants set looking_for_team = true where id = $1', [target.id]);
+    await Promise.all([
+      f.pool.query('select team_join($1, $2, $3, $4)', [target.id, await emailOf(target.id), f.staff.vol1, t!.join_code]),
+      f.pool.query('select team_invite($1, $2, $3, $4)', [inviter.id, await emailOf(inviter.id), f.staff.vol1, target.id]),
+    ]);
+    if ((await invites(target.id)).length > 0) stray.push(`round ${round}`);
+    await f.pool.query(`delete from team_invites where participant_id = $1`, [target.id]);
+  }
+  expect(stray).toEqual([]);
+
+  // A team-invite email already queued for someone who joined a team since is cancelled, not sent.
+  const joined = await f.addParticipant(f.e1.id, { withPass: false });
+  await f.pool.query(`update participants set team_id = (select team_id from participants where id = $2) where id = $1`, [joined.id, inviter.id]);
+  await f.pool.query(`insert into team_invites (team_id, participant_id, event_id) select t.id, $1, t.event_id from teams t where t.name = 'Join target 0'`, [joined.id]);
+  await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'team_invite')`, [joined.id]);
+  const mail = mockProvider();
+  await drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://station.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
+  expect(sentTo(mail.sent, await emailOf(joined.id))).toEqual([]);
+  expect((await f.pool.query(`select status from email_outbox where participant_id = $1`, [joined.id])).rows).toEqual([{ status: 'cancelled' }]);
+});
