@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseServerEnv } from '@/lib/env';
+import { cronSecret, emailDrainSecret, parseServerEnv } from '@/lib/env';
 
 const valid = {
   NEXT_PUBLIC_APP_ORIGIN: 'http://localhost:3000',
@@ -41,6 +41,21 @@ describe('lib/env (S0 smoke)', () => {
 
   it('requires RESEND_API_KEY and EMAIL_FROM when EMAIL_PROVIDER=resend', () => {
     expect(() => parseServerEnv({ ...valid, EMAIL_PROVIDER: 'resend' })).toThrow(/RESEND_API_KEY[\s\S]*EMAIL_FROM/);
+  });
+
+  it('L1: CRON_SECRET and EMAIL_DRAIN_SECRET are separate; legacy DRAIN_SECRET backs both', () => {
+    expect(parseServerEnv({ ...valid, CRON_SECRET: 'c'.repeat(32), EMAIL_DRAIN_SECRET: 'e'.repeat(32) }).EMAIL_PROVIDER).toBe('console');
+    expect(cronSecret(parseServerEnv(valid))).toBe(valid.DRAIN_SECRET);
+    expect(emailDrainSecret(parseServerEnv(valid))).toBe(valid.DRAIN_SECRET);
+    const both = parseServerEnv({ ...valid, CRON_SECRET: 'c'.repeat(32), EMAIL_DRAIN_SECRET: 'e'.repeat(32) });
+    expect(cronSecret(both)).toBe('c'.repeat(32));
+    expect(emailDrainSecret(both)).toBe('e'.repeat(32));
+  });
+
+  it('L1: each credential needs backing once DRAIN_SECRET is gone', () => {
+    const rest: Record<string, string> = { ...valid };
+    delete rest.DRAIN_SECRET;
+    expect(() => parseServerEnv(rest)).toThrow(/CRON_SECRET[\s\S]*EMAIL_DRAIN_SECRET/);
   });
 
   it('rejects an app origin with a path or trailing slash', () => {

@@ -1616,7 +1616,7 @@ Each slice ends with its tests green in CI and a short demo.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client | Auth only; tables are deny-all |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server only** | Never imported from client code |
 | `SHEET_INGEST_SECRET` | server + Apps Script property | ≥ 32 random bytes |
-| `DRAIN_SECRET` | server + scheduler | |
+| `CRON_SECRET` (scheduler: `/api/cron`, `/api/retention`), `EMAIL_DRAIN_SECRET` (scheduler: `/api/email/drain`); legacy `DRAIN_SECRET` backs both until removed | server + scheduler | ≥ 32 random bytes each |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | server | Sync now (read-only Sheets scope) |
 | `EMAIL_PROVIDER` | server | `console` \| `resend` |
 | `DEV_PUBLIC_HOST` | `next.config.ts`, dev only | Optional stable tunnel host, added to `allowedDevOrigins` so a phone can open pages through it |
