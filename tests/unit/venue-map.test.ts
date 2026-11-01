@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formalVenue, venueMapUrl } from '@/lib/email/links';
+import { campusSecurity, formalVenue, venueMapUrl } from '@/lib/email/links';
 import { renderPassEmail } from '@/lib/email/templates/pass';
 import { renderRsvpEmail } from '@/lib/email/templates/rsvp';
 
@@ -62,4 +62,10 @@ it('T-MAIL-07: emails and the pass give HMC Campus its formal name, which keeps 
   expect(email.html).toContain(`href="${escapedMapUrl}"`);
   expect(email.html).toContain(formal);
   expect(email.text).toContain(`Where: ${formal}: ${mapUrl}`);
+});
+
+it('T-ME-07: the HMC campus has Campus Security on the Emergency contact page; other venues none (v0.11.30)', () => {
+  expect(campusSecurity('HMC Campus')).toEqual({ phone: '(905) 815-4044', tel: '+19058154044' });
+  expect(campusSecurity(' Sheridan College - Hazel McCallion Campus ')).toEqual({ phone: '(905) 815-4044', tel: '+19058154044' });
+  expect(campusSecurity('Fixture Hall')).toBeNull();
 });

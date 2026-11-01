@@ -309,6 +309,71 @@ export function Teams({ slug }: { slug: string }) {
         <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">No tracks yet.</p>
       )}
 
+      {/* v0.11.32 (owner's request): add tracks one at a time from the page again (the box was removed in v0.11.1). */}
+      <form
+        className="flex items-end gap-[10px] w-full max-w-[none] box-border m-[20px_0px_40px] p-[16px]
+
+          [background:var(--card)] [border-width:1px] [border-style:solid] [border-top-color:var(--line)]
+
+          [border-right-color:var(--line)] [border-bottom-color:var(--line)] [border-left-color:var(--line)]
+
+          rounded-lg [box-shadow:rgba(0,_0,_0,_0.04)_0px_8px_24px] max-[600.001px]:p-[12px]
+
+          [&_.tw-admin-field]:flex [&_.tw-admin-field]:flex-1 [&_.tw-admin-field]:flex-col
+
+          [&_.tw-admin-field]:min-w-0 [&_.tw-admin-field]:gap-[8px] [&_.tw-admin-field]:text-[14px]
+
+          [&_.tw-admin-field]:font-bold [&_.tw-admin-addTrackInput]:block [&_.tw-admin-addTrackInput]:w-full
+
+          [&_.tw-admin-addTrackInput]:min-w-0 [&_.tw-admin-addTrackInput]:min-h-[40px]
+
+          [&_.tw-admin-addTrackInput]:box-border [&_.tw-admin-addTrackInput]:p-[9px_12px]
+
+          [&_.tw-admin-addTrackInput]:[border-width:1px] [&_.tw-admin-addTrackInput]:[border-style:solid]
+
+          [&_.tw-admin-addTrackInput]:[border-top-color:var(--line)]
+
+          [&_.tw-admin-addTrackInput]:[border-right-color:var(--line)]
+
+          [&_.tw-admin-addTrackInput]:[border-bottom-color:var(--line)]
+
+          [&_.tw-admin-addTrackInput]:[border-left-color:var(--line)] [&_.tw-admin-addTrackInput]:rounded-control
+
+          [&_.tw-admin-addTrackInput]:[background:var(--card)] [&_.tw-admin-addTrackInput]:text-fg
+
+          [&_.tw-admin-addTrackInput]:[font:inherit] [&_.tw-admin-addTrackInput]:[outline:none]
+
+          [&_.tw-admin-addTrackInput]:[box-shadow:none] [&_.tw-admin-addTrackInput:focus]:border-accent
+
+          [&_.tw-admin-addTrackInput:focus]:[box-shadow:0_0_0_3px_color-mix(in_srgb,_var(--accent)_12%,_transparent)]
+
+          [&_>_div]:flex [&_>_div]:[flex:0_0_auto] [&_>_div]:items-center [&_>_div]:m-0 [&_button]:min-h-[44px]
+
+          [&_button]:p-[0px_14px] [&_button]:rounded-control [&_button]:text-[14px] [&_button]:font-semibold
+
+          [&_button]:whitespace-nowrap"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const form = e.currentTarget;
+          const name = text(new FormData(form), 'name').trim();
+          // The API takes one per line; one name is one line. Clear and stay in the field for the next one.
+          void call('/tracks', 'POST', { text: name }).then(async (r) => {
+            if (await done(r, `Added ${name}.`)) {
+              form.reset();
+              form.querySelector('input')?.focus();
+            }
+          });
+        }}
+      >
+        <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
+          Add a track
+          <Input name="name" required maxLength={100} placeholder="e.g. Best AI/ML Project" autoComplete="off" className="tw-admin-addTrackInput w-full min-h-[44px]" />
+        </Label>
+        <div>
+          <Button type="submit">Add track</Button>
+        </div>
+      </form>
+
       <div className="flex items-center justify-between gap-[20px] m-[36px_0px_20px] pb-[16px] [border-bottom-width:1px]
 
           [border-bottom-style:solid] [border-bottom-color:var(--line)] max-[600.001px]:items-start
@@ -677,6 +742,8 @@ export function Teams({ slug }: { slug: string }) {
                 </Button>
               </form>
               <TrackSelect
+                // Keyed by its track: the select is uncontrolled, so a change made elsewhere redraws it.
+                key={t.trackId ?? 'none'}
                 tracks={data.tracks}
                 label={`Track of ${t.name}`}
                 value={t.trackId}

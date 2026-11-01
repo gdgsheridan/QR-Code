@@ -13,7 +13,7 @@ const base = {
 describe('pass email template (SPEC §12)', () => {
   it('T-MAIL-07: contains name, event, local time with TZ abbreviation, venue, cid QR, /p# link, plain-text part', () => {
     const m = renderPassEmail(base);
-    expect(m.subject).toBe("You're in: Hack Day 2026 — your check-in pass");
+    expect(m.subject).toBe("You're in: your check-in pass for Hack Day 2026");
     for (const part of [m.html, m.text]) {
       expect(part).toContain('Ada');
       expect(part).toContain('Hack Day 2026');
@@ -33,7 +33,8 @@ describe('pass email template (SPEC §12)', () => {
   it('T-MAIL-07: points them to profile setup, the Discord, the hacker package and the Google Group (v0.9)', () => {
     const m = renderPassEmail(base);
     for (const part of [m.html, m.text]) {
-      expect(part).toContain(base.profileUrl);
+      // The guided walkthrough, not the tabs.
+      expect(part).toContain(`${base.profileUrl}?setup=1`);
       expect(part).toContain('https://groups.google.com/g/sheridandatathon');
       expect(part).toContain(DISCORD_URL);
       expect(part).toContain(HACKER_PACKAGE_URL);

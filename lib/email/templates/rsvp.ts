@@ -10,6 +10,8 @@ export interface RsvpEmailInput {
   rsvpUrl: string;
   /** When the invitation stops taking a Yes (v0.9); null: no deadline. */
   closesAt: string | null;
+  /** v0.11.28: an earlier date to reply by, while it's ahead (`earlierReplyBy()`); the invitation still closes at closesAt. */
+  replyBy?: string | null;
   /** One of the reminders before the deadline (F13). */
   reminder?: boolean;
 }
@@ -18,8 +20,19 @@ export interface RsvpEmailInput {
 export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
   const when = formatEventDateTime(input.event.startsAt, input.event.timezone);
   const mapUrl = venueMapUrl(input.event.venue);
-  const by = input.closesAt ? formatEventDateTime(input.closesAt, input.event.timezone) : null;
-  const deadline = by ? `Please reply by ${by}. No reply by then counts as a no, and your spot goes to someone on the waitlist.` : null;
+  const fmt = (at: string | null | undefined) => (at ? formatEventDateTime(at, input.event.timezone) : null);
+  const closes = fmt(input.closesAt);
+  const replyBy = fmt(input.replyBy);
+  // Only the close withdraws anyone (F13), so "counts as a no" goes with the close, never with the reply-by date.
+  const NO_REPLY = 'no reply by then counts as a no, and your spot goes to someone on the waitlist.';
+  const by = replyBy ?? closes; // the date they're asked for
+  const deadline: [string, string] | null = replyBy && closes
+    ? [`Please reply by ${replyBy}.`, `Invitations close ${closes}; ${NO_REPLY}`]
+    : replyBy
+      ? [`Please reply by ${replyBy}.`, '']
+      : closes
+        ? [`Please reply by ${closes}.`, `No reply by then counts as a no, and your spot goes to someone on the waitlist.`]
+        : null;
   const e = {
     first: escapeHtml(input.firstName),
     event: escapeHtml(input.event.name),
@@ -32,7 +45,7 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
     p(`Hi ${e.first},`),
     p(`${input.reminder ? `A reminder: you're invited to <strong>${e.event}</strong>, and we haven't heard back yet.` : `You're invited to <strong>${e.event}</strong>.`} Will you be there?`, HEADLINE),
     details([['When', e.when], ['Where', mapUrl ? link(escapeHtml(mapUrl), e.venue) : e.venue]]),
-    ...(by ? [p(`<strong>Please reply by ${escapeHtml(by)}.</strong> No reply by then counts as a no, and your spot goes to someone on the waitlist.`)] : []),
+    ...(deadline ? [p(`<strong>${escapeHtml(deadline[0])}</strong>${deadline[1] && ` ${escapeHtml(deadline[1])}`}`)] : []),
     button(e.url, 'Reply to the invitation'),
   ].join('\n'), `We use your details only to run ${e.event}: admission, meals, attendance and emergencies. Dietary notes and emergency contacts are deleted 30 days after the event.`);
 
@@ -44,7 +57,7 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
     `When: ${when}`,
     `Where: ${input.event.venue}${mapUrl ? `: ${mapUrl}` : ''}`,
     '',
-    ...(deadline ? [deadline, ''] : []),
+    ...(deadline ? [deadline.filter(Boolean).join(' '), ''] : []),
     `Reply to the invitation: ${input.rsvpUrl}`,
     '',
     SIGN_OFF_TEXT,
@@ -53,7 +66,7 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
   ].join('\n');
 
   const subject = input.reminder && by
-    ? `Reminder: reply by ${by.split(' · ')[0] ?? by} — ${input.event.name}`
+    ? `Reminder: reply by ${by.split(' · ')[0] ?? by} for ${input.event.name}`
     : `You're invited: ${input.event.name}`;
   return { subject, html, text, inlineImages: [] };
 }

@@ -1,0 +1,48 @@
+/* The whole window; Atom floats around the page's content (bouncing off it and off the window edges) and can be dragged
+   around it, never into it (components/atom-float.tsx). */
+.lane {
+  display: none;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  /* Above page wrappers so Atom can be grabbed; the stage itself takes no pointer events. */
+  z-index: 1;
+}
+
+/* Placed and moved by script (a constant drift); hidden until placed, so it never shows at the lane's corner first. */
+.atom {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: clamp(110px, calc((100vw - var(--atom-column)) / 2 - 40px), 240px);
+  opacity: 0;
+  transition: opacity 0.8s ease-out;
+  will-change: transform;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+}
+.atom[data-dragging="true"] { cursor: grabbing; }
+
+/* public/atom-wave.webp (set inline): 8 frames of 480px side by side, frame 1 at rest; a wave (atom-float.tsx) steps
+   background-position-x from 0% to 100%, landing exactly on each frame. While he's held, public/atom-grab.webp (the same
+   layout) loops the same way. */
+.sprite {
+  aspect-ratio: 1;
+  background: no-repeat 0 0 / 800% 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .atom { transition: none; }
+}
+
+.standard { --atom-column: 760px; }
+.schedule { --atom-column: 1400px; }
+.directory { --atom-column: 1600px; }
+
+/* At each threshold the side gutter is 150px: room for a 110px Atom with 16px clearance from the content and 14px
+   from the window edge (covering his tilt); a wider gutter grows Atom (up to 240px) and his room to drift. Below the
+   /me threshold, /me shows a small Atom in its hero card. */
+@media (min-width: 1060px) { .standard { display: block; } }
+@media (min-width: 1700px) { .schedule { display: block; } }
+@media (min-width: 1900px) { .directory { display: block; } }

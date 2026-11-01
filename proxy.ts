@@ -6,7 +6,7 @@ import { contentSecurityPolicy } from './lib/domain/security-headers';
 // sends signed-out visitors to /login with a way back. Authorization is NOT done here: every route
 // handler checks the session and requireStaff() itself.
 export async function proxy(request: NextRequest) {
-  // L10: fresh CSPRNG nonce per request. Next 16 reads it from the request's `x-nonce` header to
+  // L10: fresh CSPRNG nonce per request. Next 16 reads it from the request's CSP header to
   // stamp its inline bootstrap scripts on dynamically rendered HTML, and enforces it via the
   // response CSP (`'nonce-…'` + `'strict-dynamic'`). Matcher covers dynamic routes only: static
   // prerendered pages have no per-request nonce, so a nonce CSP would block their scripts.
@@ -18,6 +18,7 @@ export async function proxy(request: NextRequest) {
   });
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('Content-Security-Policy', csp);
   const withCsp = (response: NextResponse) => {
     response.headers.set('Content-Security-Policy', csp);
     return response;

@@ -19,7 +19,9 @@ export function SetupWalkthrough({ enabled, initialStep, children }: { enabled: 
       {enabled && <div className="grid gap-2" role="status" aria-live="polite">
         <p className="m-0 text-sm text-muted-foreground">Step {step} of {TITLES.length}: {TITLES[step - 1]}</p>
         <div className="flex gap-2" aria-hidden="true">
-          {TITLES.map((title, index) => <span key={title} className={`h-1 flex-1 rounded-sm ${index < step ? 'bg-accent' : 'bg-border'}`} />)}
+          {TITLES.map((title, index) => <span key={title} className="h-1 flex-1 overflow-hidden rounded-sm bg-border">
+            <span data-setup-fill data-filled={index < step} className="setup-progress-fill block h-full bg-accent" />
+          </span>)}
         </div>
       </div>}
       {children}
@@ -52,12 +54,15 @@ export function SetupStep({ number, children }: { number: number; children: Reac
     {children}
     {active && <div className="flex gap-3 [&>*]:flex-1">
       {number > 1 && <Button type="button" variant="outline" onClick={() => move(number - 1)}>Back</Button>}
-      {number < LAST_FORM_STEP && <Button type="submit">Next</Button>}
+      {/* Step 3's Next saves steps 1–3 and moves on to networking. */}
+      {number <= LAST_FORM_STEP && <Button type="submit">Next</Button>}
     </div>}
+    {/* Before hydration (or without JavaScript) every step shows at once, with one submit at the end. */}
+    {!active && number === LAST_FORM_STEP && <Button type="submit">Next</Button>}
   </section>;
 }
 
-export function SetupPanel({ networking = false, children }: { networking?: boolean; children: ReactNode }) {
+export function SetupPanel({ networking = false, listed = false, children }: { networking?: boolean; listed?: boolean; children: ReactNode }) {
   const { active, step, move, enabled } = useContext(Walkthrough);
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -66,9 +71,11 @@ export function SetupPanel({ networking = false, children }: { networking?: bool
   const hidden = active && (networking ? step !== NETWORKING_STEP : step === NETWORKING_STEP);
   return <div ref={ref} hidden={hidden} className={hidden ? 'hidden' : 'contents'}>
     {children}
-    {enabled && networking && <div className="flex flex-wrap gap-3">
+    {enabled && networking && <div className="flex flex-wrap items-center gap-3">
       {active && <Button type="button" variant="outline" onClick={() => move(LAST_FORM_STEP)}>Back</Button>}
+      {/* Skip saves nothing on this step (owner's decision). */}
       <Button asChild variant="ghost"><a href="/me">Skip for now</a></Button>
+      {listed && <p className="m-0 text-sm text-muted-foreground">You’ll stay listed in the Hacker directory; change it anytime on your profile.</p>}
     </div>}
   </div>;
 }

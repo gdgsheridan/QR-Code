@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { E2E_ORIGIN, signIn } from '../fixtures/e2e';
+import { E2E_ORIGIN, signIn, NO_JS } from '../fixtures/e2e';
 import { createAccount, createStandardFixture, type StandardFixture } from '../fixtures/standard';
+import { DISCORD_URL } from '@/lib/email/links';
 
 // SPEC F14 (v0.6): the hacker menu: own badge → menu → profile, schedule, emergency contact, pass.
 let f: StandardFixture;
@@ -65,8 +66,22 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   const menu = page.getByRole('navigation', { name: 'Hacker menu' });
   for (const item of ['Hacker profile', 'Schedule', 'Emergency contact']) await expect(menu.getByRole('link', { name: item })).toBeVisible();
   // Menu order (v0.11.18): Hackers, Schedule, Team, Emergency contact, Hacker profile.
-  const order = await menu.locator('li a').evaluateAll(links => links.map(link => link.getAttribute('href')));
+  const order = await menu.locator('li > a').evaluateAll(links => links.map(link => link.getAttribute('href')));
   expect(order).toEqual(['/me/hackers', '/me/schedule', '/me/team', '/me/emergency', '/me/profile']);
+  // v0.11.28: Links is a menu row that opens in place with the Discord, hacker package and Google Group.
+  const links = menu.getByRole('button', { name: /^Links/ });
+  await expect(links).toHaveAttribute('aria-expanded', 'false');
+  // Closed, the panel is clipped to nothing and inert: its links can't be tapped or reached with the keyboard.
+  const discord = menu.getByRole('link', { name: 'Discord', includeHidden: true });
+  expect(await discord.evaluate((el) => el.closest('[inert]') !== null)).toBe(true);
+  await links.click();
+  await expect(links).toHaveAttribute('aria-expanded', 'true');
+  expect(await discord.evaluate((el) => el.closest('[inert]') !== null)).toBe(false);
+  await expect(menu.getByRole('link', { name: 'Discord' })).toBeVisible();
+  await expect(menu.getByRole('link', { name: 'Discord' })).toHaveAttribute('href', DISCORD_URL);
+  await expect(menu.getByRole('link', { name: 'Google Group' })).toHaveAttribute('target', '_blank');
+  await links.click();
+  await expect(links).toHaveAttribute('aria-expanded', 'false');
   await expect(menu.getByText('My pass')).toBeVisible();
   await expect(menu.getByText('In your email')).toBeVisible(); // A's fixture pass predates derived tokens
   await expect(menu.getByText('Finish setting up')).toBeVisible(); // v0.9: no profile setup yet
@@ -77,7 +92,7 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   await expect(page.getByText('✓ Badge linked.', { exact: true })).toBeVisible();
   // v0.8.2: dietary notes are the Sheet's, for organizers only; saving the profile must not clear them.
   await expect(page.getByLabel('Dietary notes')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Save links' }).click();
+  await page.getByRole('button', { name: 'Save networking' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
 
   await page.getByRole('link', { name: '← Menu' }).click();
@@ -356,7 +371,7 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
   const email = await emailOf(attendee.id);
   await createAccount(email);
   await signIn(page, email, '/me/profile');
-  const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: await page.context().storageState(), javaScriptEnabled: false });
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: await page.context().storageState(), ...NO_JS });
   const profile = await context.newPage();
   const screenshots = '/tmp/claude-0/-home-yvesd-Codebases-datathon-Datathon-QR-NFC/7675cf3a-51e9-4cc4-b5e7-a411639544b0/scratchpad';
   mkdirSync(screenshots, { recursive: true });
@@ -376,7 +391,7 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     let before = await stored();
     await profile.getByRole('radio', { name: 'Not sure yet', exact: true }).check();
     await profile.getByRole('radio', { name: 'I plan to go solo', exact: true }).check();
-    await profile.getByRole('button', { name: 'Save profile' }).click();
+    await profile.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(profile).toHaveURL(/tab=event&saved=1/);
     await expect(profile.getByRole('status')).toContainText('✓ Saved.');
     expect(await stored()).toEqual({ ...before, overnight: 'unsure', team_status: 'solo' });
@@ -384,22 +399,28 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     await expect(nav).not.toContainText('needs answer');
     await expect(profile.getByRole('link', { name: 'Add your emergency contact →' })).toBeVisible();
     await nav.getByRole('link', { name: 'Health and access', exact: true }).click();
+    // "none" would ask for a severity and store a fake allergy, so the field says to leave it blank.
+    await expect(profile.getByLabel('Allergies', { exact: true })).toHaveAccessibleDescription('Leave blank if none');
     before = await stored();
     await profile.getByLabel('Allergies', { exact: true }).fill('Peanuts');
     await profile.getByLabel('How severe?').selectOption('severe');
     await profile.getByLabel('Accessibility needs').fill('Step-free access');
-    await profile.getByRole('button', { name: 'Save profile' }).click();
+    await profile.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(profile).toHaveURL(/tab=health&saved=1/);
     expect(await stored()).toEqual({ ...before, allergies: 'Peanuts', allergy_severity: 'severe', accessibility: 'Step-free access' });
     await nav.getByRole('link', { name: 'Networking', exact: true }).click();
     before = await stored();
     await profile.getByLabel('Bio', { exact: true }).fill('Data and maps');
     await profile.getByRole('radio', { name: 'Balanced', exact: true }).check();
-    await profile.getByRole('button', { name: 'Save links' }).click();
+    await profile.getByRole('button', { name: 'Save networking' }).click();
     await expect(profile).toHaveURL(/tab=networking&saved=1/);
     expect(await stored()).toEqual({ ...before, bio: 'Data and maps', pace: 'balanced' });
+    // The notice sits at the top, where the reloaded page starts, not by the button below the fold.
+    const saved = profile.getByRole('status').filter({ hasText: '✓ Saved.' });
+    await expect(saved).toHaveCount(1);
+    expect((await saved.boundingBox())!.y).toBeLessThan((await profile.getByLabel('LinkedIn', { exact: true }).boundingBox())!.y);
     await profile.getByRole('radio', { name: 'Prefer not to say', exact: true }).check();
-    await profile.getByRole('button', { name: 'Save links' }).click();
+    await profile.getByRole('button', { name: 'Save networking' }).click();
     await expect(profile).toHaveURL(/tab=networking&saved=1/);
     expect(await stored()).toEqual({ ...before, bio: 'Data and maps', pace: null });
     await page.goto('/me/profile?tab=networking');
@@ -413,14 +434,14 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     await expect(pace).toHaveValue('2');
     expect((await pace.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     expect(await pace.evaluate((input) => getComputedStyle(input).outlineStyle)).toBe('solid');
-    await page.getByRole('button', { name: 'Save links' }).click();
+    await page.getByRole('button', { name: 'Save networking' }).click();
     await expect(page).toHaveURL(/tab=networking&saved=1/);
     await expect.poll(stored).toEqual({ ...before, bio: 'Data and maps', pace: 'balanced' });
     await page.getByLabel('Prefer not to say', { exact: true }).check();
     await expect(pace).toBeDisabled();
     await expect(pace).toHaveAttribute('aria-valuetext', 'No pace set');
     await expect(page.locator('input[type="hidden"][name="pace"]')).toHaveValue('');
-    await page.getByRole('button', { name: 'Save links' }).click();
+    await page.getByRole('button', { name: 'Save networking' }).click();
     await expect(page).toHaveURL(/tab=networking&saved=1/);
     await expect.poll(stored).toEqual({ ...before, bio: 'Data and maps', pace: null });
     for (const [width, height] of [[390, 844], [1280, 800]] as const) {
@@ -429,7 +450,11 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
         await nav.locator(`a[href="/me/profile?tab=${tab}"]`).click();
         await expect(nav.locator('[aria-current="page"]')).toHaveAttribute('href', `/me/profile?tab=${tab}`);
         expect(await profile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-        for (const link of await nav.getByRole('link').all()) expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        for (const link of await nav.getByRole('link').all()) {
+          expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+          // The tabs wrap rather than clip ("Health and acces") or scroll sideways.
+          expect(await link.evaluate((el) => el.scrollWidth <= el.clientWidth && el.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+        }
         await nav.locator('[aria-current="page"]').scrollIntoViewIfNeeded();
         await profile.screenshot({ path: `${screenshots}/profile-tabs-${tab}-${width}.png`, fullPage: true });
       }
@@ -439,7 +464,7 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     await profile.getByLabel('Allergies', { exact: true }).fill('Shellfish');
     await profile.getByLabel('How severe?').selectOption('');
     await profile.locator('form').evaluate(form => { (form as HTMLFormElement).noValidate = true; });
-    await profile.getByRole('button', { name: 'Save profile' }).click();
+    await profile.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(profile).toHaveURL(/tab=health&error=INVALID_ALLERGY/);
     await expect(nav.getByRole('link', { name: 'Health and access', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(profile.getByRole('alert')).toContainText('Not saved. Pick how severe your allergy is');
@@ -451,5 +476,43 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     await profile.goto('/me/profile?tab=networking&error=INVALID_ALLERGY');
     await expect(nav.getByRole('link', { name: 'Health and access', exact: true })).toHaveAttribute('aria-current', 'page');
     await expect(profile.getByRole('alert')).toContainText('Not saved. Pick how severe your allergy is');
+  } finally { await context.close(); }
+});
+
+test('T-ME-10: the setup walkthrough keeps Back | Next on step 3 and its heading until Save and finish; Skip says the listing stays', async ({ browser }) => {
+  const attendee = await f.addParticipant(f.e1.id);
+  const email = await emailOf(attendee.id);
+  await createAccount(email);
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  try {
+    await signIn(page, email, '/me/profile?setup=1');
+    await page.getByRole('radio', { name: 'Not sure yet', exact: true }).check();
+    await page.getByRole('radio', { name: 'I plan to go solo', exact: true }).check();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(page.getByText('Step 3 of 4: Emergency contact')).toBeVisible();
+    // Step 3 has the same Back | Next row as steps 1–2, side by side.
+    const back = (await page.getByRole('button', { name: 'Back', exact: true }).boundingBox())!;
+    const next = (await page.getByRole('button', { name: 'Next', exact: true }).boundingBox())!;
+    expect(Math.abs(back.y - next.y)).toBeLessThan(2);
+    expect(back.x).toBeLessThan(next.x);
+    await expect(page.getByRole('button', { name: 'Save profile' })).toHaveCount(0);
+    await page.getByLabel('Emergency contact name').fill('Sam Walk');
+    await page.getByLabel('Emergency contact phone').fill('416 555 0102');
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(page.getByText('Step 4 of 4: Networking')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Hacker profile', exact: true })).toHaveCount(0);
+    await expect(page.getByText('Your profile is set up')).toHaveCount(0);
+    // Listed by default (v0.11.19): Skip saves nothing and says the listing stays.
+    await expect(page.getByText('You’ll stay listed in the Hacker directory; change it anytime on your profile.')).toBeVisible();
+    await f.pool.query('update participants set directory_opt_in = false where id = $1', [attendee.id]);
+    await page.reload();
+    await expect(page.getByText('Step 4 of 4: Networking')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Skip for now' })).toBeVisible();
+    await expect(page.getByText('You’ll stay listed in the Hacker directory')).toHaveCount(0);
+    const { rows } = await f.pool.query('select emergency_name, overnight, team_status from participants where id = $1', [attendee.id]);
+    expect(rows).toEqual([{ emergency_name: 'Sam Walk', overnight: 'unsure', team_status: 'solo' }]);
   } finally { await context.close(); }
 });

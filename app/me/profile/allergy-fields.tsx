@@ -18,12 +18,15 @@ export function AllergyFields(props: { allergies: string; severity: string; inpu
         id="allergies"
         name="allergies"
         maxLength={300}
-        placeholder="Peanuts, shellfish… Leave empty if none"
+        placeholder="Peanuts, shellfish…"
+        aria-describedby="allergies-hint"
         autoComplete="off"
         value={text}
         onChange={(e) => setText(e.target.value)}
         className={props.inputClass}
       />
+      {/* Typing "none" would ask for a severity and store a fake allergy. */}
+      <p id="allergies-hint" className={`copy ${props.hintClass ?? ''}`} style={{ marginTop: -10 }}>Leave blank if none</p>
       <Label htmlFor="allergySeverity">How severe?</Label>
       <NativeSelect id="allergySeverity" name="allergySeverity" required={typed} defaultValue={props.severity} className={props.inputClass}>
         <option value="">{typed ? 'Choose how severe' : 'No allergies'}</option>

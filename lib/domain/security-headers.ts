@@ -1,7 +1,7 @@
 // SPEC T-SEC-06. Pure: the caller says whether this is production and where Supabase lives.
 //
 // Nonce CSP (L10): Next 16 only stamps a nonce onto dynamically rendered HTML, reading it from
-// the request's `x-nonce` header (set by proxy.ts). Static `headers()` in next.config.ts cannot
+// the request's CSP header (set by proxy.ts). Static `headers()` in next.config.ts cannot
 // see a per-request value, so every response gets this nonce-less CSP from next.config.ts and
 // proxy.ts adds a stricter nonce CSP on its dynamic routes. Browsers intersect multiple CSP
 // headers, so those pages get the nonce policy while prerendered pages keep a real (static) CSP.

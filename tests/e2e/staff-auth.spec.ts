@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { consoleMailText, E2E_ORIGIN, signIn } from '../fixtures/e2e';
+import { consoleMailText, E2E_ORIGIN, signIn, NO_JS } from '../fixtures/e2e';
 import { countMailTo, latestAuthLink } from '../fixtures/mailpit';
 import { createAccount, createStandardFixture, STAFF_PASSWORD, type StandardFixture } from '../fixtures/standard';
 
@@ -110,7 +110,7 @@ test('T-AUTH-03: inviting a new address emails a link to set a password, then on
   await page.getByLabel('Role').selectOption('organizer');
   const started = Date.now();
   await page.getByRole('button', { name: 'Invite', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('✓ Invited. We emailed them a link to set their password.');
+  await expect(page.getByRole('status')).toHaveText('✓ Done. We emailed them a link to sign in, or to set a password if they don’t have an account yet.');
 
   // Inviting someone who already has an account adds them straight away. The auth server sends nothing,
   // so the app emails them a link to sign in (v0.11.12).
@@ -118,7 +118,7 @@ test('T-AUTH-03: inviting a new address emails a link to set a password, then on
   await page.getByLabel('Role').selectOption('volunteer');
   const existingStarted = Date.now();
   await page.getByRole('button', { name: 'Invite', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('✓ Added. We emailed them a link to sign in.');
+  await expect(page.getByRole('status')).toHaveText('✓ Done. We emailed them a link to sign in, or to set a password if they don’t have an account yet.');
   expect(await consoleMailText(f.staffEmail.vol3, 'Sign in: ')).toContain(`Sign in: ${E2E_ORIGIN}/login?next=/scan/${f.slug}`);
   expect(await countMailTo(f.staffEmail.vol3, existingStarted)).toBe(0);
 
@@ -154,7 +154,7 @@ test('T-AUTH-03: inviting a new address emails a link to set a password, then on
 test('T-AUTH-01 (forms before hydration): with JavaScript off, sign-in and set-password still work', async ({ browser }) => {
   // A slow phone can submit before React hydrates: the browser then posts the form itself, and the
   // server-action CSRF check needs a real Origin header on that post.
-  const noJs = await browser.newContext({ baseURL: E2E_ORIGIN, javaScriptEnabled: false });
+  const noJs = await browser.newContext({ baseURL: E2E_ORIGIN, ...NO_JS });
   const page = await noJs.newPage();
   await page.goto(`/login?next=${encodeURIComponent(`/scan/${f.slug}`)}`);
   await page.getByLabel('Email').fill(f.staffEmail.vol1);
@@ -174,6 +174,14 @@ test('T-AUTH-04: a bad set-password link shows an error on the login page', asyn
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(/\/login\?error=link/);
   await expect(page.getByText("That link didn't work or has expired")).toBeVisible();
+});
+
+test('T-AUTH-04: a link that lost its #token says so and points to a new one, instead of a dead Continue', async ({ page }) => {
+  await page.goto('/auth/confirm?type=invite&next=/me');
+  await expect(page.getByText('This link is incomplete.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Request a new one' }).click();
+  await expect(page).toHaveURL(/\/login\?error=link/);
 });
 
 test('T-SCUI-10 (redirect half): a signed-out visit to /scan/<slug> goes to /login and remembers the way back', async ({ page }) => {
@@ -202,7 +210,7 @@ test('T-AUTH-03 (E): a hacker with an account added as staff signs in from the e
   await page.getByLabel('Email').fill(a);
   await page.getByLabel('Role').selectOption('volunteer');
   await page.getByRole('button', { name: 'Invite', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('✓ Added. We emailed them a link to sign in.');
+  await expect(page.getByRole('status')).toHaveText('✓ Done. We emailed them a link to sign in, or to set a password if they don’t have an account yet.');
   const url = /Sign in: (\S+)/.exec(await consoleMailText(a, 'Sign in: '))?.[1] ?? '';
   expect(url).toBe(`${E2E_ORIGIN}/login?next=/scan/${f.slug}`);
 

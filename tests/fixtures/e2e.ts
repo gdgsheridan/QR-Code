@@ -5,6 +5,9 @@ import { formatUid } from '@/lib/domain/badge';
 import { STAFF_PASSWORD } from './standard';
 
 export const E2E_ORIGIN = 'http://localhost:3100';
+// Browser contexts without JavaScript also reduce motion: Playwright waits between click retries with a page-side
+// setTimeout, which never fires with JavaScript off, so a click that first meets the page's CSS entrance hangs.
+export const NO_JS = { javaScriptEnabled: false, reducedMotion: 'reduce' } as const;
 
 export function authStatePath(name: string): string {
   const dir = join(process.cwd(), 'tests', 'e2e', '.auth');

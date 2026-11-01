@@ -149,6 +149,20 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"ingest_seen_requests": {
+                  Row: {
+                    "request_key": string,"seen_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "request_key": string,"seen_at"?: string
+                  }
+                  Update: {
+                    "request_key"?: string,"seen_at"?: string
+                  }
+                  Relationships: [
+
+                  ]
                 },"participant_tracks": {
                   Row: {
                     "created_at": string,"event_id": string,"participant_id": string,"track_id": string
@@ -442,7 +456,7 @@ isOneToOne: false
           Views: {
             "v_checkpoint_counts": {
                   Row: {
-                    "capacity": number | null,"checkpoint_id": string,"event_id": string,"kind": Database["public"]['Enums']["checkpoint_kind"],"live_scans": number | null,"name": string
+                    "capacity": number | null,"checkpoint_id": string | null,"event_id": string | null,"kind": Database["public"]['Enums']["checkpoint_kind"] | null,"live_scans": number | null,"name": string | null
                   }
                   ComputedFields: never
                   Relationships: [
@@ -526,7 +540,7 @@ isOneToOne: false
 { Args: { "p_event_id": string,"p_now"?: string }; Returns: Json
                            },
 "finish_outbox":
-{ Args: { "p_claim_token": string,"p_id": string,"p_last_error"?: string,"p_next_attempt_at"?: string,"p_provider_message_id"?: string,"p_rate_limited"?: boolean,"p_refund"?: boolean,"p_status": Database["public"]['Enums']["outbox_status"] }; Returns: boolean
+{ Args: { "p_claim_token"?: string,"p_id": string,"p_last_error"?: string,"p_next_attempt_at"?: string,"p_provider_message_id"?: string,"p_rate_limited"?: boolean,"p_refund"?: boolean,"p_status": Database["public"]['Enums']["outbox_status"] }; Returns: boolean
                            },
 "grant_admin_roles":
 { Args: { "p_user_id": string }; Returns: number

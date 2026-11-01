@@ -82,7 +82,7 @@
     height: 100%;
     border-radius: inherit;
     background: var(--pace-track);
-    clip-path: inset(0 calc(100% - var(--pace-position)) 0 0);
+    clip-path: inset(0 calc(100% - var(--pace-fill, var(--pace-position))) 0 0);
     transition: clip-path 180ms var(--ease);
   }
   .pace-visual::before {
@@ -393,3 +393,45 @@
     background-size: 180px 180px;
   }
 }
+
+/* v0.11.29 (owner's request): page transitions, a staggered rise (components/page-transition.tsx). The first page
+   load rises with CSS so server HTML shows without JavaScript; client navigations do the same through Framer Motion.
+   The sections are the template wrapper's grandchildren. Fill mode is backwards: once done, no transform is left to
+   trap position: fixed descendants. */
+@keyframes page-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.page-rise > * > * { animation: page-rise 0.32s var(--ease) backwards; }
+.page-rise > * > :nth-child(2) { animation-delay: 40ms; }
+.page-rise > * > :nth-child(3) { animation-delay: 80ms; }
+.page-rise > * > :nth-child(4) { animation-delay: 120ms; }
+.page-rise > * > :nth-child(5) { animation-delay: 160ms; }
+.page-rise > * > :nth-child(6) { animation-delay: 200ms; }
+.page-rise > * > :nth-child(7) { animation-delay: 240ms; }
+.page-rise > * > :nth-child(n + 8) { animation-delay: 280ms; }
+@media (prefers-reduced-motion: reduce) {
+  .page-rise > * > * { animation: none; }
+}
+
+
+/* Profile setup progress: persistent tracks, transform-only fills; entry also works after the step 3 redirect. */
+.setup-progress-fill {
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.setup-progress-fill[data-filled="true"] { transform: none; }
+@starting-style {
+  .setup-progress-fill[data-filled="true"] { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-progress-fill { transition: none !important; }
+}
+
+/* v0.11.29: Team page Tracks chart. Bars grow from the baseline on load; nothing moves under reduced motion. */
+.track-bar { transform-origin: left; transition: transform 0.5s var(--ease); }
+@starting-style { .track-bar { transform: scaleX(0); } }
+@keyframes tracks-tip { from { opacity: 0; translate: 0 4px; } }
+.tracks-tip { animation: tracks-tip 0.15s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .track-bar { transition: none; } .tracks-tip { animation: none; } }

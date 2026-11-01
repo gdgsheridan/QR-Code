@@ -72,7 +72,7 @@ test('T-NFC-14: badge sharing is a one-line switch on the Hacker profile, not on
   const box = page.getByRole('checkbox', { name: 'Share my name and links on my badge' });
   await expect(box).not.toBeChecked();
   await box.check();
-  await page.getByRole('button', { name: 'Save links' }).click();
+  await page.getByRole('button', { name: 'Save networking' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
   const { rows } = await f.pool.query('select profile_public from participants where id = $1', [f.p.B]);
   expect(rows).toEqual([{ profile_public: true }]);
@@ -91,23 +91,23 @@ test('T-NFC-21: staff link a badge; its holder sets their LinkedIn, Discord and 
 
   // v0.9.2: the browser refuses a non-profile LinkedIn link before sending (the server refuses it too, T-ME-03).
   await page.getByRole('textbox', { name: 'LinkedIn' }).fill('linkedin.com/company/not-a-person');
-  await page.getByRole('button', { name: 'Save links' }).click();
+  await page.getByRole('button', { name: 'Save networking' }).click();
   expect(await page.getByLabel('LinkedIn').evaluate((el) => (el as HTMLInputElement).validity.patternMismatch)).toBe(true);
   await page.getByRole('textbox', { name: 'LinkedIn' }).fill('linkedin.com/in/ada-claimed');
   // v0.9.2 (T-NFC-26): Discord and website, both optional. The browser refuses a bad Discord name and keeps what was typed.
   await page.getByRole('textbox', { name: 'Discord username' }).fill('ada#1234');
-  await page.getByRole('button', { name: 'Save links' }).click();
+  await page.getByRole('button', { name: 'Save networking' }).click();
   expect(await page.getByLabel('Discord username').evaluate((el) => (el as HTMLInputElement).validity.patternMismatch)).toBe(true);
   await page.getByRole('textbox', { name: 'Discord username' }).fill('ada.codes');
   await page.getByRole('textbox', { name: 'Website' }).fill('ada'); // no dot: the browser refuses it too
-  await page.getByRole('button', { name: 'Save links' }).click();
+  await page.getByRole('button', { name: 'Save networking' }).click();
   expect(await page.getByLabel('Website').evaluate((el) => (el as HTMLInputElement).validity.patternMismatch)).toBe(true);
   await expect(page.getByRole('textbox', { name: 'Discord username' })).toHaveValue('ada.codes');
   await expect(page.getByRole('textbox', { name: 'LinkedIn' })).toHaveValue('linkedin.com/in/ada-claimed');
   await page.getByRole('textbox', { name: 'Discord username' }).fill('@Ada.Codes');
   await page.getByRole('textbox', { name: 'Website' }).fill('ada.dev');
   await page.getByRole('checkbox', { name: 'Share my name and links on my badge' }).check();
-  await page.getByRole('button', { name: 'Save links' }).click();
+  await page.getByRole('button', { name: 'Save networking' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'LinkedIn' })).toHaveValue('https://www.linkedin.com/in/ada-claimed');
   await expect(page.getByRole('textbox', { name: 'Discord username' })).toHaveValue('ada.codes');

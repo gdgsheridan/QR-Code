@@ -14,6 +14,8 @@ import { db } from '@/lib/db/server';
 import { PHONE_PATTERN } from '@/lib/domain/profile';
 import { saveBadgeProfile } from '@/lib/me/profile';
 import { loadMyEvent, menuMetadata } from '../load';
+import { campusSecurity } from '@/lib/email/links';
+import { PhoneIcon } from '../icons';
 
 export const metadata: Metadata = menuMetadata('Emergency contact');
 
@@ -35,6 +37,7 @@ async function save(formData: FormData) {
 export default async function EmergencyPage(props: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const notices = await props.searchParams;
   const { me: m } = await loadMyEvent('/me/emergency');
+  const security = campusSecurity(m.event.venue);
 
   return (
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
@@ -48,9 +51,18 @@ export default async function EmergencyPage(props: { searchParams: Promise<{ sav
         <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
       <h1>Emergency contact</h1>
-      <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="event-help" >
+      <Card className="gap-3 [&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="event-help" >
         <h2 id="event-help">During the event</h2>
-        <p className="copy whitespace-pre-line [overflow-wrap:anywhere] leading-[1.7]">{m.event.emergencyInfo || 'The organizers haven’t posted emergency info yet. Find an organizer at the venue.'}</p>
+        {security && (
+          <div className="grid gap-[2px]">
+            <p className="m-0 font-semibold">Campus Security</p>
+            <a href={`tel:${security.tel}`} className="-my-1.5 inline-flex min-h-11 items-center gap-2 self-start text-lg font-semibold text-fg no-underline hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2">
+              <PhoneIcon className="h-5 w-5" />{security.phone}
+            </a>
+          </div>
+        )}
+        <p className="m-0 font-semibold">In an actual emergency, call 911.</p>
+        {m.event.emergencyInfo && <p className="copy whitespace-pre-line [overflow-wrap:anywhere] leading-[1.7]">{m.event.emergencyInfo}</p>}
       </section></Card>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="own-contact" >
         <h2 id="own-contact">Your emergency contact</h2>

@@ -40,12 +40,11 @@ export function Staff({ slug }: { slug: string }) {
   async function invite() {
     const r = await api<{ code: string; emailed?: boolean }>(adminUrl(slug, '/staff/invites'), { method: 'POST', body: { email, role } });
     if (r.ok) {
+      // PR #11 (M4): the answer is the same whether or not the address has an account, so the message covers both.
       setMessage(
-        r.data.code === 'ADDED'
-          ? `✓ Added. We emailed them a link to sign in.`
-          : r.data.emailed
-            ? `✓ Invited. We emailed them a link to set their password.`
-            : `! Invited, but the email didn’t go out. Ask them to use “Forgot or never set your password?” on the sign-in page.`,
+        r.data.emailed === false
+          ? `! Invited, but the email didn’t go out. Ask them to use “Forgot or never set your password?” on the sign-in page.`
+          : `✓ Done. We emailed them a link to sign in, or to set a password if they don’t have an account yet.`,
       );
       setEmail('');
     } else setMessage(r.status === 400 ? '✕ Enter a valid email.' : `✕ ${errorText(r)}`);

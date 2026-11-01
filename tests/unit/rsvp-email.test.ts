@@ -5,7 +5,7 @@ import { drainOutbox } from '@/lib/email/drain';
 import type { EmailMessage } from '@/lib/email/provider';
 import { renderRsvpEmail } from '@/lib/email/templates/rsvp';
 import { emailEventName } from '@/lib/email/links';
-import { shownReplyBy } from '@/lib/domain/rsvp';
+import { earlierReplyBy, shownReplyBy } from '@/lib/domain/rsvp';
 
 const base = {
   firstName: 'Ada',
@@ -33,7 +33,30 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
     expect(shownReplyBy(replyBy, closes, new Date('2026-11-05T12:00:00Z'))).toBe(closes);
     expect(shownReplyBy(null, closes, now)).toBe(closes);
     expect(shownReplyBy(null, null, now)).toBeNull();
-    expect(renderRsvpEmail({ ...base, closesAt: shownReplyBy(replyBy, closes, now) }).text).toContain('Please reply by Tue, Nov 3 · 11:59 PM EST');
+    expect(earlierReplyBy(replyBy, closes, now)).toBe(replyBy);
+    expect(earlierReplyBy(replyBy, closes, new Date('2026-11-05T12:00:00Z'))).toBeNull();
+    expect(earlierReplyBy(replyBy, replyBy, now)).toBeNull(); // the same moment: just the close
+    expect(earlierReplyBy(null, closes, now)).toBeNull();
+    expect(earlierReplyBy(replyBy, null, now)).toBe(replyBy);
+  });
+
+  it('T-RSVP-13: an earlier reply-by date is asked for, and the email names the real close as when no reply counts as a no', () => {
+    const replyBy = '2026-11-04T04:59:00.000Z';
+    const m = renderRsvpEmail({ ...base, closesAt: '2026-11-08T04:59:00.000Z', replyBy });
+    for (const part of [m.html, m.text]) {
+      expect(part).toContain('Please reply by Tue, Nov 3 · 11:59 PM EST.');
+      expect(part).toContain('Invitations close Sat, Nov 7 · 11:59 PM EST; no reply by then counts as a no, and your spot goes to someone on the waitlist.');
+    }
+    expect(renderRsvpEmail({ ...base, closesAt: '2026-11-08T04:59:00.000Z', replyBy, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 for Datathon');
+    // A reply-by date with no deadline: asked for, but nothing ever counts as a no.
+    const soft = renderRsvpEmail({ ...base, closesAt: null, replyBy });
+    for (const part of [soft.html, soft.text]) {
+      expect(part).toContain('Please reply by Tue, Nov 3 · 11:59 PM EST.');
+      expect(part).not.toContain('counts as a no');
+      expect(part).not.toContain('Invitations close');
+    }
+    // No reply-by date: today's single sentence with the close.
+    expect(renderRsvpEmail(base).text).not.toContain('Invitations close');
   });
 
   it('T-RSVP-11: emails give the datathon its full name (v0.11.23); other events keep theirs', () => {
@@ -42,7 +65,7 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
   });
 
   it('T-RSVP-11: a reminder says so in the subject; no deadline, no deadline line; names are escaped', () => {
-    expect(renderRsvpEmail({ ...base, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 — Datathon');
+    expect(renderRsvpEmail({ ...base, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 for Datathon');
     const open = renderRsvpEmail({ ...base, closesAt: null });
     expect(open.text).not.toContain('Reply by');
     expect(open.text).not.toContain('counts as a no');

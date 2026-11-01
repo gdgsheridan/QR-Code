@@ -10,6 +10,9 @@ export const venueMapUrl = (venue: string): string | null => HMC.includes(venue.
   : null;
 
 // v0.11.28 (owner's request): emails and the pass give the venue its formal name; the app keeps "HMC Campus".
+// v0.11.30 (owner's request): the HMC campus's security desk, shown on the hacker Emergency contact page.
+export const campusSecurity = (venue: string): { phone: string; tel: string } | null =>
+  HMC.includes(venue.trim().toLowerCase()) ? { phone: '(905) 815-4044', tel: '+19058154044' } : null;
 export const formalVenue = (venue: string): string => HMC.includes(venue.trim().toLowerCase()) ? 'Sheridan College - Hazel McCallion Campus' : venue;
 
 // v0.11.23 (owner's request): emails give the datathon its full name; the app keeps the short event name.

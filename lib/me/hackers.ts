@@ -26,3 +26,11 @@ export async function hackerDirectory(db: SupabaseClient<Database>, me: MyEvent,
   const people = z.array(person).parse(data);
   return { people: people.slice(0, show), more: people.length > show };
 }
+
+// Who the viewer's team has already invited (pending invites), so their cards say "Invited" instead of offering it.
+export async function invitedByMyTeam(db: SupabaseClient<Database>, me: MyEvent): Promise<Set<string>> {
+  if (!me.teamId) return new Set();
+  const { data, error } = await db.from('team_invites').select('participant_id').eq('team_id', me.teamId).eq('event_id', me.eventId);
+  if (error) throw new Error(`team invites load failed (${error.code})`);
+  return new Set(data.map((i) => i.participant_id));
+}
