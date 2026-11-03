@@ -14,6 +14,7 @@ import { clientIpKey } from '@/lib/http/ip';
 import { IP_CEILING_PER_MIN, withinLimit } from '@/lib/pass/handlers';
 import { normalizeUid } from '@/lib/domain/badge';
 import { normalizeEmail } from '@/lib/domain/normalize';
+import { connect, connectionState, type ConnectionState } from '@/lib/me/connections';
 import { CopyButton } from './copy-button';
 
 // SPEC §6.5: what a phone opens when it taps a badge. Public since v0.9: no sign-in needed, and
@@ -47,7 +48,18 @@ const siteLabel = (href: string) => {
   return `${url.host}${url.pathname}${url.search}`.replace(/\/$/, '');
 };
 
-export default async function BadgeProfilePage(props: { params: Promise<{ uid: string }> }) {
+// SPEC F17 (v0.12): Connect is a POST from a button; the tapper is the signed-in account, never the badge.
+async function connectAction(formData: FormData) {
+  'use server';
+  const uid = normalizeUid(String(formData.get('uid') ?? ''));
+  if (!uid) notFound();
+  const user = await currentUser();
+  if (!user) redirect(`/login?next=${encodeURIComponent(`/profile/${uid}`)}`);
+  const { code } = await connect(db(), user, uid);
+  redirect(`/profile/${uid}${code === 'RATE_LIMITED' ? '?c=RATE_LIMITED' : ''}`);
+}
+
+export default async function BadgeProfilePage(props: { params: Promise<{ uid: string }>; searchParams: Promise<{ c?: string }> }) {
   await connection(); // per request: an opt-out must take effect on the next view
   const raw = (await props.params).uid;
   const uid = normalizeUid(raw);
@@ -79,6 +91,10 @@ export default async function BadgeProfilePage(props: { params: Promise<{ uid: s
   // v0.6 (F14): the holder tapping their own badge opens their hacker menu.
   if (z.object({ self: z.literal(true) }).safeParse(data).success) redirect('/me');
   const profile = profileSchema.parse(data);
+  const state: ConnectionState | null = profile && viewer ? await connectionState(db(), viewer, uid) : null;
+  const limited = (await props.searchParams).c === 'RATE_LIMITED';
+  // A private profile shows no name (§6.5), so the Connect wording doesn't either.
+  const name = profile?.public ? profile.firstName : null;
 
   return (
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
@@ -129,7 +145,48 @@ export default async function BadgeProfilePage(props: { params: Promise<{ uid: s
             {!profile.linkedinUrl && !profile.discord && !profile.websiteUrl && <p>No links shared.</p>}
           </>
         )}
+        {profile && !viewer && (
+          <Button className="self-start" variant="outline" asChild>
+            <a href={`/login?next=${encodeURIComponent(`/profile/${uid}`)}`}>Sign in to connect</a>
+          </Button>
+        )}
+        {profile && state && <Connect uid={uid} name={name} state={state} />}
+        {limited && <p role="alert" className="text-bad">✕ Too many connects in a short time. Wait a few minutes and try again.</p>}
       </section></Card>
     </main></Entrance>
   );
+}
+
+// The connection game (F17): what the signed-in viewer can do with this badge. Not an attendee of this event,
+// an unknown badge or their own: nothing.
+function Connect(props: { uid: string; name: string | null; state: ConnectionState }) {
+  const { uid, name, state } = props;
+  const button = (label: string) => (
+    <form action={connectAction}>
+      <input type="hidden" name="uid" value={uid} />
+      <Button type="submit">{label}</Button>
+    </form>
+  );
+  const box = 'grid gap-[8px] pt-[12px] [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]';
+  switch (state) {
+    case 'NONE':
+      return <div className={box}>{button(name ? `Connect with ${name}` : 'Connect')}</div>;
+    case 'RECEIVED':
+      return (
+        <div className={box}>
+          <p className="m-0">{name ?? 'They'} tapped your badge. Connect back to make it count.</p>
+          {button(name ? `Connect back with ${name}` : 'Connect back')}
+        </div>
+      );
+    case 'SENT':
+      return <p role="status" className={`${box} m-0`}>Sent! It counts once {name ?? 'they'} tap{name ? 's' : ''} your badge too.</p>;
+    case 'MUTUAL':
+      return <p role="status" className={`${box} m-0 text-ok`}>✓ You’re connected{name ? ` with ${name}` : ''}.</p>;
+    case 'NOT_CHECKED_IN':
+      return <p className={`${box} m-0 text-muted-foreground`}>Check in at the door first, then you can connect.</p>;
+    case 'CLOSED':
+      return <p className={`${box} m-0 text-muted-foreground`}>Connecting closed when the event ended.</p>;
+    default:
+      return null;
+  }
 }

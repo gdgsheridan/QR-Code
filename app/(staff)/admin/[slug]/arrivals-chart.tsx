@@ -31,6 +31,32 @@ function barPath(x: number, y: number, w: number, h: number): string {
 
 // Door arrivals per 15-minute bucket. One series, so no legend: the heading names it.
 export function ArrivalsChart({ buckets, timezone }: { buckets: ArrivalBucket[]; timezone: string }) {
+  return (
+    <BucketChart
+      buckets={buckets.map((b) => ({ bucketUtc: b.bucketUtc, count: b.arrivals }))}
+      timezone={timezone}
+      minutes={15}
+      noun={['arrival', 'arrivals']}
+      title="Door arrivals per 15 minutes"
+      column="Arrivals"
+      empty="No door check-ins yet."
+    />
+  );
+}
+
+// Any one-series count per time bucket (UTC buckets, labelled in the event timezone, §13): door arrivals,
+// workshop check-ins, connections made.
+export function BucketChart(props: {
+  buckets: Array<{ bucketUtc: string; count: number }>;
+  timezone: string;
+  minutes: number;
+  noun: [string, string];
+  title: string;
+  column: string;
+  empty: string;
+}) {
+  const { timezone, minutes, noun } = props;
+  const buckets = props.buckets.map((b) => ({ bucketUtc: b.bucketUtc, arrivals: b.count }));
   const { bind, overlay } = useHoverDetails();
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(320);
@@ -44,8 +70,8 @@ export function ArrivalsChart({ buckets, timezone }: { buckets: ArrivalBucket[];
     observer.observe(element);
     return () => observer.disconnect();
   }, [hasBuckets]);
-  const labels = arrivalLabels(buckets.map(b => b.bucketUtc), timezone);
-  if (buckets.length === 0) return <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">No door check-ins yet.</p>;
+  const labels = arrivalLabels(buckets.map(b => b.bucketUtc), timezone, minutes);
+  if (buckets.length === 0) return <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">{props.empty}</p>;
 
   const W = Math.max(width, buckets.length * 44 + PAD.left + PAD.right);
   const { max, ticks } = niceScale(Math.max(...buckets.map((b) => b.arrivals)));
@@ -66,7 +92,7 @@ export function ArrivalsChart({ buckets, timezone }: { buckets: ArrivalBucket[];
 
           min-w-0 overflow-visible mt-[4px] shadow-panel max-[600.001px]:p-[16px_10px]">
       <div ref={container} className="min-w-0 overflow-x-auto">
-        <svg className="block" style={{ width: W, height: H, maxWidth: 'none' }} viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`Door arrivals per 15 minutes, ${buckets.length} buckets, peak ${Math.max(...buckets.map((b) => b.arrivals))}`}>
+        <svg className="block" style={{ width: W, height: H, maxWidth: 'none' }} viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`${props.title}, ${buckets.length} buckets, peak ${Math.max(...buckets.map((b) => b.arrivals))}`}>
           {ticks.map((t) => {
             const y = PAD.top + plotH - (t / max) * plotH;
             return (
@@ -98,8 +124,8 @@ export function ArrivalsChart({ buckets, timezone }: { buckets: ArrivalBucket[];
                   tabIndex={0}
                   data-bucket-utc={b.bucketUtc}
                   role="img"
-                  aria-label={`${labels[i]!.detail} · ${b.arrivals} ${b.arrivals === 1 ? 'arrival' : 'arrivals'}`}
-                  {...bind(`${labels[i]!.detail} · ${b.arrivals} ${b.arrivals === 1 ? 'arrival' : 'arrivals'}`)}
+                  aria-label={`${labels[i]!.detail} · ${b.arrivals} ${b.arrivals === 1 ? noun[0] : noun[1]}`}
+                  {...bind(`${labels[i]!.detail} · ${b.arrivals} ${b.arrivals === 1 ? noun[0] : noun[1]}`)}
                 />
                 {h > 0 && <path className="tw-admin-chartBar [fill:var(--accent)]" d={barPath(cx - barW / 2, PAD.top + plotH - h, barW, h)} pointerEvents="none" />}
                 {i % labelEvery === 0 && (
@@ -121,7 +147,7 @@ export function ArrivalsChart({ buckets, timezone }: { buckets: ArrivalBucket[];
           <TableHeader>
             <TableRow>
               <TableHead>Starting</TableHead>
-              <TableHead className="tw-admin-num text-right! tabular-nums">Arrivals</TableHead>
+              <TableHead className="tw-admin-num text-right! tabular-nums">{props.column}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

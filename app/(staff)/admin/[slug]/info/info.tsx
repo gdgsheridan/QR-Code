@@ -16,6 +16,8 @@ interface EventInfo {
   /** v0.11.28: the date shown to invitees, which can be earlier than the deadline. */
   rsvpReplyBy: string | null;
   timezone: string;
+  /** SPEC §8 step 11b: minutes between check-ins to different workshops (0: off). */
+  sessionCooldownMinutes: number;
 }
 
 // SPEC §11 Info: the RSVP deadline, edited in the event timezone (F13).
@@ -24,6 +26,7 @@ export function Info({ slug }: { slug: string }) {
   const [info, setInfo] = useState<EventInfo | null>(null);
   const [deadline, setDeadline] = useState('');
   const [replyBy, setReplyBy] = useState('');
+  const [cooldown, setCooldown] = useState('5');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -31,7 +34,8 @@ export function Info({ slug }: { slug: string }) {
   const load = useCallback(async () => {
     const r = await api<EventInfo>(adminUrl(slug, '/event'));
     if (r.ok) {
-      setInfo({ rsvpDeadline: r.data.rsvpDeadline, rsvpReplyBy: r.data.rsvpReplyBy, timezone: r.data.timezone });
+      setInfo({ rsvpDeadline: r.data.rsvpDeadline, rsvpReplyBy: r.data.rsvpReplyBy, timezone: r.data.timezone, sessionCooldownMinutes: r.data.sessionCooldownMinutes });
+      setCooldown(String(r.data.sessionCooldownMinutes));
       setDeadline(r.data.rsvpDeadline ? toLocalInput(r.data.rsvpDeadline, r.data.timezone) : '');
       setReplyBy(r.data.rsvpReplyBy ? toLocalInput(r.data.rsvpReplyBy, r.data.timezone) : '');
     } else setError(errorText(r));
@@ -54,6 +58,19 @@ export function Info({ slug }: { slug: string }) {
       setError(null);
       setMessage('✓ Saved.');
     } else setError(r.status === 400 ? 'Choose future times, with Reply by no later than RSVPs close, or leave them empty.' : errorText(r));
+  }
+
+  // Its own save: the RSVP form resends the deadline, which is refused once it has passed (event day).
+  async function saveCooldown(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    setMessage(null);
+    const r = await api<EventInfo>(adminUrl(slug, '/event'), { method: 'PATCH', body: { sessionCooldownMinutes: Number(cooldown) } });
+    setBusy(false);
+    if (r.ok) {
+      setError(null);
+      setMessage('✓ Workshop cooldown saved.');
+    } else setError(r.status === 400 ? 'Use a whole number of minutes from 0 to 120.' : errorText(r));
   }
 
   return (
@@ -141,6 +158,29 @@ export function Info({ slug }: { slug: string }) {
               </Button>
             </div>
           </div>
+        </form>
+      )}
+      {info && (
+        <form className="grid gap-[20px] max-w-[1100px]" onSubmit={(e) => void saveCooldown(e)} aria-labelledby="cooldown-heading">
+          <section className="grid gap-[22px] min-w-0 p-[24px] [background:var(--card)] [border-width:1px] [border-style:solid]
+          [border-color:var(--line)] rounded-ticket max-[600.001px]:p-[18px] [&_.tw-admin-field]:grid
+          [&_.tw-admin-field]:gap-[10px] [&_.tw-admin-field]:text-[0.84rem] [&_.tw-admin-field]:[font-weight:650]">
+            <div className="[&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
+              <h2 id="cooldown-heading">Workshop cooldown</h2>
+              <p className="copy max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">
+                A hacker checked in to one workshop can’t be checked in to a different workshop until this many minutes have passed. The scanner shows a timer. 0 turns it off.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-[12px]">
+              <Label className="tw-admin-field grid min-w-[140px] max-w-[220px] gap-2 text-sm text-muted-foreground">
+                Minutes between workshops
+                <Input className="tw-admin-input w-full" type="number" inputMode="numeric" min={0} max={120} step={1} required value={cooldown} onChange={(e) => setCooldown(e.target.value)} />
+              </Label>
+              <Button type="submit" variant="secondary" className="shrink-0 min-h-[44px]" disabled={busy}>
+                {busy ? 'Saving…' : 'Save cooldown'}
+              </Button>
+            </div>
+          </section>
         </form>
       )}
     </div>

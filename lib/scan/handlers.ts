@@ -94,6 +94,8 @@ const scanResultSchema = z.object({
   revokeReason: z.string().nullable().optional(),
   otherEvent: z.string().nullable().optional(),
   capacity: z.number().optional(),
+  availableAt: z.string().optional(),
+  cooldownMinutes: z.number().optional(),
 });
 
 // POST /api/scan (SPEC §9.1, F6). Every decision is made by record_scan() (I-2); this handler only

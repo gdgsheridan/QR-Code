@@ -12,6 +12,8 @@ export const ANONYMISED_NAME = 'Former participant';
 export interface RetentionReport {
   events: Array<{ eventId: string; participants: number; photos: number }>;
   anonymised: Array<{ eventId: string; participants: number; photos: number }>;
+  /** Connection taps of events that ended 30 days ago, deleted (F17). */
+  connectionsDeleted: number;
 }
 
 /** Deterministic tombstone email for an anonymised row (email is NOT NULL, so it cannot be nulled). */
@@ -69,7 +71,10 @@ export async function runRetention(db: Db, now: Date): Promise<RetentionReport> 
   const { data: events, error } = await db.from('events').select('id').lte('ends_at', cutoff);
   if (error) throw new Error(`retention events load failed (${error.code})`);
 
-  const report: RetentionReport = { events: [], anonymised: [] };
+  // F17 (v0.12): who met whom goes 30 days after the event, like the other event-day personal data.
+  const { data: connections, error: connectionsError } = await db.rpc('retain_connections');
+  if (connectionsError) throw new Error(`retain_connections failed (${connectionsError.code})`);
+  const report: RetentionReport = { events: [], anonymised: [], connectionsDeleted: connections };
   for (const { id: eventId } of events) {
     const { data: people, error: peopleError } = await db
       .from('participants')

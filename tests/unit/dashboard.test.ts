@@ -32,3 +32,13 @@ it('T-ADM-06: arrival labels distinguish local dates and preserve DST offsets in
   expect(dst[0]?.detail).toContain('1:45 AM EDT');
   expect(dst[0]?.detail).toContain('1:00 AM EST');
 });
+
+it('T-LB-05: labels follow the bucket length: an hourly bucket ends an hour later, also across the DST change', async () => {
+  const { arrivalLabels } = await import('@/lib/domain/dashboard');
+  const [hour] = arrivalLabels(['2026-11-08T14:00:00Z'], 'America/Toronto', 60);
+  expect(hour?.detail).toContain('9:00 AM EST');
+  expect(hour?.detail).toContain('10:00 AM EST');
+  const [dst] = arrivalLabels(['2026-11-01T05:00:00Z'], 'America/Toronto', 60);
+  expect(dst?.detail).toContain('1:00 AM EDT');
+  expect(dst?.detail).toContain('1:00 AM EST'); // 01:00–02:00 happens twice (§13)
+});

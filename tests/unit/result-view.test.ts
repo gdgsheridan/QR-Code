@@ -55,6 +55,9 @@ describe('result screen mapping (SPEC §10.2)', () => {
       [server({ code: 'FORBIDDEN' }), { tone: 'red', icon: '✕', headline: 'No access', detail: 'Re-select the event', action: 'pick-checkpoint' }],
       [server({ code: 'CHECKPOINT_NOT_FOUND' }), { tone: 'red', icon: '✕', headline: 'No access', action: 'pick-checkpoint' }],
       [server({ code: 'CLIENT_ID_CONFLICT' }), { tone: 'amber', icon: '!', headline: 'Rescan please' }],
+      // T-SCAN-31: the workshop cooldown, with the time left as of the server's clock.
+      [server({ code: 'SESSION_COOLDOWN', participant, availableAt: new Date(now.getTime() + 245_000).toISOString(), cooldownMinutes: 5 }),
+        { tone: 'amber', icon: '!', headline: 'COOLDOWN', name: 'Ada Lovelace', countdownMs: 245_000, detail: 'Just checked in to another workshop. Workshops need 5 min between check-ins' }],
       [{ kind: 'network' }, { tone: 'amber', icon: '!', headline: 'NO RESULT: do not admit yet. Rescan.' }],
       [{ kind: 'rate_limited' }, { tone: 'amber', icon: '!', headline: 'Slow down' }],
     ];

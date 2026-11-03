@@ -42,6 +42,24 @@ export const HackersIcon = ({ className }: { className?: string }) => (
   </Icon>
 );
 
+// Connections (F17): two linked nodes.
+export const ConnectIcon = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="6" r="3" />
+    <circle cx="18" cy="18" r="3" />
+    <path d="M8.7 10.6l6.6-3.2M8.7 13.4l6.6 3.2" />
+  </Icon>
+);
+
+// Workshops: a presentation board.
+export const WorkshopIcon = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <rect x="3" y="3.5" width="18" height="12" rx="1.5" />
+    <path d="M12 15.5v3M8 21l4-2.5 4 2.5M7 8h6M7 11h10" />
+  </Icon>
+);
+
 export const ScheduleIcon = ({ className }: { className?: string }) => (
   <Icon className={className}>
     <rect x="3" y="4.5" width="18" height="16.5" rx="2" />

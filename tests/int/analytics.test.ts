@@ -19,6 +19,9 @@ beforeAll(async () => {
   for (const t of [f.token.A, f.token.B, f.token.Rv, f.token.T]) await s(f.cp.D, t); // T is is_test
   for (const t of [f.token.A, f.token.B, f.token.T]) await s(f.cp.L, t);
   await s(f.cp.W, f.token.A);
+  // A attends Alpha Talk below too: workshops have a cooldown between check-ins (§8 step 11b), so
+  // A's Workshop scan happened 10 minutes earlier. Counts and ranking are unaffected.
+  await f.pool.query(`update scans set scanned_at = now() - interval '10 minutes' where participant_id = $1 and checkpoint_id = $2`, [f.p.A, f.cp.W]);
   const bW = await s(f.cp.W, f.token.B);
   await f.voidScan(bW.scanId ?? '', f.staff.org1); // voided: excluded
   for (const t of [f.token.A, f.token.B]) await s(f.cp.R, t);

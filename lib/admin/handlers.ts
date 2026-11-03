@@ -69,6 +69,32 @@ const metricsSchema = z.object({
   notFound: z.array(z.object({ staffUserId: z.string(), displayName: z.string().nullable(), count: z.number() })),
 });
 
+// SPEC §13 (v0.12): workshop and connection analytics, counts only.
+const bucketsSchema = z.array(z.object({ bucketUtc: z.string(), count: z.number() }).strict());
+const workshopAnalyticsSchema = z.object({
+  checkedIn: z.number(),
+  attendees: z.number(),
+  checkIns: z.number(),
+  cooldownMinutes: z.number(),
+  cooldownRefusals: z.number(),
+  distribution: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  workshops: z.array(z.object({ id: z.string(), name: z.string(), isOpen: z.boolean(), capacity: z.number().nullable(), startsAt: z.string().nullable(), attendees: z.number() }).strict()),
+  buckets: bucketsSchema,
+}).strict();
+const workshopAttendanceSchema = z.array(z.object({ workshop: z.string(), firstName: z.string(), lastName: z.string(), scannedAt: z.string(), method: z.string() }).strict());
+const connectionAnalyticsSchema = z.object({
+  mutual: z.number(),
+  waiting: z.number(),
+  checkedIn: z.number(),
+  connectedPeople: z.number(),
+  buckets: bucketsSchema,
+}).strict();
+
+const leaderboardSchema = z.object({
+  frozenAt: z.string().nullable(),
+  rows: z.array(z.object({ rank: z.number(), name: z.string(), points: z.number() }).strict()),
+}).strict();
+
 // §11: the Sheet link (Sync page) and, since v0.6, the hackers' schedule and emergency info (Info page).
 const eventUpdate = z
   .object({
@@ -81,6 +107,8 @@ const eventUpdate = z
     rsvpDeadline: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
     // v0.11.28: the date shown to invitees (and the reminder days); not after the deadline (a database check).
     rsvpReplyBy: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
+    // SPEC §8 step 11b: minutes between check-ins to different workshops; 0 turns the cooldown off.
+    sessionCooldownMinutes: z.number().int().min(0).max(120).optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0);
@@ -175,7 +203,7 @@ export function createAdminApi(deps: AdminDeps) {
   }
 
   async function loadEvent(eventId: string) {
-    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released, rsvp_deadline, rsvp_reply_by').eq('id', eventId).single();
+    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released, rsvp_deadline, rsvp_reply_by, session_cooldown_minutes').eq('id', eventId).single();
     if (error) throw new Error(`event load failed (${error.code})`);
     return data;
   }
@@ -576,6 +604,68 @@ export function createAdminApi(deps: AdminDeps) {
       return json({ code: data });
     },
 
+    // GET /api/admin/[slug]/analytics/workshops (§13): attendance per workshop, how many workshops each
+    // checked-in hacker attended (0, 1, 2, 3+), cooldown refusals and check-ins per 15 minutes.
+    async getWorkshopAnalytics(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const [{ data, error }, event] = await Promise.all([db.rpc('workshop_analytics', { p_event_id: g.eventId }), loadEvent(g.eventId)]);
+      if (error) throw new Error(`workshop_analytics failed (${error.code})`);
+      const a = workshopAnalyticsSchema.parse(data);
+      return json({
+        ...a,
+        timezone: event.timezone,
+        workshops: a.workshops.map((w) => ({ ...w, fill: w.capacity ? round4(w.attendees / w.capacity) : null })),
+        buckets: a.buckets.map((b) => {
+          const bucketUtc = new Date(b.bucketUtc).toISOString();
+          return { bucketUtc, label: bucketLabel(bucketUtc, event.timezone), count: b.count };
+        }),
+      });
+    },
+
+    // GET /api/admin/[slug]/analytics/connections (§13, F17): totals only, never who met whom.
+    async getConnectionAnalytics(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const [{ data, error }, event] = await Promise.all([db.rpc('connection_analytics', { p_event_id: g.eventId }), loadEvent(g.eventId)]);
+      if (error) throw new Error(`connection_analytics failed (${error.code})`);
+      const a = connectionAnalyticsSchema.parse(data);
+      return json({
+        ...a,
+        timezone: event.timezone,
+        connectedShare: a.checkedIn ? Math.min(1, round4(a.connectedPeople / a.checkedIn)) : 0, // a voided door scan can leave someone connected but not checked in
+        buckets: a.buckets.map((b) => {
+          const bucketUtc = new Date(b.bucketUtc).toISOString();
+          return { bucketUtc, label: bucketLabel(bucketUtc, event.timezone), count: b.count };
+        }),
+      });
+    },
+
+    // F17 step 6 (v0.12): the connection leaderboard for the projector: rank, "First L." and points, top 10.
+    async getLeaderboard(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const { data, error } = await db.rpc('connection_leaderboard', { p_event_id: g.eventId, p_limit: 10 });
+      if (error) throw new Error(`connection_leaderboard failed (${error.code})`);
+      return json(leaderboardSchema.parse(data));
+    },
+
+    // Freeze before prizes: the board stays as of this moment until unfrozen. Audited with no detail.
+    async freezeLeaderboard(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = z.object({ frozen: z.boolean() }).strict().safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      const { frozen } = body.data;
+      const { error } = await db
+        .from('events')
+        .update({ leaderboard_frozen_at: frozen ? now().toISOString() : null })
+        .eq('id', g.eventId);
+      if (error) throw new Error(`leaderboard freeze failed (${error.code})`);
+      await audit(g.eventId, g.userId, frozen ? 'leaderboard.freeze' : 'leaderboard.unfreeze', g.eventId, {});
+      return json({ frozen });
+    },
+
     // GET /api/admin/[slug]/event
     async getEvent(request: Request, params: Params) {
       const g = await guard(request, params);
@@ -598,6 +688,7 @@ export function createAdminApi(deps: AdminDeps) {
         tracksReleased: e.tracks_released,
         rsvpDeadline: e.rsvp_deadline && new Date(e.rsvp_deadline).toISOString(),
         rsvpReplyBy: e.rsvp_reply_by && new Date(e.rsvp_reply_by).toISOString(),
+        sessionCooldownMinutes: e.session_cooldown_minutes,
         lastSyncAt: lastSync ? new Date(lastSync.created_at).toISOString() : null,
       });
     },
@@ -608,7 +699,7 @@ export function createAdminApi(deps: AdminDeps) {
       if (g instanceof Response) return g;
       const body = eventUpdate.safeParse(await readJson(request));
       if (!body.success) return badRequest();
-      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased, rsvpDeadline, rsvpReplyBy } = body.data;
+      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased, rsvpDeadline, rsvpReplyBy, sessionCooldownMinutes } = body.data;
       const sheetId = sheet === undefined || sheet === null ? null : parseSheetId(sheet);
       if (sheet !== undefined && sheet !== null && sheetId === null) return badRequest();
       const { error } = await db
@@ -621,12 +712,13 @@ export function createAdminApi(deps: AdminDeps) {
           ...(tracksReleased !== undefined && { tracks_released: tracksReleased }),
           ...(rsvpDeadline !== undefined && { rsvp_deadline: rsvpDeadline }),
           ...(rsvpReplyBy !== undefined && { rsvp_reply_by: rsvpReplyBy }),
+          ...(sessionCooldownMinutes !== undefined && { session_cooldown_minutes: sessionCooldownMinutes }),
         })
         .eq('id', g.eventId);
       if (error?.code === '23514') return badRequest(); // a reply-by date after the deadline
       if (error) throw new Error(`event update failed (${error.code})`);
       if (sheet !== undefined) await audit(g.eventId, g.userId, 'event.sheet_link', g.eventId, { linked: sheetId !== null });
-      if (schedule !== undefined || emergencyInfo !== undefined || rsvpDeadline !== undefined || rsvpReplyBy !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
+      if (schedule !== undefined || emergencyInfo !== undefined || rsvpDeadline !== undefined || rsvpReplyBy !== undefined || sessionCooldownMinutes !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
       const flags = { ...(teamsOpen !== undefined && { teamsOpen }), ...(tracksReleased !== undefined && { tracksReleased }) };
       if (Object.keys(flags).length > 0) await audit(g.eventId, g.userId, 'event.teams', g.eventId, flags);
       return json({
@@ -635,6 +727,7 @@ export function createAdminApi(deps: AdminDeps) {
         ...(emergencyInfo !== undefined && { emergencyInfo }),
         ...(rsvpDeadline !== undefined && { rsvpDeadline: rsvpDeadline && new Date(rsvpDeadline).toISOString() }),
         ...(rsvpReplyBy !== undefined && { rsvpReplyBy: rsvpReplyBy && new Date(rsvpReplyBy).toISOString() }),
+        ...(sessionCooldownMinutes !== undefined && { sessionCooldownMinutes }),
         ...flags,
       });
     },
@@ -895,6 +988,20 @@ export function createAdminApi(deps: AdminDeps) {
               s.scanned_at, local(s.scanned_at), s.checkpoints.name, s.checkpoints.kind, s.participants.first_name,
               s.participants.last_name, s.participants.is_test, s.method, names.get(s.scanned_by) ?? '', s.voided_at, s.void_reason,
             ]),
+          ),
+        );
+      }
+
+      // SPEC §11: who attended which workshop. No emails, like scans.csv; the §13 exclusions apply.
+      if (kind === 'workshops.csv') {
+        const { data, error } = await db.rpc('workshop_attendance', { p_event_id: g.eventId });
+        if (error) throw new Error(`workshop_attendance failed (${error.code})`);
+        return csvResponse(
+          slug,
+          kind,
+          toCsv(
+            ['workshop', 'first_name', 'last_name', 'scanned_at_utc', 'scanned_at_local', 'method'],
+            workshopAttendanceSchema.parse(data).map((r) => [r.workshop, r.firstName, r.lastName, new Date(r.scannedAt).toISOString(), local(r.scannedAt), r.method]),
           ),
         );
       }

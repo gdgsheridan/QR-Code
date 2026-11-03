@@ -13,6 +13,7 @@ export const SCAN_CODES = [
   'FORBIDDEN',
   'CHECKPOINT_NOT_FOUND',
   'CLIENT_ID_CONFLICT',
+  'SESSION_COOLDOWN', // §8 step 11b: another workshop within the event's cooldown
 ] as const;
 
 export type ScanCode = (typeof SCAN_CODES)[number];

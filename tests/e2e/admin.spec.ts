@@ -6,7 +6,7 @@ import { createStandardFixture, type StandardFixture } from '../fixtures/standar
 const ORG = authStatePath('admin-org');
 const VOL = authStatePath('admin-vol');
 const OTHER_ORG = authStatePath('admin-other-org');
-const PAGES = ['', '/participants', '/teams', '/checkpoints', '/staff', '/info', '/export', '/tools'];
+const PAGES = ['', '/participants', '/teams', '/workshops', '/leaderboard', '/checkpoints', '/staff', '/info', '/export', '/tools'];
 
 test.describe.configure({ mode: 'serial' });
 test.use({ storageState: ORG });

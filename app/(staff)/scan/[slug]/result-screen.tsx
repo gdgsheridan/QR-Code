@@ -2,7 +2,8 @@
 
 import { Entrance } from '@/components/motion';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { formatCountdown } from '@/lib/domain/countdown';
 import type { ResultView } from '@/lib/scanner/result-view';
 
 // SPEC §10.2: icon + text + colour together; names ≥ 32 px. Flat fills (Tailwind 700 shades) keep white text above 4.5:1.
@@ -23,7 +24,17 @@ export function ResultScreen({ view, shownAt, onDismiss }: { view: ResultView; s
     };
   }, []);
 
-  const announcement = [view.headline, view.name, view.emphasis, view.detail].filter(Boolean).join('. ');
+  // Workshop cooldown: tick once a second from when the result appeared (performance.now() only measures elapsed time).
+  const [tick, setTick] = useState(() => performance.now()); // shownAt is performance.now() too
+  useEffect(() => {
+    if (view.countdownMs === undefined) return;
+    const t = setInterval(() => setTick(performance.now()), 1000);
+    return () => clearInterval(t);
+  }, [view.countdownMs]);
+  const left = view.countdownMs === undefined ? null : view.countdownMs - Math.max(0, tick - shownAt);
+  const countdownText = left === null ? null : left > 0 ? `Next workshop in ${formatCountdown(left)}` : 'They can check in to a workshop now';
+
+  const announcement = [view.headline, view.name, view.emphasis, view.detail, view.countdownMs !== undefined ? `Next workshop in ${formatCountdown(view.countdownMs)}` : null].filter(Boolean).join('. ');
 
   return (
     <div
@@ -59,6 +70,7 @@ export function ResultScreen({ view, shownAt, onDismiss }: { view: ResultView; s
         {view.emphasis && <span className="text-[22px] font-extrabold [background:rgba(0,_0,_0,_0.22)] [border-width:1px] [border-style:solid]
 
             [border-color:rgba(255,_255,_255,_0.18)] p-[10px_16px] rounded-card">{view.emphasis}</span>}
+        {countdownText && <span className="text-[28px] font-bold tabular-nums" data-testid="cooldown-timer">{countdownText}</span>}
         {view.detail && <span className="text-[17px] leading-[1.6] m-0 max-w-[520px] opacity-[0.9]">{view.detail}</span>}
         <span id="result-hint" className="text-[14px] opacity-[0.78] mt-[8px]">
           {tap ? 'Tap to continue' : 'Tap to skip'}

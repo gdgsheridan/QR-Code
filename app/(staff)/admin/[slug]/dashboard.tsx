@@ -210,7 +210,7 @@ export function Dashboard({ slug }: { slug: string }) {
   );
 }
 
-function Tile(props: { id: string; label: string; value: number; hint?: string }) {
+export function Tile(props: { id: string; label: string; value: number; hint?: string }) {
   return (
     <div className="tw-admin-tile
 

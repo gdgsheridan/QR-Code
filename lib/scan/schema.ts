@@ -59,6 +59,8 @@ export const scanResponseSchema = z.object({
   revokeReason: z.string().nullable().optional(),
   otherEvent: z.string().nullable().optional(),
   capacity: z.number().optional(),
+  availableAt: z.string().optional(), // SESSION_COOLDOWN: when the next workshop check-in opens
+  cooldownMinutes: z.number().optional(),
   serverTime: z.string(),
 });
 

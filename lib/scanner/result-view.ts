@@ -1,3 +1,4 @@
+import { remainingMs } from '@/lib/domain/countdown';
 import type { ScanResponse } from '@/lib/scan/schema';
 
 // SPEC §10.2. Every state has an icon, a text label and a colour, never colour alone.
@@ -29,6 +30,8 @@ export interface ResultView {
   /** Shown bold, e.g. dietary notes at a meal. */
   emphasis?: string;
   name?: string;
+  /** SESSION_COOLDOWN: time left until the next workshop check-in opens, as of when the result is shown. */
+  countdownMs?: number;
   dismiss: { autoMs: number } | 'tap';
   action?: 'manual-search' | 'pick-checkpoint';
   sound: 'chime' | 'buzz' | 'double';
@@ -105,5 +108,14 @@ export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
       return problem('red', '✕', 'No access', { detail: 'Re-select the event', action: 'pick-checkpoint' });
     case 'CLIENT_ID_CONFLICT':
       return problem('amber', '!', 'Rescan please');
+    case 'SESSION_COOLDOWN': {
+      // Both instants are the server's (I-7): the screen ticks down from here.
+      const left = r.availableAt ? remainingMs(r.availableAt, r.serverTime) : 0;
+      return problem('amber', '!', 'COOLDOWN', {
+        ...who,
+        detail: `Just checked in to another workshop. Workshops need ${r.cooldownMinutes ?? 5} min between check-ins`,
+        countdownMs: left,
+      });
+    }
   }
 }

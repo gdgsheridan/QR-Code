@@ -54,6 +54,7 @@ test('T-SCUI-03: each ScanCode shows its §10.2 colour, icon, label and dismiss 
     [{ code: 'CHECKPOINT_CLOSED', participant: ada }, { tone: 'amber', icon: '!', text: 'Door is closed', dismiss: 'tap' }],
     [{ code: 'CAPACITY_REACHED', participant: ada, capacity: 40 }, { tone: 'red', icon: '✕', text: 'FULL (40)', dismiss: 'tap' }],
     [{ code: 'CLIENT_ID_CONFLICT' }, { tone: 'amber', icon: '!', text: 'Rescan please', dismiss: 'tap' }],
+    [{ code: 'SESSION_COOLDOWN', participant: ada, availableAt: new Date(Date.now() + 245_000).toISOString(), cooldownMinutes: 5 }, { tone: 'amber', icon: '!', text: 'Next workshop in ', dismiss: 'tap' }],
     [{ code: 'FORBIDDEN' }, { tone: 'red', icon: '✕', text: 'No access', dismiss: 'tap' }],
   ];
   const result = page.getByTestId('scan-result');

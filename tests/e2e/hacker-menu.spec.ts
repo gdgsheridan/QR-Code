@@ -65,9 +65,9 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
 
   const menu = page.getByRole('navigation', { name: 'Hacker menu' });
   for (const item of ['Hacker profile', 'Schedule', 'Emergency contact']) await expect(menu.getByRole('link', { name: item })).toBeVisible();
-  // Menu order (v0.11.18): Hackers, Schedule, Team, Emergency contact, Hacker profile.
+  // Menu order (v0.12: Connections and Workshops after Schedule).
   const order = await menu.locator('li > a').evaluateAll(links => links.map(link => link.getAttribute('href')));
-  expect(order).toEqual(['/me/hackers', '/me/schedule', '/me/team', '/me/emergency', '/me/profile']);
+  expect(order).toEqual(['/me/hackers', '/me/schedule', '/me/connections', '/me/workshops', '/me/team', '/me/emergency', '/me/profile']);
   // v0.11.28: Links is a menu row that opens in place with the Discord, hacker package and Google Group.
   const links = menu.getByRole('button', { name: /^Links/ });
   await expect(links).toHaveAttribute('aria-expanded', 'false');

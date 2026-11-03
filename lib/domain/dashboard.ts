@@ -16,14 +16,14 @@ export function bucketLabel(utcIso: string, timeZone: string): string {
 }
 
 // Keep UTC bucket order; show local days when a time alone would look out of order.
-export function arrivalLabels(buckets: string[], timeZone: string): { axis: string; detail: string }[] {
+export function arrivalLabels(buckets: string[], timeZone: string, minutes = 15): { axis: string; detail: string }[] {
   const date = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
   const multiDay = new Set(buckets.map(utc => date.format(new Date(utc)))).size > 1;
   const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' });
   const time = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' });
   return buckets.map(utc => {
     const start = new Date(utc);
-    const end = new Date(start.getTime() + 15 * 60_000);
+    const end = new Date(start.getTime() + minutes * 60_000);
     const endDay = date.format(start) === date.format(end) ? '' : `${weekday.format(end)} `;
     return {
       axis: `${multiDay ? `${weekday.format(start)} ` : ''}${time.format(start)}`,

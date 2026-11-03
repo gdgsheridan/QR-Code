@@ -334,7 +334,7 @@ const HOW: Record<ScanRow['method'], string> = { qr: 'QR', nfc: 'Badge', manual:
 
 // SPEC §11 (v0.8): who was scanned at a checkpoint, newest first. Remove voids the scan (F11, I-9): it stays
 // in the history but stops counting, and the person can be scanned again.
-function CheckpointPeople(props: { slug: string; checkpoint: Checkpoint; timezone: string; onClose: () => void }) {
+export function CheckpointPeople(props: { slug: string; checkpoint: Pick<Checkpoint, 'id' | 'name'>; timezone: string; onClose: () => void }) {
   const api = useApi();
   const { slug, checkpoint } = props;
   const [rows, setRows] = useState<ScanRow[] | null>(null);
