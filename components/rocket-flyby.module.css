@@ -1,4 +1,6 @@
+/* Hidden until components/rocket-flyby.tsx decides this load gets a flight. */
 .rocket {
+  display: none;
   position: fixed;
   top: 0;
   left: 0;
@@ -14,6 +16,8 @@
   transform: translate3d(-100vw, -100vh, 0);
   will-change: transform;
 }
+
+.rocket[data-rocket="flying"] { display: block; }
 
 @keyframes rocket-flame { to { background-position: 100% 0; } }
 

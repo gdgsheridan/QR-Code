@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 const API_DIR = join(process.cwd(), 'app', 'api');
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 // Routes with their own authentication (SPEC T-SEC-04): they must still refuse an anonymous call.
-const SELF_AUTH = new Set(['/api/pass', '/api/rsvp', '/api/ingest/sheet', '/api/email/drain']);
+const SELF_AUTH = new Set(['/api/pass', '/api/rsvp', '/api/ingest/sheet', '/api/email/drain', '/api/catering']);
 
 function routeFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

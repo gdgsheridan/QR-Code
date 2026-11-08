@@ -21,6 +21,12 @@ export function toLocalInput(at: string | Date, timeZone: string): string {
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
+// Calendar days from `now` to `at` in the event timezone (I-8): 0 on the day itself, 1 the day before, negative after.
+export function daysUntil(at: string | Date, now: Date, timeZone: string): number {
+  const day = (d: string | Date) => Date.parse(toLocalInput(d, timeZone).slice(0, 10));
+  return (day(at) - day(now)) / 86_400_000;
+}
+
 // The UTC offset (ms) that `timeZone` has at `instantMs`.
 function offsetAt(instantMs: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {

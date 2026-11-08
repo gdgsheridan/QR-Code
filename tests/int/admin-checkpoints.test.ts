@@ -56,6 +56,24 @@ describe('checkpoints admin (SPEC §11)', () => {
     expect((await c.call('deleteCheckpoint', org, { slug: f.slug, id }, { method: 'DELETE' })).status).toBe(200);
   });
 
+  it('T-ADM-04 (v0.12): a checkpoint whose scans were all removed can be deleted, its removed scans with it; one live scan still blocks it', async () => {
+    const del = (id: string) => c.call('deleteCheckpoint', org, { slug: f.slug, id }, { method: 'DELETE' });
+    const made = await c.call('createCheckpoint', org, { slug: f.slug }, { body: { name: 'Test desk', kind: 'custom', requiresCheckin: false } });
+    const id = String(obj(obj(made.body).checkpoint).id);
+    await c.call('updateCheckpoint', org, { slug: f.slug, id }, { method: 'PATCH', body: { isOpen: true } });
+    const first = await f.scan({ cp: id, staff: f.staff.vol1, token: f.token.A });
+    const second = await f.scan({ cp: id, staff: f.staff.vol1, token: f.token.B });
+    expect([first.code, second.code]).toEqual(['ACCEPTED', 'ACCEPTED']);
+    expect((await f.voidScan(String(first.scanId), f.staff.vol1)).code).toBe('VOIDED');
+    expect((await del(id)).status).toBe(409); // B's scan is still live
+    expect((await f.voidScan(String(second.scanId), f.staff.vol1)).code).toBe('VOIDED');
+    expect((await del(id)).status).toBe(200);
+    const left = await f.pool.query('select 1 from scans where checkpoint_id = $1', [id]);
+    expect(left.rowCount).toBe(0);
+    const audit = await f.pool.query<{ detail: unknown }>(`select detail from audit_log where action = 'checkpoint.delete' and subject_id = $1`, [id]);
+    expect(audit.rows.map((r) => r.detail)).toEqual([{ removedScans: 2 }]);
+  });
+
   it('I-5: a checkpoint of another event cannot be changed through this event (404)', async () => {
     const res = await c.call('updateCheckpoint', org, { slug: f.slug, id: f.cp.D2 }, { method: 'PATCH', body: { isOpen: false } });
     expect(res.status).toBe(404);

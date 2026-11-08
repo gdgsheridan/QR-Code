@@ -32,15 +32,17 @@ describe('POST /api/pass (SPEC F5)', () => {
     expect(await (await c.lookup({ token: f.token.A })).json()).toEqual(body);
 
     // v0.11.25: the pass shows their team and track, and the links they share on their badge.
-    const { rows: [track] } = await f.pool.query<{ id: string }>(`insert into tracks (event_id, name) values ($1, 'Best AI') returning id`, [f.e1.id]);
+    // v0.11.50: a team has any number of tracks, listed by name.
     const { rows: [team] } = await f.pool.query<{ id: string }>(
-      `insert into teams (event_id, name, join_code, track_id) values ($1, 'Byte Club', 'ABCDEFGH', $2) returning id`, [f.e1.id, track?.id]);
+      `insert into teams (event_id, name, join_code) values ($1, 'Byte Club', 'ABCDEFGH') returning id`, [f.e1.id]);
+    await f.pool.query(`with t as (insert into tracks (event_id, name) values ($1, 'Best Hardware'), ($1, 'Best AI') returning id)
+      insert into team_tracks (team_id, track_id, event_id) select $2, id, $1 from t`, [f.e1.id, team?.id]);
     await f.pool.query(
       `update participants set team_id = $2, linkedin_url = 'https://www.linkedin.com/in/ada', discord_username = 'ada.codes',
               website_url = 'https://ada.dev/', dietary_notes = 'Vegan' where id = $1`, [f.p.A, team?.id]);
     const shared = await (await c.lookup({ token: f.token.A })).json();
     expect(shared).toMatchObject({
-      team: { name: 'Byte Club', track: 'Best AI' },
+      team: { name: 'Byte Club', tracks: ['Best AI', 'Best Hardware'] },
       links: { linkedinUrl: 'https://www.linkedin.com/in/ada', discord: 'ada.codes', websiteUrl: 'https://ada.dev/' },
     });
     expect(JSON.stringify(shared)).not.toMatch(/Vegan|@/);

@@ -1,7 +1,5 @@
 'use client';
 
-import { SectionLabel } from '@/components/section-label';
-import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -12,6 +10,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@
 import { useCallback, useState } from 'react';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
 import { ConfirmDialog } from '../dialog';
+import { PageHeader } from '../page-header';
 
 interface StaffData {
   staff: Array<{ userId: string; role: 'organizer' | 'volunteer'; displayName: string | null; isMe: boolean }>;
@@ -71,31 +70,9 @@ export function Staff({ slug }: { slug: string }) {
           [&_input:focus-visible]:[outline-offset:3px] [&_select:focus-visible]:[outline:2px_solid_var(--accent)]
 
           [&_select:focus-visible]:[outline-offset:3px]">
-        <header className="flex items-start justify-between gap-[20px] p-[8px_0px] max-[760.001px]:items-stretch
-
-          max-[480.001px]:flex-wrap [&_h1]:m-0 [&_h1]:text-[clamp(1.8rem,_3vw,_2.3rem)] [&_h1]:tracking-[-0.045em]">
-          <div>
-            <SectionLabel>EVENT MANAGEMENT</SectionLabel>
-            <h1>Staff</h1>
-            <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
-              Manage your team, assign roles, and invite people to help run your event.
-            </p>
-          </div>
-          <Card className="grid gap-[3px] [flex-shrink:0] min-w-[112px] p-[14px_18px] [background:var(--card)] [border-width:1px]
-
-          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
-
-          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
-
-          max-[760.001px]:min-w-[84px] max-[760.001px]:p-[12px] max-[480.001px]:w-full max-[480.001px]:box-border
-
-          [&_span:first-child]:text-[1.65rem] [&_span:first-child]:[font-weight:750]
-
-          [&_span:first-child]:leading-[1.2] [&_span:last-child]:text-muted-foreground [&_span:last-child]:text-[0.78rem]">
-            <span>{data?.staff.length ?? '—'}</span>
-            <span>Team members</span>
-          </Card>
-        </header>
+        <PageHeader title="Staff" description="Manage your team, assign roles, and invite people to help run your event.">
+          {data && <span className="text-muted-foreground text-[14px]">{data.staff.length} {data.staff.length === 1 ? 'team member' : 'team members'}</span>}
+        </PageHeader>
 
         <section className="min-w-0 p-[22px] [background:var(--card)] [border-width:1px] [border-style:solid]
 

@@ -71,14 +71,14 @@ isOneToOne: false
                   ]
                 },"checkpoints": {
                   Row: {
-                    "capacity": number | null,"event_id": string,"id": string,"is_open": boolean,"kind": Database["public"]['Enums']["checkpoint_kind"],"name": string,"requires_checkin": boolean,"sort_order": number,"starts_at": string | null
+                    "capacity": number | null,"event_id": string,"id": string,"is_open": boolean,"kind": Database["public"]['Enums']["checkpoint_kind"],"name": string,"requires_checkin": boolean,"seconds_mode": boolean,"sort_order": number,"starts_at": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "capacity"?: number | null,"event_id": string,"id"?: string,"is_open"?: boolean,"kind": Database["public"]['Enums']["checkpoint_kind"],"name": string,"requires_checkin"?: boolean,"sort_order"?: number,"starts_at"?: string | null
+                    "capacity"?: number | null,"event_id": string,"id"?: string,"is_open"?: boolean,"kind": Database["public"]['Enums']["checkpoint_kind"],"name": string,"requires_checkin"?: boolean,"seconds_mode"?: boolean,"sort_order"?: number,"starts_at"?: string | null
                   }
                   Update: {
-                    "capacity"?: number | null,"event_id"?: string,"id"?: string,"is_open"?: boolean,"kind"?: Database["public"]['Enums']["checkpoint_kind"],"name"?: string,"requires_checkin"?: boolean,"sort_order"?: number,"starts_at"?: string | null
+                    "capacity"?: number | null,"event_id"?: string,"id"?: string,"is_open"?: boolean,"kind"?: Database["public"]['Enums']["checkpoint_kind"],"name"?: string,"requires_checkin"?: boolean,"seconds_mode"?: boolean,"sort_order"?: number,"starts_at"?: string | null
                   }
                   Relationships: [
                     {
@@ -87,6 +87,38 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "events"
       referencedColumns: ["id"]
+    }
+                  ]
+                },"connection_taps": {
+                  Row: {
+                    "created_at": string,"event_id": string,"from_participant_id": string,"to_participant_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"event_id": string,"from_participant_id": string,"to_participant_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"event_id"?: string,"from_participant_id"?: string,"to_participant_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "connection_taps_event_id_fkey"
+      columns: ["event_id"]
+isOneToOne: false
+      referencedRelation: "events"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "connection_taps_from_participant_id_event_id_fkey"
+      columns: ["from_participant_id","event_id"]
+isOneToOne: false
+      referencedRelation: "participants"
+      referencedColumns: ["id","event_id"]
+    },{
+      foreignKeyName: "connection_taps_to_participant_id_event_id_fkey"
+      columns: ["to_participant_id","event_id"]
+isOneToOne: false
+      referencedRelation: "participants"
+      referencedColumns: ["id","event_id"]
     }
                   ]
                 },"email_outbox": {
@@ -137,14 +169,14 @@ isOneToOne: false
                   ]
                 },"events": {
                   Row: {
-                    "created_at": string,"emergency_info": string,"ends_at": string,"id": string,"name": string,"rsvp_deadline": string | null,"rsvp_reply_by": string | null,"schedule": string,"sheet_id": string | null,"slug": string,"starts_at": string,"teams_open": boolean,"timezone": string,"tracks_released": boolean,"venue": string
+                    "catering_link_id": string | null,"created_at": string,"emergency_info": string,"ends_at": string,"id": string,"leaderboard_frozen_at": string | null,"name": string,"rsvp_deadline": string | null,"rsvp_reply_by": string | null,"schedule": string,"session_cooldown_minutes": number,"sheet_id": string | null,"slug": string,"starts_at": string,"teams_open": boolean,"timezone": string,"tracks_released": boolean,"venue": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"emergency_info"?: string,"ends_at": string,"id"?: string,"name": string,"rsvp_deadline"?: string | null,"rsvp_reply_by"?: string | null,"schedule"?: string,"sheet_id"?: string | null,"slug": string,"starts_at": string,"teams_open"?: boolean,"timezone"?: string,"tracks_released"?: boolean,"venue": string
+                    "catering_link_id"?: string | null,"created_at"?: string,"emergency_info"?: string,"ends_at": string,"id"?: string,"leaderboard_frozen_at"?: string | null,"name": string,"rsvp_deadline"?: string | null,"rsvp_reply_by"?: string | null,"schedule"?: string,"session_cooldown_minutes"?: number,"sheet_id"?: string | null,"slug": string,"starts_at": string,"teams_open"?: boolean,"timezone"?: string,"tracks_released"?: boolean,"venue": string
                   }
                   Update: {
-                    "created_at"?: string,"emergency_info"?: string,"ends_at"?: string,"id"?: string,"name"?: string,"rsvp_deadline"?: string | null,"rsvp_reply_by"?: string | null,"schedule"?: string,"sheet_id"?: string | null,"slug"?: string,"starts_at"?: string,"teams_open"?: boolean,"timezone"?: string,"tracks_released"?: boolean,"venue"?: string
+                    "catering_link_id"?: string | null,"created_at"?: string,"emergency_info"?: string,"ends_at"?: string,"id"?: string,"leaderboard_frozen_at"?: string | null,"name"?: string,"rsvp_deadline"?: string | null,"rsvp_reply_by"?: string | null,"schedule"?: string,"session_cooldown_minutes"?: number,"sheet_id"?: string | null,"slug"?: string,"starts_at"?: string,"teams_open"?: boolean,"timezone"?: string,"tracks_released"?: boolean,"venue"?: string
                   }
                   Relationships: [
                     
@@ -161,7 +193,27 @@ isOneToOne: false
                     "request_key"?: string,"seen_at"?: string
                   }
                   Relationships: [
-
+                    
+                  ]
+                },"judges": {
+                  Row: {
+                    "badge_linked_at": string | null,"badge_uid": string | null,"created_at": string,"event_id": string,"id": string,"linkedin_url": string | null,"name": string,"title": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "badge_linked_at"?: string | null,"badge_uid"?: string | null,"created_at"?: string,"event_id": string,"id"?: string,"linkedin_url"?: string | null,"name": string,"title"?: string | null
+                  }
+                  Update: {
+                    "badge_linked_at"?: string | null,"badge_uid"?: string | null,"created_at"?: string,"event_id"?: string,"id"?: string,"linkedin_url"?: string | null,"name"?: string,"title"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "judges_event_id_fkey"
+      columns: ["event_id"]
+isOneToOne: false
+      referencedRelation: "events"
+      referencedColumns: ["id"]
+    }
                   ]
                 },"participant_tracks": {
                   Row: {
@@ -266,6 +318,26 @@ isOneToOne: false
       columns: ["event_id"]
 isOneToOne: false
       referencedRelation: "events"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"rsvp_tokens": {
+                  Row: {
+                    "created_at": string,"participant_id": string,"token_hash": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"participant_id": string,"token_hash": string
+                  }
+                  Update: {
+                    "created_at"?: string,"participant_id"?: string,"token_hash"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "rsvp_tokens_participant_id_fkey"
+      columns: ["participant_id"]
+isOneToOne: false
+      referencedRelation: "participants"
       referencedColumns: ["id"]
     }
                   ]
@@ -405,6 +477,32 @@ isOneToOne: false
       referencedColumns: ["id","event_id"]
     }
                   ]
+                },"team_tracks": {
+                  Row: {
+                    "created_at": string,"event_id": string,"team_id": string,"track_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"event_id": string,"team_id": string,"track_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"event_id"?: string,"team_id"?: string,"track_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "team_tracks_team_id_event_id_fkey"
+      columns: ["team_id","event_id"]
+isOneToOne: false
+      referencedRelation: "teams"
+      referencedColumns: ["id","event_id"]
+    },{
+      foreignKeyName: "team_tracks_track_id_event_id_fkey"
+      columns: ["track_id","event_id"]
+isOneToOne: false
+      referencedRelation: "tracks"
+      referencedColumns: ["id","event_id"]
+    }
+                  ]
                 },"teams": {
                   Row: {
                     "created_at": string,"event_id": string,"id": string,"join_code": string,"name": string,"track_id": string | null
@@ -471,11 +569,22 @@ isOneToOne: false
                 }
           }
           Functions: {
-            "_prior":
+            "_connection_parties":
+{ Args: { "p_email": string,"p_uid": string }; Returns: Record<string, unknown>
+                           },
+"_connection_scores":
+{ Args: { "p_as_of": string,"p_event_id": string }; Returns: {
+              "first_name": string,"last_name": string,"participant_id": string,"points": number,"rank": number,"reached_at": string
+            }[]
+                           },
+"_prior":
 { Args: { "me": string,"s": Omit<Database["public"]['Tables']["scans"]['Row'], Database["public"]['Tables']["scans"]['ComputedFields']> }; Returns: Json
                            },
 "_rsvp_closes":
 { Args: { "p_deadline": string,"p_sent_at": string }; Returns: string
+                           },
+"_rsvp_current_hash":
+{ Args: { "p_token_hash": string }; Returns: string
                            },
 "_rsvp_undelivered":
 { Args: { "p_participant_id": string }; Returns: boolean
@@ -521,6 +630,18 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"connection_analytics":
+{ Args: { "p_event_id": string }; Returns: Json
+                           },
+"connection_leaderboard":
+{ Args: { "p_event_id": string,"p_limit": number }; Returns: Json
+                           },
+"connection_rank":
+{ Args: { "p_participant_id": string }; Returns: Json
+                           },
+"connection_state":
+{ Args: { "p_email": string,"p_uid": string }; Returns: string
+                           },
 "consume_staff_invites":
 { Args: { "p_email": string,"p_user_id": string }; Returns: number
                            },
@@ -560,11 +681,20 @@ isOneToOne: false
 "link_badge":
 { Args: { "p_actor": string,"p_event_id": string,"p_move": boolean,"p_participant_id": string,"p_uid": string }; Returns: string
                            },
+"my_connections":
+{ Args: { "p_limit": number,"p_participant_id": string }; Returns: Json
+                           },
+"my_workshops":
+{ Args: { "p_participant_id": string }; Returns: Json
+                           },
 "pass_lookup":
 { Args: { "p_token_hash": string }; Returns: Json
                            },
 "password_link_kind":
 { Args: { "p_email": string }; Returns: string
+                           },
+"queue_event_eve":
+{ Args: { "p_actor": string,"p_dry_run"?: boolean,"p_event_id": string,"p_participant_ids"?: (string)[] }; Returns: number
                            },
 "queue_rsvps":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_ids": (string)[] }; Returns: number
@@ -575,6 +705,9 @@ isOneToOne: false
 "record_badge_scan":
 { Args: { "p_badge_uid": string,"p_checkpoint_id": string,"p_client_scan_id": string,"p_client_scanned_at": string,"p_staff_user_id": string }; Returns: Json
                            },
+"record_connection":
+{ Args: { "p_email": string,"p_uid": string }; Returns: Json
+                           },
 "record_ingest_request":
 { Args: { "p_key": string }; Returns: boolean
                            },
@@ -583,6 +716,9 @@ isOneToOne: false
                            },
 "remove_staff":
 { Args: { "p_actor": string,"p_event_id": string,"p_user_id": string }; Returns: string
+                           },
+"retain_connections":
+{ Args: Record<PropertyKey, never>; Returns: number
                            },
 "revoke_pass":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_id": string }; Returns: string
@@ -619,6 +755,9 @@ isOneToOne: false
 "set_rsvp_token":
 { Args: { "p_outbox_id": string,"p_token_hash": string }; Returns: Json
                            },
+"set_team_tracks":
+{ Args: { "p_event_id": string,"p_team_id": string,"p_track_ids": (string)[] }; Returns: string
+                           },
 "set_track_interests":
 { Args: { "p_email": string,"p_participant_id": string,"p_track_ids": (string)[],"p_user_id": string }; Returns: string
                            },
@@ -637,14 +776,26 @@ isOneToOne: false
 "team_leave":
 { Args: { "p_email": string,"p_participant_id": string,"p_user_id": string }; Returns: string
                            },
+"team_remove":
+{ Args: { "p_code": string,"p_email": string,"p_member_id": string,"p_participant_id": string,"p_user_id": string }; Returns: string
+                           },
 "team_set_track":
 { Args: { "p_email": string,"p_participant_id": string,"p_track_id": string,"p_user_id": string }; Returns: string
+                           },
+"team_set_tracks":
+{ Args: { "p_email": string,"p_participant_id": string,"p_track_ids": (string)[],"p_user_id": string }; Returns: string
                            },
 "unlink_badge":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_id": string }; Returns: string
                            },
 "void_scan":
 { Args: { "p_reason": string,"p_scan_id": string,"p_staff_user_id": string }; Returns: Json
+                           },
+"workshop_analytics":
+{ Args: { "p_event_id": string }; Returns: Json
+                           },
+"workshop_attendance":
+{ Args: { "p_event_id": string }; Returns: Json
                            }
           }
           Enums: {

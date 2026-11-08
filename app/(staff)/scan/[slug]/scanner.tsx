@@ -8,7 +8,7 @@ import { Alert } from '@/components/ui/alert';
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { linkNotice, normalizeUid } from '@/lib/domain/badge';
+import { formatUid, linkNotice, normalizeUid } from '@/lib/domain/badge';
 import { parseScannedText } from '@/lib/domain/scanned-text';
 import type { ScanRequest } from '@/lib/scan/schema';
 import { createDeduper, DEDUPE_WINDOW_MS } from '@/lib/scanner/dedupe';
@@ -27,6 +27,19 @@ import { ResultScreen } from './result-screen';
 import { ScannedHere } from './scanned-here';
 import { CAMERA_KEY, checkpointKey, INPUT_KEY, KIND_LABEL, NFC_KEY, readPref, writePref, type Checkpoint, type InputMode } from './types';
 import { UndoDialog } from './undo-dialog';
+
+type LinkTarget = Pick<Row, 'id' | 'displayName'>;
+/** mustLink (v0.12.1): a door ADMIT on a phone with Web NFC stays until their badge is linked (§10.2); linked: it was. */
+type Shown = { view: ResultView; id: number; shownAt: number; mustLink?: LinkTarget; linked?: boolean };
+
+// v0.12.2: how long a check-in's "✓ Badge linked" stays before scanning resumes (a tap skips it).
+const LINKED_MS = 1500;
+// v0.12.4: a badge pulled away mid-write leaves it linked but without its profile link: the waiting ADMIT asks for the
+// same badge again, up to this many writes, before finishing anyway (a bad chip mustn't block the door).
+const WRITE_TRIES = 3;
+// v0.12.4 (A10): the camera's hardware closes a moment after its tracks stop; starting the reader in that moment can
+// leave it deaf until Chrome is left and reopened.
+const CAMERA_RELEASE_MS = 800;
 
 type CameraState = 'starting' | 'ready' | CameraFailure;
 
@@ -68,19 +81,28 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [checkpointId, setCheckpointId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLinkOnly, setSearchLinkOnly] = useState(false); // v0.11.40: the bottom bar's Link badge
   const searchButton = useRef<HTMLButtonElement>(null);
-  const [linking, setLinking] = useState<Row | null>(null);
+  const [linking, setLinking] = useState<LinkTarget | null>(null);
   const [linkState, setLinkState] = useState<LinkState>({ kind: 'waiting' });
-  const { write: writeBadge, cancel: cancelWrite, observe: observeTag } = useBadgeWrite(props.badgeOrigin);
+  const { write: writeBadge, cancel: cancelWrite, observe: observeTag, lastError: writeError } = useBadgeWrite(props.badgeOrigin);
   const linkAttempt = useRef<string | null>(null); // one tap per sheet, including while the request is in flight
-  const linkRow = useRef<Row | null>(null); // the open sheet's person, for an answer that comes back after it closed
+  const linkRow = useRef<LinkTarget | null>(null); // the open sheet's person, for an answer that comes back after it closed
   // Every badge tapped while the sheet is open (serial → last seen), so Android repeating one of those taps
   // just after the sheet closes isn't recorded as a scan. The deduper only remembers the last code.
   const linkTaps = useRef(new Map<string, number>());
   const [undoOpen, setUndoOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const peopleButton = useRef<HTMLButtonElement>(null);
-  const [result, setResult] = useState<{ view: ResultView; id: number; shownAt: number } | null>(null);
+  const [result, setResult] = useState<Shown | null>(null);
+  // v0.12.2: the person a waiting door ADMIT is reading a badge for (no sheet), until their check-in finishes.
+  const admitRow = useRef<LinkTarget | null>(null);
+  const writeTries = useRef(0); // writes tried for the waiting ADMIT (v0.12.4)
+  const cameraOffAt = useRef(-Infinity); // performance.now() when the camera was last released
+  const readerGen = useRef(0); // bumped by every start and stop, so a start delayed for the camera can be called off
+  const [cameraWait, setCameraWait] = useState(false); // a reader start waiting for the camera to close: shown as starting
+  // v0.12.2: set once the reader exists (below); a write leaves Chrome deaf to new taps until the reader restarts.
+  const restartReader = useRef<() => void>(() => undefined);
   const [busy, setBusy] = useState(false);
   const [networkDown, setNetworkDown] = useState(false);
   const [camera, setCamera] = useState<CameraState>('starting');
@@ -112,17 +134,24 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   // When scanning actually became possible (camera ready AND a checkpoint chosen); T-SCUI-01 timing.
   const activeAt = cameraReadyAt !== null && checkpointSetAt !== null ? Math.max(cameraReadyAt, checkpointSetAt) : null;
 
-  // Checkpoints for this event; restore this device's last choice (§10.1).
+  const fetchCheckpoints = useCallback(async (): Promise<Checkpoint[] | null> => {
+    const res = await fetch(`/api/events/${encodeURIComponent(slug)}/checkpoints`, { cache: 'no-store' });
+    if (res.status === 401) {
+      toLogin();
+      return null;
+    }
+    return res.ok ? ((await res.json()) as { checkpoints: Checkpoint[] }).checkpoints : [];
+  }, [slug, toLogin]);
+
+  // Checkpoints for this event; restore this device's last choice while it is open (§10.1, v0.11.41).
   useEffect(() => {
     let stale = false;
-    void fetch(`/api/events/${encodeURIComponent(slug)}/checkpoints`, { cache: 'no-store' }).then(async (res) => {
-      if (stale) return;
-      if (res.status === 401) return toLogin();
-      const list = res.ok ? ((await res.json()) as { checkpoints: Checkpoint[] }).checkpoints : [];
-      if (stale) return;
+    void fetchCheckpoints().then((list) => {
+      if (stale || !list) return;
       setCheckpoints(list);
       const saved = readPref(checkpointKey(slug));
-      if (saved && list.some((c) => c.id === saved)) {
+      // v0.12.1: Check-in links each badge, so only a phone with Web NFC restores it.
+      if (saved && list.some((c) => c.id === saved && c.isOpen && (c.kind !== 'door' || nfcSupported()))) {
         setCheckpointId(saved);
         setCheckpointSetAt(performance.now());
       } else setPickerOpen(true);
@@ -130,7 +159,14 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     return () => {
       stale = true;
     };
-  }, [slug, toLogin]);
+  }, [slug, fetchCheckpoints]);
+
+  // v0.11.41: the picker lists open checkpoints only, so reload them each time it opens (an organizer may have
+  // just opened Dinner). Offline or failing, it keeps the list it has.
+  function openPicker() {
+    setPickerOpen(true);
+    fetchCheckpoints().then((list) => list && setCheckpoints(list), () => undefined);
+  }
 
   // Keep the session cookie fresh during a long shift (access tokens expire hourly).
   useEffect(() => {
@@ -149,9 +185,20 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const show = useCallback((outcome: Outcome, cp: Checkpoint, method?: ScanRequest['method']) => {
     const view = viewFor(outcome, { checkpointKind: cp.kind, checkpointName: cp.name, timezone, now: new Date(), method });
     const id = ++resultSeq.current;
-    setResult({ view, id, shownAt: performance.now() });
+    // v0.12.1 (owner's decision): check-in ends only once their badge is linked, so this ADMIT has no timer.
+    const mustLink = view.linkable && nfcSupported() ? { id: view.linkable.id, displayName: view.linkable.name } : undefined;
+    setResult({ view: mustLink ? { ...view, dismiss: 'tap' } : view, id, shownAt: performance.now(), mustLink });
+    if (mustLink) {
+      // v0.12.2 (owner's request): no Link badge button: the ADMIT reads their badge straight away (§10.2).
+      setLinking(mustLink);
+      linkRow.current = mustLink;
+      admitRow.current = mustLink;
+      linkAttempt.current = null;
+      writeTries.current = 0;
+      setLinkState({ kind: 'waiting' });
+    }
     playFeedback(view.sound);
-    if (view.dismiss !== 'tap') {
+    if (view.dismiss !== 'tap' && !mustLink) {
       setTimeout(() => setResult((r) => (r?.id === id ? null : r)), view.dismiss.autoMs);
     }
   }, [timezone]);
@@ -190,8 +237,9 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     [checkpoint, show, toLogin],
   );
 
-  const linkBadge = useCallback(async (row: Row, uid: string, tag: NfcTag, reader: NDEFReader) => {
+  const linkBadge = useCallback(async (row: LinkTarget, uid: string, tag: NfcTag, reader: NDEFReader) => {
     const write = await writeBadge(tag, reader, uid);
+    if (write !== 'unchanged') restartReader.current(); // the tag was written to (or nearly): see useNfcReader.restart
     let code: string | undefined;
     try {
       if (navigator.onLine) {
@@ -210,10 +258,28 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     } catch {
       // A failed link stays in the sheet, never the scan result screen (I-1).
     }
-    const notice = linkNotice(code, uid, row.displayName, write);
-    if (linkRow.current === row) setLinkState({ kind: 'result', notice });
+    let notice = linkNotice(code, uid, row.displayName, write);
+    const atAdmit = admitRow.current === row;
+    // v0.12.4: linked, but the badge left before its profile link was written: ask for the same badge again.
+    const rewrite = atAdmit && code === 'LINKED' && write === 'failed' && ++writeTries.current < WRITE_TRIES;
+    if (atAdmit && code === 'LINKED' && write === 'failed') {
+      notice = rewrite
+        ? { tone: 'bad', text: `✕ Its profile link didn't write (${writeError.current}). Hold the same badge flat on the phone until it says linked.` }
+        : { tone: 'bad', text: `✓ Badge ${formatUid(uid)} linked to ${row.displayName}, but its profile link didn't write (${writeError.current}). Rewrite it later: Link badge, then Replace badge.` };
+    }
+    if (code === 'LINKED' && !rewrite) {
+      // Check-in finished: the ADMIT says so briefly, then clears like any green (the effect below); a missing profile
+      // link waits for a tap, so the volunteer sees it.
+      const dismissAfter = write === 'failed' ? 'tap' : { autoMs: LINKED_MS };
+      setResult((r) => (r?.mustLink?.id === row.id ? { ...r, linked: true, view: { ...r.view, detail: notice.text, dismiss: dismissAfter } } : r));
+    } else if (atAdmit) {
+      // A waiting check-in takes the next badge tap, the refused one included (forgotten by the repeat guard below).
+      if (linkAttempt.current) linkTaps.current.delete(linkAttempt.current);
+      linkAttempt.current = null;
+    }
+    if (linkRow.current === row) setLinkState({ kind: 'result', notice, linked: code === 'LINKED' && !rewrite });
     else setNotice(notice.text); // the sheet was closed while saving: still say what happened
-  }, [slug, toLogin, writeBadge]);
+  }, [slug, toLogin, writeBadge, writeError]);
 
   const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || !!linking || undoOpen || peopleOpen || !checkpoint;
   const onDecode = useRef<(text: string) => void>(() => undefined);
@@ -236,8 +302,11 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       const { serial } = tag;
       observeTag(serial);
       if (linking) {
+        const seen = linkTaps.current.get(serial);
         linkTaps.current.set(serial, Date.now());
         if (linkAttempt.current !== null) return;
+        // A waiting check-in: a badge seen in the last 3 s (the previous person's, still near the phone) isn't theirs.
+        if (admitRow.current === linking && seen !== undefined && Date.now() - seen < DEDUPE_WINDOW_MS) return;
         const uid = normalizeUid(serial);
         if (!uid) return setLinkState({ kind: 'waiting', unreadable: true });
         linkAttempt.current = serial;
@@ -284,6 +353,10 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     onUnreadable: () => onUnreadable.current(),
   });
   const needsTap = useNeedsTap();
+  const restartNfc = nfc.restart;
+  useEffect(() => {
+    restartReader.current = () => void restartNfc();
+  }, [restartNfc]);
 
   // Camera: released while linking (A10); decoding pauses while anything else is on screen (§10.2).
   useEffect(() => {
@@ -309,40 +382,113 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     return () => {
       cancelled = true;
       void scanner.stop(); // releases the camera (its tracks), not just the decoder
+      cameraOffAt.current = performance.now();
       if (scannerRef.current === scanner) scannerRef.current = null;
     };
   }, [mode, linking]);
 
-  function startLink(row: Row) {
+  // A10: on a real phone NFC reads only arrive with the camera off, so the camera is released before the reader
+  // starts (synchronously, so a tap's user gesture still starts it), not later when the camera effect cleans up.
+  const startNfc = nfc.start;
+  const startReader = useCallback(async () => {
+    if (scannerRef.current) {
+      void scannerRef.current.stop();
+      cameraOffAt.current = performance.now();
+    }
+    const gen = ++readerGen.current;
+    // v0.12.4: give the camera time to close (Chrome keeps a tap's permission to start NFC for 5 s).
+    const wait = cameraOffAt.current + CAMERA_RELEASE_MS - performance.now();
+    if (wait > 0) {
+      setCameraWait(true);
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      if (gen !== readerGen.current) return;
+      setCameraWait(false);
+    }
+    await startNfc();
+  }, [startNfc]);
+
+  function startLink(row: LinkTarget) {
     setSearchOpen(false);
     setNotice(null);
     setLinking(row);
     linkRow.current = row;
     setLinkState({ kind: 'waiting' });
     linkAttempt.current = null;
-    if (nfc.state !== 'on') void nfc.start(); // keep Chrome's user gesture; the saved input mode stays as it was
+    if (nfc.state !== 'on') void startReader(); // keep Chrome's user gesture; the saved input mode stays as it was
+  }
+
+  function openSearch(linkOnly: boolean) {
+    setSearchLinkOnly(linkOnly);
+    setSearchOpen(true);
   }
 
   // Always allowed, even while saving: Chrome closes the dialog itself on a second Back/Escape anyway.
-  function closeLink() {
+  const stopNfc = nfc.stop;
+  const stopReader = useCallback(() => {
+    readerGen.current++; // calls off a start still waiting for the camera
+    setCameraWait(false);
+    stopNfc();
+  }, [stopNfc]);
+  const closeLink = useCallback(() => {
     if (!linkRow.current) return; // already closed (Cancel, then the dialog's own close event)
     cancelWrite();
     linkRow.current = null;
+    admitRow.current = null;
     if (mode === 'camera') {
-      nfc.stop();
+      stopReader();
       setCamera('starting');
       setCameraReadyAt(null);
     }
     setLinking(null);
     requestAnimationFrame(() => searchButton.current?.focus());
-  }
+  }, [cancelWrite, mode, stopReader]);
+
+  // v0.12.2: Chrome starts the reader without a tap only once this site may use NFC, so the permission is read when
+  // the page opens (and followed), letting a waiting check-in start reading the moment it appears.
+  const [nfcAllowed, setNfcAllowed] = useState(false);
+  const nfcSupportedHere = nfc.supported;
+  useEffect(() => {
+    if (!nfcSupportedHere) return;
+    let status: PermissionStatus | null = null;
+    void navigator.permissions
+      .query({ name: 'nfc' as PermissionName })
+      .then((p) => {
+        status = p;
+        setNfcAllowed(p.state === 'granted');
+        p.onchange = () => setNfcAllowed(p.state === 'granted');
+      })
+      .catch(() => undefined);
+    return () => {
+      if (status) status.onchange = null;
+    };
+  }, [nfcSupportedHere]);
+
+  // v0.12.2: a waiting check-in reads their badge at once (the camera is already off, A10); the first time on a
+  // phone, or after a reader error, the ADMIT offers Start badge reader instead (that tap lets Chrome ask).
+  const needsReaderTap = !nfcAllowed || !!nfc.error;
+  const readerState = cameraWait && nfc.state === 'off' ? 'starting' : nfc.state;
+  const autoReadFor = result?.mustLink && !result.linked && nfc.state === 'off' && !needsReaderTap ? result.id : null;
+  useEffect(() => {
+    if (autoReadFor !== null) void startReader();
+  }, [autoReadFor, startReader]);
+
+  // v0.12.2: linked: the check-in is done; after the confirmation, scanning resumes (camera back in Camera mode).
+  const linkedResult = result?.linked && result.view.dismiss !== 'tap' ? result.id : null;
+  useEffect(() => {
+    if (linkedResult === null) return;
+    const t = setTimeout(() => {
+      setResult((r) => (r?.id === linkedResult ? null : r));
+      closeLink();
+    }, LINKED_MS);
+    return () => clearTimeout(t);
+  }, [linkedResult, closeLink]);
 
   function chooseInput(next: InputMode) {
     if (next === mode) return;
     if (next === 'nfc') {
-      void nfc.start(); // this tap is the user gesture Chrome needs to start NFC
+      void startReader(); // this tap is the user gesture Chrome needs to start NFC
     } else {
-      nfc.stop();
+      stopReader();
       setCamera('starting');
       setCameraReadyAt(null);
     }
@@ -366,9 +512,10 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
 
   function dismiss() {
     const action = result?.view.action;
+    if (result?.linked) closeLink(); // a tap skips the "✓ Badge linked" confirmation
     setResult(null);
-    if (action === 'pick-checkpoint') setPickerOpen(true);
-    if (action === 'manual-search') setSearchOpen(true);
+    if (action === 'pick-checkpoint') openPicker();
+    if (action === 'manual-search') openSearch(false);
   }
 
   function chooseCheckpoint(id: string) {
@@ -425,7 +572,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           </SectionLabel>
           <span className="block text-lg sm:text-xl leading-[1.3] overflow-hidden text-ellipsis whitespace-nowrap">{checkpoint?.name ?? 'No checkpoint selected'}</span>
         </div>
-        <Button type="button" variant="ghost" className="border-white/50 bg-white/12 text-white hover:bg-white/15 hover:text-white" onClick={() => setPickerOpen(true)} disabled={!checkpoints}>
+        <Button type="button" variant="ghost" className="border-white/50 bg-white/12 text-white hover:bg-white/15 hover:text-white" onClick={openPicker} disabled={!checkpoints}>
           Change
         </Button>
       </header>
@@ -446,7 +593,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           bg-card text-fg">
             <p>📶 NFC badges: the camera is off. Hold a badge flat against the back of the phone.</p>
             {nfc.state === 'off' && (
-              <Button type="button" onClick={() => void nfc.start()}>
+              <Button type="button" onClick={() => void startReader()}>
                 Start badge reader
               </Button>
             )}
@@ -481,12 +628,17 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       </div>
 
       <div className="flex gap-3 p-4 sm:p-6 flex-wrap bg-bg [&_button]:flex-1 [&_button]:min-h-[52px]">
-        <Button ref={searchButton} type="button" onClick={() => setSearchOpen(true)} disabled={offline || !checkpoint}>
+        <Button ref={searchButton} type="button" onClick={() => openSearch(false)} disabled={offline || !checkpoint}>
           Manual search
         </Button>
         <Button ref={peopleButton} type="button" variant="outline" onClick={() => setPeopleOpen(true)} disabled={offline || !checkpoint}>
           Scanned here
         </Button>
+        {nfc.supported && mode && (
+          <Button type="button" variant="outline" onClick={() => openSearch(true)} disabled={offline || !checkpoint}>
+            Link badge
+          </Button>
+        )}
         {showUndo && (
           <Button type="button" variant="outline" onClick={() => setUndoOpen(true)}>
             Undo last
@@ -516,7 +668,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       )}
 
       {pickerOpen && checkpoints && (
-        <CheckpointPicker checkpoints={checkpoints} currentId={checkpointId} onChoose={chooseCheckpoint} onCancel={() => setPickerOpen(false)} />
+        <CheckpointPicker checkpoints={checkpoints} currentId={checkpointId} doorBlocked={!nfc.supported} onChoose={chooseCheckpoint} onCancel={() => setPickerOpen(false)} />
       )}
       {searchOpen && checkpoint && (
         <ManualSearch
@@ -525,6 +677,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           disabled={offline || busy}
           onUnauthorized={toLogin}
           onLinkBadge={startLink}
+          linkOnly={searchLinkOnly}
           onClose={() => setSearchOpen(false)}
           onRecord={(participantId) => {
             setSearchOpen(false);
@@ -532,13 +685,13 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           }}
         />
       )}
-      {linking && (
+      {linking && linking !== result?.mustLink && (
         <LinkSheet
           name={linking.displayName}
           state={linkState}
-          readerState={nfc.state}
+          readerState={readerState}
           readerError={nfc.error}
-          onStart={() => void nfc.start()}
+          onStart={() => void startReader()}
           onClose={closeLink}
         />
       )}
@@ -557,7 +710,14 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         />
       )}
       {undoOpen && <UndoDialog onSubmit={(r) => void undo(r)} onCancel={() => setUndoOpen(false)} />}
-      {result && <ResultScreen view={result.view} shownAt={result.shownAt} onDismiss={dismiss} />}
+      {result && (
+        <ResultScreen
+          view={result.view}
+          shownAt={result.shownAt}
+          onDismiss={dismiss}
+          link={result.mustLink && !result.linked ? { state: linkState, readerState, readerError: nfc.error, needsTap: needsReaderTap, onStart: () => void startReader(), onReset: () => restartReader.current() } : undefined}
+        />
+      )}
     </main>
   );
 }

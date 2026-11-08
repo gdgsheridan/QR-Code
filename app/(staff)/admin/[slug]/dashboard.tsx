@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { adminUrl, errorText, useApi } from './api';
 import { ArrivalsChart, type ArrivalBucket } from './arrivals-chart';
+import { KIND_LABEL } from '@/app/(staff)/scan/[slug]/types';
+import { PageHeader } from './page-header';
 
 type Kind = 'door' | 'meal' | 'session' | 'custom';
 interface DashboardData {
@@ -21,7 +23,7 @@ interface DashboardData {
   sessionRanking: Array<{ id: string; name: string; liveScans: number; capacity: number | null }>;
   arrivals: ArrivalBucket[];
   outbox: { pending: number; failed: number };
-  alerts: { doorClosed: boolean; notFound: Array<{ staffUserId: string; displayName: string | null; count: number }> };
+  alerts: { notFound: Array<{ staffUserId: string; displayName: string | null; count: number }> };
 }
 
 const POLL_MS = 10_000; // SPEC §11
@@ -59,7 +61,7 @@ export function Dashboard({ slug }: { slug: string }) {
 
   return (
     <>
-      <h1>Dashboard</h1>
+      <PageHeader title="Dashboard" description="Live check-ins, meals and scans, refreshed every 10 seconds." />
       {error && (
         <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
 
@@ -73,21 +75,6 @@ export function Dashboard({ slug }: { slug: string }) {
 
           [&&]:[background:color-mix(in_srgb,_#fbbf24_6%,_var(--card))]" asChild role="status"><p  role="status">
           ! Couldn’t refresh: {error} Showing data from {formatEventDateTime(data.generatedAt, tz)}.
-        </p></Alert>
-      )}
-      {data.alerts.doorClosed && (
-        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
-
-          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
-
-          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
-
-          leading-[1.65] [overflow-wrap:anywhere]
-
-          [&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
-
-          [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]" asChild><p  role="alert">
-          ⚠ The door is closed and the event starts {formatEventDateTime(data.event.startsAt, tz)}. Open it on the Checkpoints tab.
         </p></Alert>
       )}
       {data.alerts.notFound.map((a) => (
@@ -153,7 +140,7 @@ export function Dashboard({ slug }: { slug: string }) {
             {data.checkpoints.map((c) => (
               <TableRow key={c.id}>
                 <TableCell>{c.name}</TableCell>
-                <TableCell>{c.kind}</TableCell>
+                <TableCell>{KIND_LABEL[c.kind].toLowerCase()}</TableCell>
                 <TableCell>
                   <Badge className={`tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-md [background:var(--raised)] text-fg text-[11px] font-semibold leading-[1.35] whitespace-nowrap max-w-full [font-family:inherit] ${c.isOpen ? `tw-admin-badgeOk
                 [&.tw-admin-badgeOk]:[border-color:color-mix(in_srgb,_var(--ok,_#4ade80)_40%,_var(--line))]
@@ -172,7 +159,7 @@ export function Dashboard({ slug }: { slug: string }) {
         </Table>
       </div>
 
-      <h2>Door arrivals per 15 minutes</h2>
+      <h2>Check-ins</h2>
       <ArrivalsChart buckets={data.arrivals} timezone={data.event.timezone} />
 
       {data.sessionRanking.length > 0 && (
@@ -210,7 +197,7 @@ export function Dashboard({ slug }: { slug: string }) {
   );
 }
 
-function Tile(props: { id: string; label: string; value: number; hint?: string }) {
+export function Tile(props: { id: string; label: string; value: number; hint?: string }) {
   return (
     <div className="tw-admin-tile
 

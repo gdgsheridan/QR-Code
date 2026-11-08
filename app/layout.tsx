@@ -5,7 +5,9 @@ import './globals.css';
 import { SiteBackground } from '@/components/site-background';
 import { MotionProvider } from '@/components/motion';
 import { AtomFloat } from '@/components/atom-float';
+import { PlanetBackdrop } from '@/components/planet-backdrop';
 import { RocketFlyby } from '@/components/rocket-flyby';
+import { SmoothScroll } from '@/components/smooth-scroll';
 
 // Self-hosted by next/font, so the CSP's font-src 'self' still holds.
 const firaCode = Fira_Code({ subsets: ['latin'], variable: '--font-fira-code' });
@@ -24,7 +26,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={firaCode.variable}>
-      <body><SiteBackground /><RocketFlyby /><AtomFloat /><MotionProvider>{children}</MotionProvider></body>
+      <body><SiteBackground /><PlanetBackdrop /><RocketFlyby /><AtomFloat /><SmoothScroll /><MotionProvider>{children}</MotionProvider></body>
     </html>
   );
 }

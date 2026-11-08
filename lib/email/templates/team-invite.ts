@@ -18,11 +18,13 @@ export function renderTeamInviteEmail(input: TeamInviteEmailInput): RenderedEmai
   const sentence = (input.count ?? 1) > 1
     ? `${input.count} teams invited you to join them at ${input.event}`
     : `${input.inviter} invited you to join ${input.team} at ${input.event}`;
+  // v0.11.47: the hacker-typed team name stays out of the subject, which comes from the club's address; the body names it.
+  const subject = (input.count ?? 1) > 1 ? sentence : `${input.inviter} invited you to join their team at ${input.event}`;
   const html = emailPage(input.appOrigin, 'Team invite', [
     p(`Hi ${escapeHtml(input.firstName)},`),
     p(`${escapeHtml(sentence)}.`, HEADLINE),
     button(escapeHtml(url), 'Open your Team page'),
   ].join('\n'));
   const text = [`Hi ${input.firstName},`, '', `${sentence}.`, '', `Open your Team page: ${url}`, '', SIGN_OFF_TEXT].join('\n');
-  return { subject: sentence, html, text, inlineImages: [] };
+  return { subject, html, text, inlineImages: [] };
 }

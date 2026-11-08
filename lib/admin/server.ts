@@ -15,6 +15,7 @@ function adminApi(): AdminApi {
     authenticate: cookieAuthenticator,
     scheduleDrain: (task) => after(task),
     appOrigin: env().NEXT_PUBLIC_APP_ORIGIN,
+    passSecret: env().PASS_TOKEN_SECRET,
     drain: () => drainUntilIdle({ db: db(), provider: getProvider(), appOrigin: env().NEXT_PUBLIC_APP_ORIGIN, from: emailFrom(), passSecret: env().PASS_TOKEN_SECRET }),
     sheetReader: (sheetId) => {
       const serviceAccount = env().GOOGLE_SERVICE_ACCOUNT_JSON;

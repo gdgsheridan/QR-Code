@@ -9,7 +9,8 @@ export interface Checkpoint {
   capacity: number | null;
 }
 
-export const KIND_LABEL: Record<CheckpointKind, string> = { door: 'Door', meal: 'Meal', session: 'Session', custom: 'Custom' };
+// v0.11.41 (owner's request): the door kind is shown as Check-in everywhere; the stored value stays 'door' (§5, §8).
+export const KIND_LABEL: Record<CheckpointKind, string> = { door: 'Check-in', meal: 'Meal', session: 'Session', custom: 'Custom' };
 export const KIND_ICON: Record<CheckpointKind, string> = { door: '🚪', meal: '🍽', session: '🎤', custom: '★' };
 
 // localStorage holds scanner preferences only (CLAUDE.md), never participant data.

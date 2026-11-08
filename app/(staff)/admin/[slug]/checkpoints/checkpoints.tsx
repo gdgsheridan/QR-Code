@@ -7,10 +7,13 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useRef, useState } from 'react';
 import { formatEventDateTime, toLocalInput, zonedToUtc } from '@/lib/domain/event-time';
+import { toSearchText } from '@/lib/domain/normalize';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
 import { ConfirmDialog, Modal, VoidDialog } from '../dialog';
+import { KIND_LABEL } from '@/app/(staff)/scan/[slug]/types';
+import { PageHeader } from '../page-header';
 
 type Kind = 'door' | 'meal' | 'session' | 'custom';
 interface Checkpoint {
@@ -22,6 +25,7 @@ interface Checkpoint {
   capacity: number | null;
   startsAt: string | null;
   sortOrder: number;
+  secondsMode: boolean;
 }
 
 const KINDS: Kind[] = ['door', 'meal', 'session', 'custom'];
@@ -37,9 +41,7 @@ export function Checkpoints({ slug }: { slug: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<Checkpoint | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Checkpoint | null>(null);
-  // `opened` re-keys the panel, so pressing People again reloads the list.
-  const [people, setPeople] = useState<{ checkpoint: Checkpoint; opened: number } | null>(null);
-  const peopleButtons = useRef(new Map<string, HTMLButtonElement>());
+  const [peopleOpen, setPeopleOpen] = useState<string | null>(null); // the checkpoint whose People list is open
 
   const load = useCallback(async () => {
     const [r, e] = await Promise.all([api<{ checkpoints: Checkpoint[] }>(adminUrl(slug, '/checkpoints')), api<{ timezone: string }>(adminUrl(slug, '/event'))]);
@@ -56,6 +58,13 @@ export function Checkpoints({ slug }: { slug: string }) {
     await load();
   }
 
+  // v0.12 (owner's request): a meal in seconds mode serves someone who was already served when they tap in again.
+  async function seconds(c: Checkpoint) {
+    const r = await api(adminUrl(slug, `/checkpoints/${c.id}`), { method: 'PATCH', body: { secondsMode: !c.secondsMode } });
+    setMessage(r.ok ? `✓ ${c.name}: seconds ${c.secondsMode ? 'off. Each hacker is served once.' : 'on. Hackers already served can tap in again.'}` : `✕ ${errorText(r)}`);
+    await load();
+  }
+
   async function remove(c: Checkpoint) {
     setDeleting(null);
     const r = await api(adminUrl(slug, `/checkpoints/${c.id}`), { method: 'DELETE' });
@@ -65,25 +74,14 @@ export function Checkpoints({ slug }: { slug: string }) {
 
   return (
     <>
-      <div className="flex items-center justify-between gap-[20px] mb-[8px] max-[600.001px]:items-start
-
-          max-[600.001px]:gap-[14px] max-[600.001px]:flex-col [&_h1]:m-[0px_0px_28px] [&_p]:m-[8px_0px_0px]
-
-          [&_p]:text-[14px] [&_p]:leading-[1.5] max-[600.001px]:[&_button]:w-full">
-        <div>
-          <h1>Checkpoints</h1>
-          <p className="copy tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
-            Manage entry points, meal stations, and event sessions.
-          </p>
-        </div>
-
+      <PageHeader title="Checkpoints" description="Manage entry points, meal stations, and event sessions.">
         <Button type="button" onClick={() => setEditing('new')}>
           <span aria-hidden="true">+ </span>Add checkpoint
         </Button>
-      </div>
+      </PageHeader>
 
       {rows !== null && (
-        <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
+        <p className="text-muted-foreground text-[12px] leading-[1.7]">
           {rows.length} {rows.length === 1 ? 'checkpoint' : 'checkpoints'}
         </p>
       )}
@@ -139,9 +137,10 @@ export function Checkpoints({ slug }: { slug: string }) {
             </TableHeader>
             <TableBody>
               {rows.map((c) => (
-                <TableRow key={c.id}>
+                <Fragment key={c.id}>
+                <TableRow>
                   <TableCell>{c.name}</TableCell>
-                  <TableCell>{c.kind}</TableCell>
+                  <TableCell>{KIND_LABEL[c.kind].toLowerCase()}</TableCell>
                   <TableCell>
                     <span data-testid="cp-state" className={`tw-admin-checkpointState inline-flex items-center justify-center gap-[7px] min-w-[82px] p-[6px_10px] [border-width:1px] [border-style:solid] [border-color:currentcolor] rounded-sm text-[12px] font-bold leading-[1.2] whitespace-nowrap ${c.isOpen ? `[&.tw-admin-checkpointState]:text-fg [&.tw-admin-checkpointState]:[background:var(--card)]
                 [&.tw-admin-checkpointState]:border-accent` : `[&.tw-admin-checkpointState]:text-muted-foreground [&.tw-admin-checkpointState]:[background:transparent]
@@ -157,9 +156,12 @@ export function Checkpoints({ slug }: { slug: string }) {
                       <Button type="button" className="min-h-[44px] p-[0px_12px] text-[14px]" aria-label={`${c.isOpen ? 'Close' : 'Open'} ${c.name}`} onClick={() => void toggle(c)}>
                         {c.isOpen ? 'Close' : 'Open'}
                       </Button>
-                      <Button type="button" variant="outline" aria-label={`People at ${c.name}`} ref={(el) => void (el ? peopleButtons.current.set(c.id, el) : peopleButtons.current.delete(c.id))} onClick={() => setPeople((p) => ({ checkpoint: c, opened: (p?.opened ?? 0) + 1 }))}>
-                        People
-                      </Button>
+                      <PeopleToggle name={c.name} open={peopleOpen === c.id} controls={`people-${c.id}`} onToggle={() => setPeopleOpen((o) => (o === c.id ? null : c.id))} />
+                      {c.kind === 'meal' && (
+                        <Button type="button" variant="outline" aria-label={`Seconds for ${c.name}`} aria-pressed={c.secondsMode} onClick={() => void seconds(c)}>
+                          Seconds: {c.secondsMode ? 'On' : 'Off'}
+                        </Button>
+                      )}
                       <Button type="button" variant="outline" aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}>
                         Edit
                       </Button>
@@ -169,23 +171,18 @@ export function Checkpoints({ slug }: { slug: string }) {
                     </div>
                   </TableCell>
                 </TableRow>
+                {peopleOpen === c.id && (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={7} className="p-0">
+                      <CheckpointPeople id={`people-${c.id}`} slug={slug} checkpoint={c} timezone={timezone} />
+                    </TableCell>
+                  </TableRow>
+                )}
+                </Fragment>
               ))}
             </TableBody>
           </Table>
         </div>
-      )}
-      {people && (
-        <CheckpointPeople
-          key={`${people.checkpoint.id}-${people.opened}`}
-          slug={slug}
-          checkpoint={people.checkpoint}
-          timezone={timezone}
-          onClose={() => {
-            const id = people.checkpoint.id;
-            setPeople(null);
-            requestAnimationFrame(() => peopleButtons.current.get(id)?.focus());
-          }}
-        />
       )}
       {editing && (
         <CheckpointForm
@@ -203,7 +200,7 @@ export function Checkpoints({ slug }: { slug: string }) {
       {deleting && (
         <ConfirmDialog
           title={`Delete ${deleting.name}?`}
-          body={<p className="copy">Checkpoints that already have scans can’t be deleted. Close them instead.</p>}
+          body={<p className="copy">A checkpoint can only be deleted once nobody is scanned there (remove them under People). Scans you already removed are deleted with it.</p>}
           confirmLabel="Delete checkpoint"
           danger
           onConfirm={() => void remove(deleting)}
@@ -268,7 +265,7 @@ function CheckpointForm(props: { slug: string; timezone: string; initial: Checkp
           <NativeSelect className="tw-admin-input w-full" value={kind} disabled={init !== null} onChange={(e) => setKind(e.target.value as Kind)}>
             {KINDS.map((k) => (
               <option key={k} value={k}>
-                {k}
+                {KIND_LABEL[k].toLowerCase()}
               </option>
             ))}
           </NativeSelect>
@@ -334,15 +331,19 @@ const HOW: Record<ScanRow['method'], string> = { qr: 'QR', nfc: 'Badge', manual:
 
 // SPEC §11 (v0.8): who was scanned at a checkpoint, newest first. Remove voids the scan (F11, I-9): it stays
 // in the history but stops counting, and the person can be scanned again.
-function CheckpointPeople(props: { slug: string; checkpoint: Checkpoint; timezone: string; onClose: () => void }) {
+// Opens as a dropdown under its checkpoint's row (Checkpoints and Workshops tabs, owner's request): the row's People
+// button toggles it, so there is no heading or Close of its own; `id` is what that button's aria-controls points at.
+export function CheckpointPeople(props: { id: string; slug: string; checkpoint: Pick<Checkpoint, 'id' | 'name'>; timezone: string }) {
   const api = useApi();
   const { slug, checkpoint } = props;
   const [rows, setRows] = useState<ScanRow[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [voiding, setVoiding] = useState<ScanRow | null>(null);
   const [removing, setRemoving] = useState(false); // one removal (and its refresh) at a time
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => heading.current?.focus(), []); // the panel opens below the table: bring it into view
+  const count = useRef<HTMLParagraphElement>(null);
+  const [q, setQ] = useState(''); // owner's request: find someone in this checkpoint's list by name (I-12)
+  const needle = toSearchText(q);
+  const shown = rows?.filter((r) => toSearchText(r.displayName).includes(needle)) ?? [];
 
   const load = useCallback(async () => {
     const r = await api<{ scans: ScanRow[] }>(`/api/events/${encodeURIComponent(slug)}/checkpoints/${checkpoint.id}/scans`);
@@ -360,111 +361,66 @@ function CheckpointPeople(props: { slug: string; checkpoint: Checkpoint; timezon
     setMessage(done ? `✓ Removed ${row.displayName} from ${checkpoint.name}.` : `✕ ${r.ok ? `Couldn’t remove (${r.data.code}).` : errorText(r)}`);
     await load();
     setRemoving(false);
-    heading.current?.focus(); // the row (and its button) is gone: keep keyboard focus on the panel
+    count.current?.focus(); // the row (and its button) is gone: keep keyboard focus in the list
   }
 
-  const headingId = `people-${checkpoint.id}`;
   return (
-    <section aria-labelledby={headingId}>
-      <div className="tw-admin-toolbar flex flex-wrap [align-items:end] gap-[14px] mb-[20px] p-[18px] [border-width:1px]
-
-          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
-
-          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
-
-          [background:var(--surface)]
-
-          shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
-
-          [&_.tw-admin-input]:w-full [&_.tw-admin-input]:min-h-[44px] [&_.tw-admin-input]:text-[14px]
-
-          [&_.tw-admin-input]:tracking-[normal] [&_.tw-admin-input]:normal-case
-
-          [&_.tw-admin-input]:[font-family:inherit] [&_.tw-admin-input]:font-normal
-
-          [&_.tw-admin-check]:min-h-[44px] [&_.tw-admin-check]:inline-flex [&_.tw-admin-check]:items-center
-
-          [&_.tw-admin-check]:gap-[9px] [&_.tw-admin-check]:p-[0px_4px] [&_.tw-admin-check]:text-fg
-
-          [&_.tw-admin-check]:text-[13px] [&_.tw-admin-check]:tracking-[normal] [&_.tw-admin-check]:normal-case
-
-          max-[700.001px]:[&_.tw-admin-check]:[flex:1_1_100%] [&_>_button]:min-h-[44px] [&_>_button]:p-[0px_16px]
-
-          [&_>_button]:whitespace-nowrap max-[700.001px]:[&_>_button]:[flex:1_1_auto]
-
-          [&_.tw-admin-field]:[font-family:inherit] [&_.tw-admin-field]:text-[12px]
-
-          [&_.tw-admin-field]:font-semibold [&_.tw-admin-field]:tracking-[0.02em] [&_.tw-admin-field]:normal-case
-
-          max-[700.001px]:[&_.tw-admin-field]:[flex:1_1_100%] [&_select]:[font-family:inherit]
-
-          [&_select]:text-[14px] [&_select]:font-normal [&_select]:tracking-[normal] [&_select]:normal-case">
-        <h2 id={headingId} ref={heading} tabIndex={-1}>
-          People at {checkpoint.name}
-        </h2>
-        <Button type="button" variant="outline" onClick={props.onClose}>
-          Close
-        </Button>
-      </div>
+    <section id={props.id} aria-label={`People at ${checkpoint.name}`} className="grid gap-[10px] p-[14px_16px_16px] border-l-2 border-accent [background:color-mix(in_srgb,_var(--accent)_4%,_var(--card))]">
       {message && (
-        <Alert className={`flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
-                [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
-                [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
-                leading-[1.65] [overflow-wrap:anywhere]` + ' ' + (message.startsWith('✓') ? `[&&]:[border-color:color-mix(in_srgb,_var(--ok,_#4ade80)_40%,_var(--line))]
-                [&&]:[background:color-mix(in_srgb,_#4ade80_6%,_var(--card))]` : `[&&]:[border-color:color-mix(in_srgb,_var(--warn,_#fbbf24)_40%,_var(--line))]
-                [&&]:[background:color-mix(in_srgb,_#fbbf24_6%,_var(--card))]`)} asChild role="status"><p  data-tone={message.startsWith('✓') ? 'ok' : message.startsWith('✕') ? 'bad' : 'warn'} role="status">
+        <p role="status" data-tone={message.startsWith('✓') ? 'ok' : message.startsWith('✕') ? 'bad' : 'warn'} className="m-0 text-[13px] leading-[1.6] [overflow-wrap:anywhere]">
           {message}
-        </p></Alert>
+        </p>
       )}
       {rows === null ? (
-        <p>Loading…</p>
+        <p className="m-0 text-muted-foreground text-[12px]">Loading…</p>
       ) : (
         <>
-          <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
-            {rows.length} {rows.length === 1 ? 'person' : 'people'}
-          </p>
           {rows.length > 0 && (
-            <div className="tw-admin-tableWrap overflow-x-auto [background:var(--card)] [border-width:1px] [border-style:solid]
-
-          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
-
-          [border-left-color:var(--line)] rounded-card shadow-panel max-[600.001px]:max-w-full">
-              <Table className="tw-admin-table [&_.tw-admin-num]:text-right! [&_.tw-admin-actions]:flex [&_.tw-admin-actions]:items-center [&_.tw-admin-actions]:gap-1 [&_.tw-admin-actions_button]:px-2 [&_.tw-admin-actions_button]:text-xs [&_.tw-admin-badge]:text-xs">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Scanned</TableHead>
-                    <TableHead>By</TableHead>
-                    <TableHead>How</TableHead>
-                    <TableHead>Actions</TableHead>
+            <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} aria-label={`Search people at ${checkpoint.name}`}
+              placeholder="Search by name" className="max-w-[320px] text-[14px]" />
+          )}
+          <p ref={count} tabIndex={-1} aria-live="polite" className="m-0 text-muted-foreground text-[12px] leading-[1.7] outline-none">
+            {needle && rows.length > 0 && `${shown.length} of `}{rows.length} {rows.length === 1 ? 'person' : 'people'}
+          </p>
+          {needle && rows.length > 0 && shown.length === 0 && (
+            <p className="m-0 text-muted-foreground text-[13px]">Nobody here matches “{q.trim()}”.</p>
+          )}
+          {shown.length > 0 && (
+            <Table className="tw-admin-table text-[13px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Scanned</TableHead>
+                  <TableHead>By</TableHead>
+                  <TableHead>How</TableHead>
+                  <TableHead><span className="sr-only">Actions</span></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shown.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell>
+                      {r.displayName}
+                      {r.isTest && <span className="text-muted-foreground text-[12px]"> (test)</span>}
+                    </TableCell>
+                    <TableCell>{formatEventDateTime(r.scannedAt, props.timezone)}</TableCell>
+                    <TableCell>{r.scannedByName ?? '—'}</TableCell>
+                    <TableCell>{HOW[r.method]}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost" className="tw-admin-danger min-h-[44px] text-destructive hover:bg-destructive/10"
+                        aria-label={`Remove ${r.displayName}`}
+                        disabled={removing}
+                        onClick={() => setVoiding(r)}
+                      >
+                        Remove
+                      </Button>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell>
-                        {r.displayName}
-                        {r.isTest && <span className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]"> (test)</span>}
-                      </TableCell>
-                      <TableCell>{formatEventDateTime(r.scannedAt, props.timezone)}</TableCell>
-                      <TableCell>{r.scannedByName ?? '—'}</TableCell>
-                      <TableCell>{HOW[r.method]}</TableCell>
-                      <TableCell>
-                        <Button
-                          type="button"
-                          variant="ghost" className="tw-admin-danger text-destructive hover:bg-destructive/10"
-                          aria-label={`Remove ${r.displayName}`}
-                          disabled={removing}
-                          onClick={() => setVoiding(r)}
-                        >
-                          Remove
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </>
       )}
@@ -472,6 +428,16 @@ function CheckpointPeople(props: { slug: string; checkpoint: Checkpoint; timezon
         <VoidDialog what={`${voiding.displayName}’s ${checkpoint.name} scan`} onSubmit={(reason) => void remove(voiding, reason)} onCancel={() => setVoiding(null)} />
       )}
     </section>
+  );
+}
+
+// The People toggle both tabs put in a checkpoint's row; the list itself goes in the next row (CheckpointPeople).
+export function PeopleToggle({ name, open, controls, onToggle }: { name: string; open: boolean; controls: string; onToggle: () => void }) {
+  return (
+    <Button type="button" variant="outline" aria-label={`People at ${name}`} aria-expanded={open} aria-controls={controls} onClick={onToggle}>
+      People
+      <span aria-hidden="true" className={`inline-block text-[10px] transition-transform duration-150 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}>▼</span>
+    </Button>
   );
 }
 

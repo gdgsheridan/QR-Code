@@ -32,6 +32,8 @@ export function ManualSearch(props: {
   onLinkBadge: (row: Row) => void;
   onClose: () => void;
   onUnauthorized: () => void;
+  /** v0.11.40: opened from the bottom bar's Link badge: linking only, never a Record scan. */
+  linkOnly?: boolean;
 }) {
   const { slug, checkpointId, disabled } = props;
   const [q, setQ] = useState('');
@@ -74,7 +76,7 @@ export function ManualSearch(props: {
           [border-bottom-color:var(--line)] [background:var(--card)] [&_h2]:flex-1 [&_h2]:m-0 [&_h2]:text-[22px]
 
           [&_h2]:tracking-[-0.03em]">
-        <h2 id="search-title">Manual search</h2>
+        <h2 id="search-title">{props.linkOnly ? 'Link a badge' : 'Manual search'}</h2>
         <Button type="button" variant="outline" onClick={props.onClose}>
           Close
         </Button>
@@ -91,6 +93,7 @@ export function ManualSearch(props: {
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
+      {props.linkOnly && <p className="p-[0px_24px_12px] m-0 text-muted-foreground text-[14px]">Find the hacker, then tap Link badge or Replace badge.</p>}
       {!valid && q !== '' && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">Type at least 2 letters.</p>}
       {valid && state.kind === 'loading' && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">Searching…</p>}
       {valid && state.kind === 'error' && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">✕ Search failed. Try again.</p>}
@@ -109,9 +112,11 @@ export function ManualSearch(props: {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 w-full sm:grid sm:w-auto sm:shrink-0 [&_button]:flex-1">
-                <Button type="button" disabled={disabled} onClick={() => props.onRecord(r.id)} aria-label={`Record scan for ${r.displayName}`}>
-                  Record scan
-                </Button>
+                {!props.linkOnly && (
+                  <Button type="button" disabled={disabled} onClick={() => props.onRecord(r.id)} aria-label={`Record scan for ${r.displayName}`}>
+                    Record scan
+                  </Button>
+                )}
                 {supported && r.status === 'accepted' && (
                   <Button
                     type="button"

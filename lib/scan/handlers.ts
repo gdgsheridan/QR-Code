@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Authenticate } from '@/lib/auth/session';
+import { judgeHoldsBadge, releaseJudgeBadge } from '@/lib/admin/judges';
 import { requireStaffBySlug } from '@/lib/auth/staff';
 import { staffNames } from '@/lib/db/staff-names';
 import type { Database } from '@/lib/db/types.gen';
@@ -94,6 +95,9 @@ const scanResultSchema = z.object({
   revokeReason: z.string().nullable().optional(),
   otherEvent: z.string().nullable().optional(),
   capacity: z.number().optional(),
+  availableAt: z.string().optional(),
+  cooldownMinutes: z.number().optional(),
+  seconds: z.boolean().optional(),
 });
 
 // POST /api/scan (SPEC §9.1, F6). Every decision is made by record_scan() (I-2); this handler only
@@ -258,6 +262,9 @@ export function createBadgeLinkHandler(deps: ApiDeps) {
     if (!staff) return forbidden();
     const body = linkBody.safeParse(await readJson(request));
     if (!body.success) return badRequest();
+    // v0.12.4: a judge's badge (§11 Judges) moves to the hacker for an organizer; a volunteer can't take it.
+    const fromJudge = await judgeHoldsBadge(deps.db, staff.eventId, body.data.uid);
+    if (fromJudge && staff.role !== 'organizer') return json({ code: 'BADGE_TAKEN' });
     const { data, error } = await deps.db.rpc('link_badge', {
       p_event_id: staff.eventId,
       p_participant_id: body.data.participantId,
@@ -266,7 +273,9 @@ export function createBadgeLinkHandler(deps: ApiDeps) {
       p_move: staff.role === 'organizer',
     });
     if (error) throw new Error(`link_badge failed (${error.code})`);
-    return json({ code: z.enum(LINK_CODES).parse(data) });
+    const code = z.enum(LINK_CODES).parse(data);
+    if (code === 'LINKED' && fromJudge) await releaseJudgeBadge(deps.db, staff.eventId, body.data.uid);
+    return json({ code });
   };
 }
 

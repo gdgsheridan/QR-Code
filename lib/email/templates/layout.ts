@@ -14,6 +14,8 @@ const C = {
 
 export const HEADLINE = `font-size:20px;line-height:1.35;font-weight:700;color:${C.fg}`;
 export const MUTED = `color:${C.muted}`;
+/** v0.11.49: the reminder's countdown, read as the end of its headline ("… starts in" / "4 days"). */
+export const COUNTDOWN = `font-size:60px;line-height:1;font-weight:700;letter-spacing:-0.02em;color:${C.accent}`;
 
 export const p = (html: string, style = '') => `<p style="margin:0 0 16px;${style}">${html}</p>`;
 

@@ -65,9 +65,9 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
 
   const menu = page.getByRole('navigation', { name: 'Hacker menu' });
   for (const item of ['Hacker profile', 'Schedule', 'Emergency contact']) await expect(menu.getByRole('link', { name: item })).toBeVisible();
-  // Menu order (v0.11.18): Hackers, Schedule, Team, Emergency contact, Hacker profile.
+  // Menu order (v0.12: Connections and Workshops after Schedule).
   const order = await menu.locator('li > a').evaluateAll(links => links.map(link => link.getAttribute('href')));
-  expect(order).toEqual(['/me/hackers', '/me/schedule', '/me/team', '/me/emergency', '/me/profile']);
+  expect(order).toEqual(['/me/hackers', '/me/schedule', '/me/connections', '/me/workshops', '/me/team', '/me/emergency', '/me/profile']);
   // v0.11.28: Links is a menu row that opens in place with the Discord, hacker package and Google Group.
   const links = menu.getByRole('button', { name: /^Links/ });
   await expect(links).toHaveAttribute('aria-expanded', 'false');
@@ -159,7 +159,7 @@ test('T-ME-11: poster calendar keeps all events, poster columns with stacked ove
   await page.setViewportSize({ width: 1440, height: 900 });
   const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
   const sunday = page.getByRole('list', { name: 'Sunday, Nov 8', exact: true });
-  await expect(saturday.getByRole('listitem')).toHaveCount(23);
+  await expect(saturday.getByRole('listitem')).toHaveCount(22);
   await saturday.getByRole('listitem').first().scrollIntoViewIfNeeded();
   const heights = await saturday.getByRole('listitem').evaluateAll(blocks => blocks.map(block => block.getBoundingClientRect().height));
   expect(Math.min(...heights)).toBe(30); // SPEC F14: 30-minute slots on a 64px/hour axis, minus the 2px gap.
@@ -193,7 +193,13 @@ test('T-ME-11: poster calendar keeps all events, poster columns with stacked ove
     return [box.x, box.width];
   }));
   expect(workshopBoxes).toHaveLength(5);
-  expect(new Set(workshopBoxes.map(box => box.join()))).toHaveProperty('size', 1);
+  expect(new Set(workshopBoxes.map(([x]) => Math.round(x!)))).toHaveProperty('size', 1);
+  // v0.12.5 (owner's request): short overlaps sit side by side, so MLH Meetup no longer hides Meta's time.
+  const metaItem = saturday.getByRole('listitem').filter({ hasText: 'Workshop: Meta' });
+  const meta = (await metaItem.boundingBox())!;
+  const meetup = (await saturday.getByRole('listitem').filter({ hasText: 'MLH Meetup' }).boundingBox())!;
+  expect(meetup.x).toBeGreaterThanOrEqual(meta.x + meta.width);
+  await expect(metaItem.getByText('4:00 PM to 5:00 PM').first()).toBeVisible();
   const lunch = (await saturday.getByRole('listitem').filter({ hasText: 'Lunch' }).boundingBox())!;
   expect(lunch.x).toBeLessThan(hacking.x + hacking.width);
   expect(lunch.y).toBeLessThan(hacking.y + hacking.height);
@@ -338,7 +344,7 @@ test('T-ME-11: on a phone the Schedule fits the screen on the site\'s dark surfa
   await expect(page.getByRole('heading', { name: 'SAT NOV 7' })).toBeVisible();
   await expect(page.getByTestId('schedule-now')).toContainText('now 2:40 PM');
   const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
-  await expect(saturday.getByRole('listitem')).toHaveCount(23);
+  await expect(saturday.getByRole('listitem')).toHaveCount(22);
   await expect(saturday.getByRole('listitem').filter({ hasText: 'Check-in' })).toHaveAttribute('data-state', 'past');
   await expect(page.getByRole('button', { name: 'Sat Nov 7', exact: true })).toHaveAttribute('aria-pressed', 'true');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -358,7 +364,7 @@ test('T-ME-11: on a phone the Schedule fits the screen on the site\'s dark surfa
   expect(await google.innerText()).toBe('Google');
   await expect(saturday.getByRole('listitem').filter({ hasText: 'Google' })).toContainText('2:30–3:30 PM');
   const snacks = saturday.getByRole('listitem').filter({ hasText: 'Snack Cart' }).locator('strong');
-  expect(await snacks.innerText()).toBe('Snack Cart'); // ", by Accenture" drops on a narrow card
+  expect(await snacks.innerText()).toBe('Late-Night Snacks + Snack Cart'); // ", by Accenture" drops on a narrow card
   if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/schedule-phone.png`, fullPage: true });
   await page.getByRole('button', { name: 'Sun Nov 8', exact: true }).click();
   await expect(page.getByRole('list', { name: 'Sunday, Nov 8', exact: true }).getByRole('listitem')).toHaveCount(6);

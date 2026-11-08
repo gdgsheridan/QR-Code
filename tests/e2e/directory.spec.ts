@@ -17,9 +17,11 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await f.pool.query(`update participants set directory_opt_in = true, bio = 'Another event private bio' where id = $1`, [f.p.X]);
   const legacy = await f.addParticipant(f.e1.id);
   await f.pool.query(`update participants set first_name = 'Legacy', looking_for_team = true, directory_opt_in = false, bio = 'Hidden legacy bio', discord_username = 'hidden.discord' where id = $1`, [legacy.id]);
+  // v0.11.45: Cleo's bio is too long for a card's 3 lines.
+  const longBio = `${'I build data tools for climate research and love pairing on messy datasets. '.repeat(3)}End of Cleo bio.`;
   for (const [index, pace] of ['casual', 'balanced', 'competitive', null, 'balanced', 'casual'].entries()) {
     const extra = await f.addParticipant(f.e1.id);
-    await f.pool.query(`update participants set first_name = $2, directory_opt_in = true, pace = $3, bio = 'Ready to build something together.' where id = $1`, [extra.id, ['Cleo', 'Dev', 'Emi', 'Farah', 'Gus', 'Hana'][index], pace]);
+    await f.pool.query(`update participants set first_name = $2, directory_opt_in = true, pace = $3, bio = $4 where id = $1`, [extra.id, ['Cleo', 'Dev', 'Emi', 'Farah', 'Gus', 'Hana'][index], pace, index === 0 ? longBio : 'Ready to build something together.']);
   }
   // The contact is set on its own page (/me/emergency); stored here so the directory can be checked for leaks.
   await f.pool.query(`update participants set emergency_name = 'Private contact sentinel', emergency_phone = '4165550123' where id = $1`, [f.p.A]);
@@ -35,7 +37,9 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Networking', exact: true })).toBeVisible();
   await page.getByLabel('List me in the Hacker directory').check();
-  await page.getByLabel('Prefer not to say', { exact: true }).uncheck();
+  // The walkthrough starts the pace live on Balanced (owner's request, v0.11.34).
+  await expect(page.getByLabel('Prefer not to say', { exact: true })).not.toBeChecked();
+  await expect(page.getByRole('slider', { name: 'Your pace', exact: true })).toHaveAttribute('aria-valuetext', 'Balanced');
   await page.getByRole('slider', { name: 'Your pace', exact: true }).press('End');
   await expect(page.getByRole('slider', { name: 'Your pace', exact: true })).toHaveAttribute('aria-valuetext', 'Going for the win');
   await page.getByLabel('Bio', { exact: true }).fill('I enjoy data visualisation.\n<b>Plain text</b>');
@@ -54,14 +58,13 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(page.getByRole('link', { name: 'Edit my directory profile →' })).toHaveAttribute('href', '/me/profile?tab=networking');
   await expect(page.getByText('Pace bar: 1 = here to learn, 2 = balanced, 3 = going for the win.')).toBeVisible();
   const self = directory.getByRole('article', { name: 'Ada Fixture (you)' });
-  await expect(directory.locator('details[open]')).toHaveCount(0);
+  // v0.11.45: every card is open, so who someone is shows without expanding anything.
+  await expect(directory.locator('details, summary')).toHaveCount(0);
   await expect(directory.getByRole('article')).toHaveCount(9);
   await expect(self.getByRole('heading', { name: 'Ada Fixture (you)' })).toBeVisible();
   await expect(self.getByRole('img', { name: 'Pace: Going for the win (3 of 3)', exact: true })).toBeVisible();
-  await expect(self.getByText('<b>Plain text</b>', { exact: false })).not.toBeVisible();
-  await self.locator('summary').click();
   await expect(self).toContainText('Going for the win');
-  await expect(self).toContainText('<b>Plain text</b>');
+  await expect(self.getByText('<b>Plain text</b>', { exact: false })).toBeVisible();
   await expect(self.locator('b')).toHaveCount(0);
   await expect(self.getByRole('button')).toHaveCount(0);
   await expect(self.getByRole('link')).toHaveCount(0);
@@ -81,16 +84,20 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
     await expect(gauge.locator(':scope > span')).toHaveCount(3);
     await expect(gauge.locator(':scope > span:not(.border-dashed)')).toHaveCount(filled);
   }
-  await expect(ben.getByText('Building with open data.', { exact: false })).not.toBeVisible();
-  await expect(ben.getByRole('link', { name: 'LinkedIn', includeHidden: true })).not.toBeVisible();
-  await expect(ben.getByRole('link', { name: /^example\.test/, includeHidden: true })).not.toBeVisible();
-  await expect(ben.getByRole('button', { name: 'Copy Ben Fixture’s Discord username', includeHidden: true })).not.toBeVisible();
-  await ben.locator('summary').focus();
-  await page.keyboard.press('Enter');
-  await expect(ben.locator('details')).toHaveAttribute('open', '');
   await expect(ben.getByText('Building with open data.', { exact: false })).toBeVisible();
   await expect(ben.getByText('Balanced', { exact: true })).toBeVisible();
-  await self.locator('summary').click();
+  await expect(ben.getByRole('button', { name: 'Read more' })).toHaveCount(0); // a short bio isn't cut
+  // A long bio shows 3 lines; Read more opens it in place and Show less closes it again.
+  const cleo = directory.getByRole('article', { name: 'Cleo Fixture', exact: true });
+  const cut = () => cleo.getByText('End of Cleo bio.', { exact: false }).evaluate((el) => el.scrollHeight > el.clientHeight + 1);
+  await expect.poll(cut).toBe(true);
+  await expect(cleo.getByRole('button', { name: 'Read more' })).toHaveAttribute('aria-expanded', 'false');
+  await cleo.getByRole('button', { name: 'Read more' }).click();
+  await expect(cleo.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+  await expect.poll(cut).toBe(false);
+  await cleo.getByRole('button', { name: 'Show less' }).click();
+  await expect(cleo.getByRole('button', { name: 'Read more' })).toBeVisible();
+  await expect.poll(cut).toBe(true);
   await expect(ben.getByRole('link', { name: 'LinkedIn' })).toHaveAttribute('href', 'https://www.linkedin.com/in/ben-fixture');
   await expect(ben.getByRole('link', { name: /^example\.test/ })).toHaveAttribute('rel', 'nofollow ugc');
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -101,9 +108,10 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   const nativePage = await noJs.newPage();
   await nativePage.goto('/me/hackers');
   const nativeBen = nativePage.getByRole('article', { name: 'Ben Fixture', exact: true });
-  await expect(nativeBen.getByText('Building with open data.', { exact: false })).not.toBeVisible();
-  await nativeBen.locator('summary').click();
   await expect(nativeBen.getByText('Building with open data.', { exact: false })).toBeVisible();
+  // Without JavaScript there is no Read more, so the whole bio shows.
+  expect(await nativePage.getByRole('article', { name: 'Cleo Fixture', exact: true }).getByText('End of Cleo bio.', { exact: false })
+    .evaluate((el) => el.scrollHeight > el.clientHeight + 1)).toBe(false);
   await nativePage.getByRole('slider', { name: 'Pace', exact: true }).press('Home');
   await nativePage.getByRole('slider', { name: 'Pace', exact: true }).press('ArrowRight');
   await nativePage.getByLabel('Search by name').press('Enter'); // no JavaScript: Enter submits the GET form
@@ -129,10 +137,11 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   for (const [width, height, columns] of [[390, 844, 1], [768, 900, 2], [1100, 900, 3], [1280, 800, 3], [1440, 900, 4]]) {
     await page.setViewportSize({ width: width!, height: height! });
     expect(await directory.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length)).toBe(columns);
-    const rowHeights = await directory.getByRole('article').evaluateAll((rows) => rows.slice(0, 2).map((row) => row.getBoundingClientRect().height));
-    expect(rowHeights[1]!).toBeGreaterThan(rowHeights[0]!);
+    // v0.11.45: cards in a row share one height, so a row never leaves gaps.
+    const boxes = await directory.getByRole('article').evaluateAll((cards) => cards.map((card) => card.getBoundingClientRect()).map((r) => [Math.round(r.top), Math.round(r.height)]));
+    for (const [top, height] of boxes) expect(boxes.filter(([t]) => t === top).map(([, h]) => h), `row at ${top}px, ${width}px wide`).toEqual(boxes.filter(([t]) => t === top).map(() => height));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: `${screenshots}/dir-accordion-${width}.png`, fullPage: true });
+    await page.screenshot({ path: `${screenshots}/dir-cards-${width}.png`, fullPage: true });
     await ben.screenshot({ path: `${screenshots}/directory-contacts-${width}.png` });
   }
   // v0.11.25: filters apply as they change; no Apply button.
@@ -142,7 +151,6 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await expect(directory.getByText('Legacy Fixture')).toBeVisible();
   const legacyCard = directory.getByRole('article', { name: 'Legacy Fixture', exact: true });
   await expect(legacyCard.getByRole('img', { name: 'Pace not shared (0 of 3)', exact: true })).toBeVisible();
-  await legacyCard.locator('summary').click();
   await expect(legacyCard).toContainText('Looking for a team');
   await expect(directory).not.toContainText('Hidden legacy bio');
   await expect(directory.getByText('Ben Fixture')).toHaveCount(0);
@@ -188,9 +196,10 @@ test('T-DIR-05: opt in through RSVP profile walkthrough, browse/filter/contact, 
   await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
   await page.goto('/me/hackers?looking=1&pace=1');
   const nia = directory.getByRole('article', { name: 'Nia Fixture', exact: true });
-  await expect(nia.locator('details[open]')).toHaveCount(0);
+  await expect(nia.getByText('Learning machine learning.')).toBeVisible(); // who they are, before inviting
   await nia.getByRole('button', { name: 'Invite Nia Fixture' }).click(); // visible without expanding
-  await expect(page).toHaveURL(new RegExp(`looking=1&pace=1&r=INVITED#h-${f.p.N}$`));
+  // v0.11.47: the result shows once, so `r` leaves the URL; the filters and the card stay.
+  await expect(page).toHaveURL(new RegExp(`looking=1&pace=1#h-${f.p.N}$`));
   await expect(page.getByRole('status').filter({ hasText: 'Invite sent' })).toBeVisible();
   await expect(nia).toContainText('✓ Invited');
   await expect(nia.getByRole('button', { name: 'Invite Nia Fixture' })).toHaveCount(0);
@@ -215,7 +224,7 @@ test('T-DIR-06: waitlisted and withdrawn viewers get 404; signed-out visitors mu
   }
 });
 
-test('T-DIR-05 (v0.11.25): the directory shows 50 hackers, and Show more adds the next 50', async ({ page }) => {
+test('T-DIR-05 (v0.11.25, v0.11.46): the directory shows 50 hackers and loads the next 50 by itself near the end; Show more without JavaScript', async ({ page, browser }) => {
   await f.pool.query(
     `insert into participants (event_id, email, first_name, last_name, search_text, status, source, directory_opt_in)
      select $1, 'more' || g || '-' || $2 || '@example.test', 'Bulk', 'Hacker' || lpad(g::text, 2, '0'), 'bulk hacker' || lpad(g::text, 2, '0'),
@@ -226,11 +235,25 @@ test('T-DIR-05 (v0.11.25): the directory shows 50 hackers, and Show more adds th
   await signIn(page, email, '/me/hackers');
   const cards = page.getByRole('region', { name: 'Hacker directory' }).getByRole('article');
   await expect(cards).toHaveCount(50);
-  await page.getByRole('link', { name: 'Show more' }).click();
+  // v0.11.46: reaching the end loads the rest without a click, so there is no Show more button.
+  await expect(page.getByRole('link', { name: 'Show more' })).toHaveCount(0);
+  await cards.nth(49).scrollIntoViewIfNeeded();
   await page.waitForURL(/show=100/);
   await expect(cards.nth(50)).toBeVisible();
-  expect(await cards.count()).toBeGreaterThan(60);
+  const total = await cards.count();
+  expect(total).toBeGreaterThan(60);
+  await expect(page.getByText(`That’s everyone: ${total} hackers.`, { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Show more' })).toHaveCount(0);
+  // Without JavaScript, Show more is the plain link it always was.
+  const noJs = await browser.newContext({ storageState: await page.context().storageState(), ...NO_JS, baseURL: page.url() });
+  const nativePage = await noJs.newPage();
+  await nativePage.goto('/me/hackers');
+  const nativeCards = nativePage.getByRole('region', { name: 'Hacker directory' }).getByRole('article');
+  await expect(nativeCards).toHaveCount(50);
+  await nativePage.getByRole('link', { name: 'Show more' }).click();
+  await nativePage.waitForURL(/show=100/);
+  await expect(nativeCards).toHaveCount(total);
+  await noJs.close();
   await f.pool.query(`delete from participants where event_id = $1 and email like 'more%'`, [f.e2.id]);
 });
 

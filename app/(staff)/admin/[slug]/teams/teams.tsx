@@ -12,6 +12,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { useCallback, useState } from 'react';
 import { adminUrl, errorText, useApi, useLoad, type ApiResult } from '../api';
 import { ConfirmDialog } from '../dialog';
+import { PageHeader } from '../page-header';
 
 interface Track {
   id: string;
@@ -21,7 +22,7 @@ interface Team {
   id: string;
   name: string;
   code: string;
-  trackId: string | null;
+  trackIds: string[];
   members: Array<{ id: string; displayName: string; status: string }>;
 }
 interface Data {
@@ -74,21 +75,7 @@ export function Teams({ slug }: { slug: string }) {
 
   return (
     <>
-      <header className="flex items-start justify-between gap-[24px] mb-[28px] pb-[24px] [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)] max-[700.001px]:gap-[12px]
-
-          max-[700.001px]:flex-col [&_h1]:m-[0px_0px_8px] [&_h1]:text-[clamp(30px,_3vw,_40px)]
-
-          [&_h1]:font-extrabold [&_h1]:tracking-[-0.045em] [&_.tw-admin-muted]:max-w-[560px]
-
-          [&_.tw-admin-muted]:m-0 [&_.tw-admin-muted]:leading-[1.6]">
-        <div>
-          <SectionLabel>EVENT MANAGEMENT</SectionLabel>
-          <h1>Teams &amp; tracks</h1>
-          <p className="copy tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Organize hackers, manage tracks, and monitor team formation.</p>
-        </div>
-        <div className="flex items-center gap-[8px] pt-[8px] max-[700.001px]:pt-0">
+      <PageHeader title="Teams & tracks" description="Organize hackers, manage tracks, and monitor team formation.">
           <Badge className="tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px]
 
           [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
@@ -98,8 +85,7 @@ export function Teams({ slug }: { slug: string }) {
           [background:var(--raised)] text-fg text-[11px] font-semibold leading-[1.35] whitespace-nowrap
           max-w-full
  [font-family:inherit]">{data.teamsOpen ? 'Formation open' : 'Formation closed'}</Badge>
-        </div>
-      </header>
+      </PageHeader>
       {message && (
         <Alert className={`flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
                 [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
@@ -510,7 +496,7 @@ export function Teams({ slug }: { slug: string }) {
           e.preventDefault();
           const form = e.currentTarget;
           const f = new FormData(form);
-          void call('/teams', 'POST', { name: text(f, 'name'), trackId: text(f, 'trackId') || null }).then(async (r) => {
+          void call('/teams', 'POST', { name: text(f, 'name'), trackIds: f.getAll('trackIds').map(String) }).then(async (r) => {
             if (await done(r, 'Team created.')) form.reset();
           });
         }}
@@ -519,7 +505,7 @@ export function Teams({ slug }: { slug: string }) {
           New team
           <Input name="name" required maxLength={60} className="tw-admin-input w-full" />
         </Label>
-        <TrackSelect tracks={data.tracks} name="trackId" label="Track" value={null} />
+        <TrackPicker tracks={data.tracks} name="trackIds" legend="Tracks" value={[]} />
         <Button type="submit">Create team</Button>
       </form>
       {data.teams.map((t) => (
@@ -690,7 +676,7 @@ export function Teams({ slug }: { slug: string }) {
               <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-[16px] gap-y-[8px]">
                 <span className="min-w-0 font-semibold [overflow-wrap:anywhere]">{t.name}</span>
                 <span className="min-w-0 text-[12px] text-muted-foreground [overflow-wrap:anywhere]">
-                  {data.tracks.find((track) => track.id === t.trackId)?.name ?? 'No track'}
+                  {data.tracks.filter((track) => t.trackIds.includes(track.id)).map((track) => track.name).join(', ') || 'No track'}
                 </span>
                 <span className="whitespace-nowrap text-[12px] tabular-nums text-muted-foreground">{t.members.length} / 4</span>
                 <span className="tw-admin-teamCode inline-flex items-center gap-[8px] p-[8px_12px]
@@ -741,13 +727,13 @@ export function Teams({ slug }: { slug: string }) {
                   Delete team
                 </Button>
               </form>
-              <TrackSelect
-                // Keyed by its track: the select is uncontrolled, so a change made elsewhere redraws it.
-                key={t.trackId ?? 'none'}
+              <TrackPicker
+                // Keyed by its tracks: the boxes are uncontrolled, so a change made elsewhere redraws them.
+                key={t.trackIds.join(',') || 'none'}
                 tracks={data.tracks}
-                label={`Track of ${t.name}`}
-                value={t.trackId}
-                onChange={(trackId) => void call(`/teams/${t.id}`, 'PATCH', { trackId }).then((r) => done(r, 'Track saved.'))}
+                legend={`Tracks of ${t.name}`}
+                value={t.trackIds}
+                onChange={(trackIds) => void call(`/teams/${t.id}`, 'PATCH', { trackIds }).then((r) => done(r, 'Tracks saved.'))}
               />
               <ul className="tw-admin-memberList flex flex-col gap-0 list-none m-[20px_0px] p-0 [border-top-width:1px]
 
@@ -845,18 +831,24 @@ export function Teams({ slug }: { slug: string }) {
   );
 }
 
-function TrackSelect(props: { tracks: Track[]; label: string; value: string | null; name?: string; onChange?: (trackId: string | null) => void }) {
+// v0.11.50 (owner's request): a team picks any number of tracks, so a box per track instead of one select.
+function TrackPicker(props: { tracks: Track[]; legend: string; value: string[]; name?: string; onChange?: (trackIds: string[]) => void }) {
+  if (props.tracks.length === 0) return null;
+  const { onChange } = props;
   return (
-    <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
-      {props.label}
-      <NativeSelect name={props.name} className="tw-admin-input w-full" defaultValue={props.value ?? ''} onChange={(e) => props.onChange?.(e.target.value || null)}>
-        <option value="">No track</option>
+    <fieldset
+      className="tw-admin-field m-0 grid min-w-[140px] flex-[1_1_180px] gap-1 border-0 p-0 text-sm text-muted-foreground"
+      onChange={onChange && ((e) => onChange([...e.currentTarget.querySelectorAll<HTMLInputElement>('input:checked')].map((i) => i.value)))}
+    >
+      <legend className="mb-1 p-0">{props.legend}</legend>
+      <div className="flex flex-wrap gap-x-4">
         {props.tracks.map((t) => (
-          <option key={t.id} value={t.id}>
+          <Label key={t.id} className="inline-flex min-h-11 items-center gap-2 font-normal text-foreground">
+            <input type="checkbox" name={props.name} value={t.id} defaultChecked={props.value.includes(t.id)} className="size-5 shrink-0" />
             {t.name}
-          </option>
+          </Label>
         ))}
-      </NativeSelect>
-    </Label>
+      </div>
+    </fieldset>
   );
 }

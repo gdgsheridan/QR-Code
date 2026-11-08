@@ -67,7 +67,7 @@ test('T-UI-01: admin and scanner pages use only Fira Code', async ({ page }) => 
   test.setTimeout(90_000);
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
   const report: string[] = [];
-  for (const sub of ['', '/participants', '/checkpoints', '/staff', '/info', '/teams', '/export', '/tools']) {
+  for (const sub of ['', '/participants', '/checkpoints', '/staff', '/info', '/teams', '/tools']) {
     await page.goto(`/admin/${f.slug}${sub}`);
     for (const o of await offenders(page)) report.push(`admin${sub}: ${o}`);
   }

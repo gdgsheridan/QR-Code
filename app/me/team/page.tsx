@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { ConfirmSubmit } from '@/components/confirm-submit';
-import { NativeSelect } from '@/components/ui/native-select';
+import { ClearResult } from '@/components/clear-result';
 import { Input } from '@/components/ui/input';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -15,7 +15,7 @@ import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { formatJoinCode } from '@/lib/domain/team';
 import { myEvent, type MyEvent } from '@/lib/me/profile';
-import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, tracksWithTeams, setLooking, setTeamTrack, setTrackInterests, type TeamCode } from '@/lib/me/team';
+import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, removeTeammate, saveLooking, tracksWithTeams, setTeamTracks, type TeamCode } from '@/lib/me/team';
 import { TracksChart } from './tracks-chart';
 import { loadMyEvent, menuMetadata } from '../load';
 import { CopyCode } from './copy-code';
@@ -24,11 +24,17 @@ export const metadata: Metadata = menuMetadata('Team');
 
 const initials = (name: string) => name.split(/\s+/).map((w) => Array.from(w)[0] ?? '').join('').slice(0, 2).toUpperCase();
 
-const NOTICES: Record<TeamCode, string> = {
+// v0.11.47: the page's own codes say which form answered, instead of guessing from the team ("Track saved").
+type Notice = TeamCode | 'LOOKING_SAVED' | 'INVITE_GONE';
+const NOTICES: Record<Notice, string> = {
   CREATED: '✓ Team created. Share the code with your teammates.',
   JOINED: '✓ You joined the team.',
   LEFT: '✓ You left the team.',
-  SAVED: '✓ Track saved.',
+  REMOVED: '✓ They’re off the team. Your team has a new join code: share it with anyone still joining.',
+  SAVED: '✓ Tracks saved.',
+  LOOKING_SAVED: '✓ Saved.',
+  INVITE_GONE: '✕ That invite is no longer open.',
+  RATE_LIMITED: '✕ Your team has sent a lot of invites. Try again in an hour.',
   INVITED: '✓ Invite sent. They can accept on their Team page.',
   ALREADY_INVITED: '✕ You’ve already invited them.',
   NOT_LOOKING: '✕ They’re no longer looking for a team.',
@@ -57,23 +63,20 @@ async function act(formData: FormData) {
   const r =
     op === 'accept' ? await joinTeam(db(), user, m.participantId, { teamId: field('teamId') })
     : op === 'decline' ? await declineInvite(db(), user, m.participantId, field('teamId'))
-    : op === 'looking' ? await saveLooking(user, m.participantId, field('looking') === 'on', formData.getAll('track').map(String))
+    : op === 'looking' ? await saveLooking(db(), user, m.participantId, field('looking') === 'on', formData.getAll('track').map(String))
     : op === 'create'
       ? await createTeam(db(), user, m.participantId, field('name'))
       : op === 'join'
         ? await joinTeam(db(), user, m.participantId, { code: field('code') })
         : op === 'leave'
           ? await leaveTeam(db(), user, m.participantId)
-          : await setTeamTrack(db(), user, m.participantId, field('trackId'));
+          : op === 'remove'
+            ? await removeTeammate(db(), user, m.participantId, field('memberId'))
+            : await setTeamTracks(db(), user, m.participantId, formData.getAll('teamTrack').map(String));
+  const notice: Notice = op === 'looking' && r === 'SAVED' ? 'LOOKING_SAVED' : op === 'accept' && r === 'BAD_CODE' ? 'INVITE_GONE' : r;
   // A refused join code comes back to its field (a join code isn't a secret, F15), so it can be fixed instead of retyped.
   const back = op === 'join' && r !== 'JOINED' ? `&code=${encodeURIComponent(field('code').slice(0, 20))}` : '';
-  redirect(`/me/team?r=${r}${back}`);
-}
-
-// v0.11.25: Looking and the tracks they want to do save together.
-async function saveLooking(user: { id: string; email: string | null }, participantId: string, on: boolean, tracks: string[]) {
-  const looking = await setLooking(db(), user, participantId, on);
-  return looking === 'SAVED' ? setTrackInterests(db(), user, participantId, tracks) : looking;
+  redirect(`/me/team?r=${notice}${back}`);
 }
 
 export default async function TeamPage(props: { searchParams: Promise<{ r?: string; code?: string }> }) {
@@ -117,16 +120,17 @@ async function MyTeamContent({ me: m, now, r, typedCode }: { me: MyEvent; now: D
   const { tracks, team, invites, myTrackIds } = await myTeam(db(), m);
   const live = Date.parse(m.event.endsAt) > now.getTime();
   const open = m.event.teamsOpen && live;
-  // Without a team, SAVED is the Looking switch and track interests (saved together).
-  const saved = m.lookingForTeam ? '✓ Saved. You’re listed under Looking for a team.' : '✓ Saved.';
-  const message = r === 'SAVED' && !team ? saved : r && r in NOTICES ? NOTICES[r as TeamCode] : null;
+  // Own keys only: `?r=toString` must not find Object.prototype's (v0.11.47).
+  const message = r === 'LOOKING_SAVED' && m.lookingForTeam ? '✓ Saved. You’re listed under Looking for a team.'
+    : r && Object.hasOwn(NOTICES, r) ? NOTICES[r as Notice] : null;
   // A refused join shows its error next to the code field, not up here.
   const joinError = typedCode !== undefined && !team && open && message?.startsWith('✕') ? message : null;
   const notice = joinError ? null : message;
-  const trackName = tracks.find((t) => t.id === team?.trackId)?.name;
+  const trackNames = tracks.filter((t) => team?.trackIds.includes(t.id)).map((t) => t.name);
 
   return (
     <>
+      <ClearResult />
       {notice && (
         <p role={notice.startsWith('✓') ? 'status' : 'alert'} className={notice.startsWith('✓') ? " text-ok" : " text-bad"}>
           {notice}
@@ -210,7 +214,18 @@ async function MyTeamContent({ me: m, now, r, typedCode }: { me: MyEvent; now: D
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] text-link text-[12px] font-semibold" aria-hidden="true">
                   {initials(name)}
                 </span>
-                {name}{id === m.participantId && ' (you)'}
+                <span>{name}{id === m.participantId && ' (you)'}</span>
+                {/* v0.11.44: any member can take another off the team while forming is open. */}
+                {open && id !== m.participantId && (
+                  <form action={act} className="ml-auto">
+                    <input type="hidden" name="op" value="remove" />
+                    <input type="hidden" name="memberId" value={id} />
+                    <ConfirmSubmit label={`Remove ${name}`} title={`Remove ${name} from ${team.name}?`} cancelLabel="Keep them" confirmLabel="Remove"
+                      message="They can’t rejoin with the current code: your team gets a new one.">
+                      Remove
+                    </ConfirmSubmit>
+                  </form>
+                )}
               </li>
             ))}
           </ul>
@@ -231,9 +246,9 @@ async function MyTeamContent({ me: m, now, r, typedCode }: { me: MyEvent; now: D
             <CopyCode text={formatJoinCode(team.code)} />
           </div>
           <div className="pt-[16px] [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
-            <h3>Track</h3>
+            <h3>Interested tracks</h3>
             {!m.event.tracksReleased ? (
-              <p className="copy">{tracks.length > 0 ? 'Your team picks its track once organizers open track picks.' : 'Tracks are announced at the hackathon.'}</p>
+              <p className="copy">{tracks.length > 0 ? 'Your team picks its tracks once organizers open track picks.' : 'Tracks are announced at the hackathon.'}</p>
             ) : live && tracks.length > 0 ? (
               <form action={act} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
@@ -243,21 +258,20 @@ async function MyTeamContent({ me: m, now, r, typedCode }: { me: MyEvent; now: D
 
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
                 <input type="hidden" name="op" value="track" />
-                <Label htmlFor="trackId">Your team’s track</Label>
-                <NativeSelect id="trackId" name="trackId" defaultValue={team.trackId ?? ''} required className="min-h-12 w-full">
-                  <option value="" disabled>
-                    Pick a track
-                  </option>
+                {/* v0.11.50 (owner's request): any number of tracks, ticked like the tracks a hacker wants to do. */}
+                <fieldset className="grid gap-[2px] m-0 p-0 border-0 min-w-0 [&_legend]:p-0 [&_legend]:mb-[4px] [&_legend]:text-[14px] [&_legend]:font-medium">
+                  <legend className="sr-only">Interested tracks</legend>
                   {tracks.map((t) => (
-                    <option key={t.id} value={t.id}>
+                    <Label key={t.id} className="flex min-h-11 items-center gap-3 font-normal">
+                      <input type="checkbox" name="teamTrack" value={t.id} defaultChecked={team.trackIds.includes(t.id)} className="size-[22px] shrink-0" />
                       {t.name}
-                    </option>
+                    </Label>
                   ))}
-                </NativeSelect>
-                <Button type="submit">Save track</Button>
+                </fieldset>
+                <Button type="submit">Save tracks</Button>
               </form>
             ) : (
-              <p>{trackName ?? 'No track chosen.'}</p>
+              <p>{trackNames.length > 0 ? trackNames.join(', ') : 'No tracks chosen.'}</p>
             )}
           </div>
           {open && (

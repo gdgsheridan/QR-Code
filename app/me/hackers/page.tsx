@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import { BrandMark } from '@/components/brand-mark';
+import { ClearResult } from '@/components/clear-result';
 import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,8 @@ import { CopyButton } from '@/app/profile/[uid]/copy-button';
 import { withinLimit } from '@/lib/pass/handlers';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AutoFilters, RefreshButton } from './filters';
+import { ClampedBio } from './clamped-bio';
+import { LoadMore } from './load-more';
 import { TeamsView } from './teams-view';
 
 export const metadata = menuMetadata('Hackers');
@@ -58,6 +61,7 @@ const NOTICES: Record<string, string> = {
   NOT_LOOKING: 'They’re no longer looking for a team.',
   SELF: 'You can’t invite yourself.',
   TEAM_FULL: 'Your team already has 4 people.',
+  RATE_LIMITED: 'Your team has sent a lot of invites. Try again in an hour.',
   CLOSED: 'Team forming is closed.',
   NOT_FOUND: 'Something changed. Reload the page and try again.',
 };
@@ -83,7 +87,8 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
   for (const key of FILTER_KEYS) { const value = params[key]; if (value) back.set(key, value); }
   const onlyLooking = looking && !params.q?.trim() && !pace && !track;
   const canInvite = me.event.teamsOpen && Date.parse(me.event.endsAt) > now.getTime() && team && team.members.length < 4;
-  const notice = params.r ? NOTICES[params.r] : undefined;
+  // Own keys only: `?r=constructor` must not find Object.prototype's (v0.11.47).
+  const notice = params.r && Object.hasOwn(NOTICES, params.r) ? NOTICES[params.r] : undefined;
   return <Entrance><main className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pt-6 pb-14">
     <div className="flex min-h-11 items-center gap-4">
       <Link href="/me" className="inline-flex min-h-11 shrink-0 items-center font-semibold">← Menu</Link>
@@ -116,11 +121,14 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
         <noscript><Button type="submit">Apply</Button></noscript>
       </div>
     </AutoFilters>
-    {notice && <p role={params.r === 'INVITED' ? 'status' : 'alert'}>{notice}</p>}
+    {notice && <><ClearResult /><p role={params.r === 'INVITED' ? 'status' : 'alert'}>{notice}</p></>}
     {!allowed && <p role="alert">Too many refreshes. Wait a minute, then try again.</p>}
     <p className="m-0 text-sm text-muted-foreground">Pace bar: 1 = here to learn, 2 = balanced, 3 = going for the win.</p>
     {looking && !team && <p className="copy m-0 text-muted-foreground">Create a team to invite them. <Link className="inline-flex min-h-11 items-center" href="/me/team">Open Team →</Link></p>}
-    <section aria-label="Hacker directory" className="grid items-start gap-3 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 min-[1440px]:grid-cols-4">
+    {/* Without JavaScript there's no Read more, so a bio shows in full. */}
+    <noscript><style>{'.bio-clamp{display:block;overflow:visible;-webkit-line-clamp:none}'}</style></noscript>
+    {/* v0.11.45 (owner's request): open cards; the cards in a row share one height (the grid stretches them). */}
+    <section aria-label="Hacker directory" className="grid gap-3 min-[768px]:grid-cols-2 min-[1100px]:grid-cols-3 min-[1440px]:grid-cols-4">
       {allowed && people.length === 0 && <p className="copy text-muted-foreground col-span-full">{onlyLooking ? 'Nobody is looking for a team right now.' : 'No hackers match these filters.'}</p>}
       {people.map((person) => {
         const self = person.id === me.participantId;
@@ -131,43 +139,38 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
         const invitable = !self && targetLooking && canInvite;
         const paceDescription = `${paceLabel.startsWith('Pace ') ? paceLabel : `Pace: ${paceLabel}`} (${paceLevel} of 3)`;
         return <Card key={person.id} asChild className="min-w-0 gap-0 p-0 [overflow-wrap:anywhere]"><article id={`h-${person.id}`} aria-label={`${person.name}${self ? ' (you)' : ''}`}>
-          <details className="group">
-            <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-md px-4 py-3 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
-              <h2 className="m-0 min-w-0 flex-1 text-base font-semibold">{person.name}{self && <span className="text-sm font-normal text-muted-foreground"> (you)</span>}</h2>
-              <span role="img" aria-label={paceDescription} title={paceDescription} className="flex h-2 w-[72px] shrink-0 gap-0.5">
-                {['bg-accent', 'bg-[var(--warn)]', 'bg-[var(--bad)]'].map((color, index) => <span key={color} aria-hidden="true" className={`h-full flex-1 rounded-full ${index < paceLevel ? color : 'border border-dashed border-muted-foreground/50 bg-muted'}`} />)}
-              </span>
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4 shrink-0 text-muted-foreground group-open:rotate-180 motion-safe:transition-transform">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </summary>
-            {/* Owner's request (v0.11.28): facts as label/value rows, then the bio, then contacts as one consistent group. */}
-            <div className="grid gap-4 border-t border-border px-4 py-4">
-              <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-                <dt className="text-muted-foreground">Pace</dt>
-                <dd className="m-0">{full ? person.pace ? PACE[person.pace] : 'Not set' : 'Not shared'}</dd>
-                <dt className="text-muted-foreground">Team</dt>
-                {/* Names-only rows only appear under the Looking filter. */}
-                <dd className="m-0 [overflow-wrap:anywhere]">{full ? person.teamName ?? (person.looking ? 'Looking for a team' : 'Going solo') : 'Looking for a team'}</dd>
-                {full && !person.teamName && person.tracks.length > 0 && <><dt className="text-muted-foreground">Wants to do</dt><dd className="m-0">{person.tracks.join(', ')}</dd></>}
-              </dl>
-              {full && person.bio && <p className="copy m-0 whitespace-pre-line">{person.bio}</p>}
-              {full && !self && (person.linkedinUrl || person.websiteUrl || person.discord) && <div className="grid gap-2 border-t border-border pt-3">
-                {(person.linkedinUrl || person.websiteUrl) && <div className="flex flex-wrap gap-2">
-                  {person.linkedinUrl && <Button asChild variant="outline" size="sm"><a href={person.linkedinUrl} rel="nofollow ugc">LinkedIn ↗</a></Button>}
-                  {person.websiteUrl && <Button asChild variant="outline" size="sm"><a href={person.websiteUrl} rel="nofollow ugc" className="max-w-full [overflow-wrap:anywhere]">{siteLabel(person.websiteUrl)} ↗</a></Button>}
-                </div>}
-                {person.discord && <div className="flex min-h-11 items-center justify-between gap-3 text-sm">
-                  <span className="min-w-0 [overflow-wrap:anywhere]"><span className="text-muted-foreground">Discord </span>@{person.discord}</span>
-                  <CopyButton text={person.discord} label={`Copy ${person.name}’s Discord username`} />
-                </div>}
+          <div className="flex min-h-14 items-center gap-3 px-4 py-3">
+            <h2 className="m-0 min-w-0 flex-1 text-base font-semibold">{person.name}{self && <span className="text-sm font-normal text-muted-foreground"> (you)</span>}</h2>
+            <span role="img" aria-label={paceDescription} title={paceDescription} className="flex h-2 w-[72px] shrink-0 gap-0.5">
+              {['bg-accent', 'bg-[var(--warn)]', 'bg-[var(--bad)]'].map((color, index) => <span key={color} aria-hidden="true" className={`h-full flex-1 rounded-full ${index < paceLevel ? color : 'border border-dashed border-muted-foreground/50 bg-muted'}`} />)}
+            </span>
+          </div>
+          {/* Owner's request (v0.11.28): facts as label/value rows, then the bio, then contacts as one consistent group. */}
+          <div className="grid gap-4 border-t border-border px-4 py-4">
+            <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
+              <dt className="text-muted-foreground">Pace</dt>
+              <dd className="m-0">{full ? person.pace ? PACE[person.pace] : 'Not set' : 'Not shared'}</dd>
+              <dt className="text-muted-foreground">Team</dt>
+              {/* Names-only rows only appear under the Looking filter. */}
+              <dd className="m-0 [overflow-wrap:anywhere]">{full ? person.teamName ?? (person.looking ? 'Looking for a team' : 'Going solo') : 'Looking for a team'}</dd>
+              {full && !person.teamName && person.tracks.length > 0 && <><dt className="text-muted-foreground">Wants to do</dt><dd className="m-0">{person.tracks.join(', ')}</dd></>}
+            </dl>
+            {full && person.bio && <ClampedBio text={person.bio} />}
+            {full && !self && (person.linkedinUrl || person.websiteUrl || person.discord) && <div className="grid gap-2 border-t border-border pt-3">
+              {(person.linkedinUrl || person.websiteUrl) && <div className="flex flex-wrap gap-2">
+                {person.linkedinUrl && <Button asChild variant="outline" size="sm"><a href={person.linkedinUrl} rel="nofollow ugc">LinkedIn ↗</a></Button>}
+                {person.websiteUrl && <Button asChild variant="outline" size="sm"><a href={person.websiteUrl} rel="nofollow ugc" className="max-w-full [overflow-wrap:anywhere]">{siteLabel(person.websiteUrl)} ↗</a></Button>}
               </div>}
-            </div>
-          </details>
-          {/* Outside the summary (a button can't sit inside it), so it shows without expanding the card. */}
+              {person.discord && <div className="flex min-h-11 items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 [overflow-wrap:anywhere]"><span className="text-muted-foreground">Discord </span>@{person.discord}</span>
+                <CopyButton text={person.discord} label={`Copy ${person.name}’s Discord username`} />
+              </div>}
+            </div>}
+          </div>
+          {/* At the bottom of the card, which stretches to its row's height. */}
           {!self && invited.has(person.id)
-            ? <p className="m-0 flex min-h-11 items-center px-4 pb-3 text-sm text-muted-foreground">✓ Invited</p>
-            : invitable && <form action={invite} className="px-4 pb-3">
+            ? <p className="m-0 mt-auto flex min-h-11 items-center px-4 pb-3 text-sm text-muted-foreground">✓ Invited</p>
+            : invitable && <form action={invite} className="mt-auto px-4 pb-4">
               <input type="hidden" name="inviteeId" value={person.id} />
               <input type="hidden" name="back" value={back.toString()} />
               <Button type="submit" variant="outline" aria-label={`Invite ${person.name}`}>Invite</Button>
@@ -176,10 +179,11 @@ export default async function HackersPage({ searchParams }: { searchParams: Prom
       })}
     </section>
     {more && show < DIRECTORY_MAX && (() => {
-      const next = new URLSearchParams({ ...(params.q && { q: params.q }), ...(looking && { looking: '1' }), ...(pace && { pace }), ...(track && { track }), show: String(show + DIRECTORY_PAGE) });
+      const next = `/me/hackers?${new URLSearchParams({ ...(params.q && { q: params.q }), ...(looking && { looking: '1' }), ...(pace && { pace }), ...(track && { track }), show: String(show + DIRECTORY_PAGE) }).toString()}`;
       const firstNew = people.at(-1)?.id;
-      return <Button variant="outline" className="self-center" asChild><Link href={`/me/hackers?${next.toString()}${firstNew ? `#h-${firstNew}` : ''}`} scroll={false}>Show more</Link></Button>;
+      return <LoadMore href={next} jump={`${next}${firstNew ? `#h-${firstNew}` : ''}`} />;
     })()}
+    {!more && people.length > 0 && <p className="m-0 self-center text-sm text-muted-foreground">That’s everyone: {people.length} {people.length === 1 ? 'hacker' : 'hackers'}.</p>}
     </>}
   </main></Entrance>;
 }

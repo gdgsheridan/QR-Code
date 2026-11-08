@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { isAttendeePage } from './attendee-pages';
 import { useEffect, useRef } from 'react';
 import styles from './atom-float.module.css';
 
@@ -74,8 +75,7 @@ export function AtomCorner({ className }: { className: string }) {
 // content puts him beside it at once.
 export function AtomFloat() {
   const pathname = usePathname();
-  const attendee = pathname === '/me' || pathname.startsWith('/me/');
-  const shown = attendee || ['/rsvp', '/login', '/set-password', '/auth/confirm'].includes(pathname);
+  const shown = isAttendeePage(pathname);
   const lane = useRef<HTMLDivElement>(null);
   const atom = useRef<HTMLDivElement>(null);
   // Where he is, kept across route changes; a new image (back from a page without him) starts afresh.

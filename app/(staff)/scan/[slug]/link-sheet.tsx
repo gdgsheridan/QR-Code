@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react';
 import type { linkNotice } from '@/lib/domain/badge';
 import type { NfcState } from '@/lib/scanner/nfc';
 
-export type LinkState = { kind: 'waiting'; unreadable?: boolean } | { kind: 'saving' } | { kind: 'result'; notice: ReturnType<typeof linkNotice> };
+export type LinkState = { kind: 'waiting'; unreadable?: boolean } | { kind: 'saving' } | { kind: 'result'; notice: ReturnType<typeof linkNotice>; linked: boolean };
 
 export function LinkSheet(props: {
   name: string;

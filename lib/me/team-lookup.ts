@@ -8,7 +8,7 @@ import type { MyEvent } from './profile';
 export async function teamLookup(db: SupabaseClient<Database>, me: MyEvent,
   filters: { search: string; hasRoom: boolean; track?: string }) {
   const [{ data, error }, trackResult] = await Promise.all([
-    db.from('teams').select('id, name, track_id, totals:participants(count), listed:participants(id, first_name, last_name)')
+    db.from('teams').select('id, name, team_tracks(track_id), totals:participants(count), listed:participants(id, first_name, last_name)')
       .eq('event_id', me.eventId)
       .eq('totals.event_id', me.eventId).is('totals.deleted_at', null)
       .eq('listed.event_id', me.eventId).eq('listed.directory_opt_in', true)
@@ -25,12 +25,13 @@ export async function teamLookup(db: SupabaseClient<Database>, me: MyEvent,
   const teams = (data ?? []).filter((t) =>
     toSearchText(t.name).includes(search)
     && (!filters.hasRoom || (t.totals[0]?.count ?? 0) < 4)
-    && (!me.event.tracksReleased || !filters.track || t.track_id === filters.track),
+    && (!me.event.tracksReleased || !filters.track || t.team_tracks.some((x) => x.track_id === filters.track)),
   ).map((t) => {
     const count = t.totals[0]?.count ?? 0;
     return {
       id: t.id, name: t.name, count, spots: Math.max(0, 4 - count), own: t.id === me.teamId,
-      track: tracks.find((track) => track.id === t.track_id)?.name ?? null,
+      // v0.11.50: every track the team picked, in the tracks' (name) order.
+      tracks: tracks.filter((track) => t.team_tracks.some((x) => x.track_id === track.id)).map((track) => track.name),
       members: t.listed.map((p) => ({ name: `${p.first_name} ${p.last_name}`.trim(), self: p.id === me.participantId })),
       hidden: count - t.listed.length,
     };

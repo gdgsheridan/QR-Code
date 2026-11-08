@@ -7,11 +7,13 @@ import {
   installFakeNfc,
   liveCameraTracks,
   nfcActive,
+  nfcStartsWithCamera,
   nfcTap,
   nfcUnreadable,
   nfcWrites,
   saveSignedInState,
   serialOf,
+  stubNfcPermission,
   trackCameraStreams,
   warmDevServer,
 } from '../fixtures/e2e';
@@ -45,17 +47,23 @@ async function readerOn(page: Page) {
   await expect(page.getByText('Ready: tap a badge on the back of the phone')).toBeVisible();
 }
 
+// v0.12.2: a door ADMIT on a phone with Web NFC reads their badge itself and waits for it, so this taps one.
 async function manualDoorScan(page: Page, query: string, name: string) {
   await page.getByRole('button', { name: 'Manual search' }).click();
   await page.getByPlaceholder('Type a name').fill(query);
   await page.getByRole('button', { name: `Record scan for ${name}` }).click();
   const result = page.getByTestId('scan-result');
   await expect(result).toContainText('ADMIT');
-  await expect(result).toBeHidden({ timeout: 4000 });
+  await expect(result).toHaveAttribute('data-dismiss', 'link');
+  await expect.poll(() => nfcActive(page)).toBe(1);
+  const uid = randomUid();
+  await nfcTap(page, serialOf(uid));
+  await expect(result).toContainText(`✓ Badge ${serialOf(uid)} linked to ${name}.`);
+  await expect(result).toBeHidden();
 }
 
 test('T-NFC-10: without Web NFC there are no badge controls at all', async ({ page }) => {
-  await openScanner(page);
+  await openScanner(page, 'Raffle'); // v0.12.1: Check-in itself needs Web NFC (T-NFC-29)
   await expect(page.getByRole('button', { name: /badge/i })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Camera', exact: true })).toHaveCount(0); // no input switch either
 });
@@ -127,7 +135,7 @@ test('T-NFC-29: Manual search links a badge without scanning; a repeated tap is 
   expect(scans).toEqual([]);
   expect(await benScans()).toEqual([]);
   await expect(page.getByTestId('scan-result')).toBeHidden();
-  expect(await nfcActive(page)).toBe(1);
+  await expect.poll(() => nfcActive(page)).toBe(1); // v0.12.2: a fresh reader after writing the badge
   await expect(page.getByRole('button', { name: 'NFC badges' })).toHaveAttribute('aria-pressed', 'true');
 
   await page.clock.setFixedTime(new Date(tappedAt.getTime() + 3001));
@@ -142,6 +150,212 @@ test('T-NFC-29: Manual search links a badge without scanning; a repeated tap is 
   await expect(page.getByTestId('search-row')).toContainText('Badge linked');
   await expect(page.getByRole('button', { name: 'Replace badge for Ben Fixture' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Record scan for Ben Fixture' })).toBeVisible();
+});
+
+// v0.11.40 tests use their own accepted hackers: this file's fixture is shared, and later tests expect Ben and Nia unlinked.
+async function freshHacker(first: string) {
+  const { id } = await f.addParticipant(f.e1.id);
+  await f.pool.query(`update participants set first_name = $2, search_text = lower($2) || ' fixture' where id = $1`, [id, first]);
+  return { id, name: `${first} Fixture`, query: first.toLowerCase() };
+}
+
+async function recordAtDoor(page: Page, who: { query: string; name: string }) {
+  await page.getByRole('button', { name: 'Manual search' }).click();
+  await page.getByPlaceholder('Type a name').fill(who.query);
+  await page.getByRole('button', { name: `Record scan for ${who.name}` }).click();
+  const result = page.getByTestId('scan-result');
+  await expect(result).toContainText('ADMIT');
+  await expect(result).toContainText(who.name);
+  return result;
+}
+
+test('T-NFC-29: a door ADMIT reads their badge itself, camera off first; one badge tap finishes the check-in (v0.12.2)', async ({ page }) => {
+  await installFakeNfc(page);
+  await stubNfcPermission(page, 'granted');
+  await trackCameraStreams(page);
+  const lina = await freshHacker('Lina');
+  await openScanner(page);
+  const uid = randomUid();
+  const linaScans = async () => (await f.pool.query('select id from scans where participant_id = $1', [lina.id])).rows;
+  const result = await recordAtDoor(page, lina);
+  await expect(result).toContainText('Hold their badge flat on the phone until it says linked');
+  await expect(result).toHaveAttribute('data-dismiss', 'link');
+  await expect(result.getByRole('button')).toHaveText(['Badge not reading? Reset badge reader']); // no Link badge, no Start badge reader: it is already reading (v0.12.4: Reset)
+  await expect.poll(() => nfcActive(page)).toBe(1);
+  expect(await nfcStartsWithCamera(page)).toEqual([0]); // A10: every camera track had ended before the reader started
+  expect(await liveCameraTracks(page)).toBe(0);
+  if (process.env.HOVER_SCREENSHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/admit-reading.png` }); } // after the fade-in
+  await result.click({ position: { x: 12, y: 12 } }); // a tap anywhere does nothing
+  await page.waitForTimeout(3000); // past the 2.5 s a green result lasts elsewhere
+  await expect(result).toContainText(lina.name);
+  await expect(page.getByRole('dialog', { name: 'Link a badge' })).toHaveCount(0); // no sheet
+
+  const linked = page.waitForResponse(`**/api/events/${f.slug}/badges`);
+  await nfcTap(page, serialOf(uid));
+  expect((await linked).request().postDataJSON()).toEqual({ participantId: lina.id, uid });
+  await expect(result).toContainText(`✓ Badge ${serialOf(uid)} linked to ${lina.name}.`);
+  if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/admit-linked.png` });
+  expect(await linaScans()).toHaveLength(1); // the check-in only; the linking tap is never a scan
+  await expect(result).toBeHidden({ timeout: 2500 }); // clears by itself after 1.5 s
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'ready'); // Camera mode is back
+  expect(await nfcActive(page)).toBe(0);
+});
+
+test('T-NFC-29: a refused link stays on the waiting ADMIT; that badge can be tapped again, and the next badge links it (v0.12.2)', async ({ page }) => {
+  await installFakeNfc(page);
+  await stubNfcPermission(page, 'granted');
+  const pia = await freshHacker('Pia');
+  await openScanner(page);
+  const result = await recordAtDoor(page, pia);
+  await expect.poll(() => nfcActive(page)).toBe(1);
+  const posts: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().endsWith('/badges')) posts.push(r.postData() ?? '');
+  });
+  await page.route('**/api/events/*/badges', (route) => route.fulfill({ json: { code: 'BADGE_TAKEN' } }));
+  const taken = randomUid();
+  const status = result.getByTestId('admit-link-status');
+  await nfcTap(page, serialOf(taken));
+  await expect(status).toHaveText(`✕ Badge ${serialOf(taken)} is linked to someone else. Ask an organizer to move it.`);
+  expect(posts).toHaveLength(1);
+  if (process.env.HOVER_SCREENSHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/admit-taken.png` }); } // after the fade-in
+  await expect(result).toHaveAttribute('data-dismiss', 'link'); // still waiting
+  const ready = 'Hold their badge flat on the phone until it says linked'; // the reader is back after writing that badge (v0.12.2)
+  await expect(result).toContainText(ready);
+  await nfcTap(page, serialOf(taken)); // the same badge again: asked again, not ignored
+  await expect.poll(() => posts.length).toBe(2);
+  await expect(status).toHaveText(`✕ Badge ${serialOf(taken)} is linked to someone else. Ask an organizer to move it.`);
+  await page.unroute('**/api/events/*/badges');
+  await expect(result).toContainText(ready);
+  const uid = randomUid();
+  await nfcTap(page, serialOf(uid));
+  await expect(result).toContainText(`✓ Badge ${serialOf(uid)} linked to ${pia.name}.`);
+  await result.click(); // a tap skips the confirmation
+  await expect(result).toBeHidden({ timeout: 500 });
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'ready');
+});
+
+test('T-NFC-29: a badge pulled away before its profile link is written is asked for again on the ADMIT, then the check-in finishes anyway (v0.12.4)', async ({ page }) => {
+  await installFakeNfc(page, 'fail');
+  await stubNfcPermission(page, 'granted');
+  const kit = await freshHacker('Kit');
+  await openScanner(page);
+  const result = await recordAtDoor(page, kit);
+  const status = result.getByTestId('admit-link-status');
+  const ready = 'Hold their badge flat on the phone until it says linked';
+  await expect(result).toContainText(ready);
+  const uid = randomUid();
+  for (const attempt of [1, 2]) {
+    await nfcTap(page, serialOf(uid));
+    await expect(status).toContainText("Its profile link didn't write (NotAllowedError after ");
+    await expect(status).toContainText('Hold the same badge flat on the phone until it says linked.');
+    await expect(result).toHaveAttribute('data-dismiss', 'link'); // still waiting for the same badge
+    expect(await nfcWrites(page)).toHaveLength(attempt);
+    await expect(result).toContainText(ready, { timeout: 6000 }); // the reader restarted after the write
+  }
+  await nfcTap(page, serialOf(uid)); // third time: linked without its profile link, and the volunteer has to see that
+  await expect(result).toContainText(`✓ Badge ${serialOf(uid)} linked to ${kit.name}, but its profile link didn't write`);
+  await page.waitForTimeout(2000);
+  await expect(result).toBeVisible(); // no 1.5 s auto-dismiss
+  const linked = await f.pool.query('select participant_id from badges where uid = $1', [uid]);
+  expect(linked.rows).toEqual([{ participant_id: kit.id }]);
+  await result.click();
+  await expect(result).toBeHidden();
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'ready');
+});
+
+test('T-NFC-29: a badge already written by the old nfc.yvesdonato.com app is not written again (v0.12.4)', async ({ page }) => {
+  await installFakeNfc(page);
+  await stubNfcPermission(page, 'granted');
+  const uma = await freshHacker('Uma');
+  await openScanner(page);
+  const result = await recordAtDoor(page, uma);
+  await expect(result).toContainText('Hold their badge flat on the phone until it says linked');
+  const uid = randomUid();
+  await nfcTap(page, serialOf(uid), [`https://nfc.yvesdonato.com/profile/${uid}?tap`]);
+  await expect(result).toContainText(`✓ Badge ${serialOf(uid)} linked to ${uma.name}.`);
+  expect(await nfcWrites(page)).toHaveLength(0);
+});
+
+test('T-NFC-29: Reset badge reader on a waiting ADMIT stops the reader and starts a fresh one, then a tap links (v0.12.4)', async ({ page }) => {
+  await installFakeNfc(page);
+  await stubNfcPermission(page, 'granted');
+  const ola = await freshHacker('Ola');
+  await openScanner(page);
+  const result = await recordAtDoor(page, ola);
+  await expect.poll(() => nfcActive(page)).toBe(1);
+  await result.getByRole('button', { name: 'Badge not reading? Reset badge reader' }).click();
+  await expect(result).toContainText('Starting badge reader…');
+  expect(await nfcActive(page)).toBe(0);
+  await expect(result).toContainText('Hold their badge flat on the phone until it says linked', { timeout: 6000 });
+  expect(await nfcActive(page)).toBe(1);
+  await expect(result).toHaveAttribute('data-dismiss', 'link');
+  const uid = randomUid();
+  await nfcTap(page, serialOf(uid));
+  await expect(result).toContainText(`✓ Badge ${serialOf(uid)} linked to ${ola.name}.`);
+});
+
+test('T-NFC-29: the first check-in on a phone asks for one Start badge reader tap, then a badge tap links (v0.12.2)', async ({ page }) => {
+  await installFakeNfc(page);
+  await stubNfcPermission(page, 'prompt');
+  const ivy = await freshHacker('Ivy');
+  await openScanner(page);
+  const result = await recordAtDoor(page, ivy);
+  const start = result.getByRole('button', { name: 'Start badge reader' });
+  await expect(start).toBeVisible();
+  await expect(result).toContainText('Tap Start badge reader, then their badge');
+  if (process.env.HOVER_SCREENSHOTS) { await page.waitForTimeout(600); await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/admit-start-reader.png` }); }
+  expect(await nfcActive(page)).toBe(0); // Chrome needs this tap before it can ask for NFC
+  await start.click();
+  await expect(start).toHaveCount(0);
+  await expect.poll(() => nfcActive(page)).toBe(1);
+  const uid = randomUid();
+  await nfcTap(page, serialOf(uid));
+  await expect(result).toContainText(`✓ Badge ${serialOf(uid)} linked to ${ivy.name}.`);
+  await expect(result).toBeHidden({ timeout: 2500 });
+});
+
+test('T-NFC-29: the Link badge button opens a link-only search; Replace badge moves them to a new badge (v0.11.40)', async ({ page }) => {
+  await installFakeNfc(page);
+  const omar = await freshHacker('Omar');
+  await openScanner(page);
+  const [first, second] = [randomUid(), randomUid()];
+  const scans: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().endsWith('/api/scan')) scans.push(r.postData() ?? '');
+  });
+  const linkOne = async (action: 'Link' | 'Replace', uid: string) => {
+    await page.getByRole('button', { name: 'Link badge', exact: true }).click();
+    const search = page.getByRole('region', { name: 'Link a badge' });
+    await expect(search).toContainText('Find the hacker, then tap Link badge or Replace badge.');
+    await search.getByPlaceholder('Type a name').fill(omar.query);
+    await expect(search.getByRole('button', { name: `${action} badge for ${omar.name}` })).toBeVisible();
+    await expect(search.getByRole('button', { name: /Record scan/ })).toHaveCount(0);
+    if (action === 'Replace' && process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/link-only-search.png` });
+    await search.getByRole('button', { name: `${action} badge for ${omar.name}` }).click();
+    const sheet = page.getByRole('dialog', { name: 'Link a badge' });
+    await expect.poll(() => nfcActive(page)).toBe(1); // v0.12.4: the reader starts 0.8 s after the camera closes
+    await nfcTap(page, serialOf(uid));
+    await expect(sheet).toContainText(`✓ Badge ${serialOf(uid)} linked to ${omar.name}.`);
+    await sheet.getByRole('button', { name: 'Done' }).click();
+  };
+  await linkOne('Link', first);
+  await linkOne('Replace', second);
+  const badges = await f.pool.query<{ uid: string }>('select uid from badges where event_id = $1 and participant_id = $2', [f.e1.id, omar.id]);
+  expect(badges.rows).toEqual([{ uid: second }]); // the old badge no longer opens or scans anyone
+  expect(scans).toEqual([]);
+});
+
+test('T-NFC-29: without Web NFC, Check-in can’t be picked or restored; other checkpoints can (v0.12.1)', async ({ page }) => {
+  await page.goto(`/scan/${f.slug}`);
+  const door = page.getByRole('dialog').getByRole('button', { name: /Door/ });
+  await expect(door).toBeDisabled();
+  await expect(door).toContainText('Check-in needs an Android phone with NFC (Chrome).');
+  await chooseCheckpoint(page, 'Raffle');
+  await page.evaluate(([key, id]) => localStorage.setItem(key, id), [`station:checkpoint:${f.slug}`, f.cp.D] as const);
+  await page.reload(); // a Check-in saved on this device isn't restored either
+  await expect(page.getByRole('heading', { name: 'Choose your checkpoint' })).toBeVisible();
+  await expect(page.getByTestId('checkpoint-banner')).toContainText('No checkpoint selected');
 });
 
 test('T-NFC-29: a taken badge shows a red notice in the link sheet and never a scan result', async ({ page }) => {
@@ -319,7 +533,7 @@ test('T-NFC-29: waitlisted participants have no Link badge action', async ({ pag
 });
 
 test('T-NFC-29: Manual search has no Link badge action without Web NFC', async ({ page }) => {
-  await openScanner(page);
+  await openScanner(page, 'Raffle'); // v0.12.1: Check-in itself needs Web NFC
   await page.getByRole('button', { name: 'Manual search' }).click();
   await page.getByPlaceholder('Type a name').fill('nia');
   const row = page.getByTestId('search-row');
@@ -330,9 +544,10 @@ test('T-NFC-29: Manual search has no Link badge action without Web NFC', async (
 
 test('T-NFC-29: the undo ticker does not refetch Manual search or remount its buttons', async ({ page }) => {
   await installFakeNfc(page);
+  const tia = await freshHacker('Tia'); // the check-in links a badge, and later tests expect Nia unlinked
   await openScanner(page);
   await readerOn(page);
-  await manualDoorScan(page, 'nia', 'Nia Fixture');
+  await manualDoorScan(page, tia.query, tia.name);
   await expect(page.getByRole('button', { name: 'Undo last' })).toBeVisible();
   const searches: string[] = [];
   page.on('request', (r) => {
@@ -469,10 +684,7 @@ test('T-NFC-23: switching to NFC badges while the camera is still starting leave
 
 test('T-NFC-23: with the NFC permission already granted, NFC mode starts the reader by itself after a reload, exactly once', async ({ page }) => {
   await installFakeNfc(page);
-  await page.addInitScript(() => {
-    const query = navigator.permissions.query.bind(navigator.permissions);
-    navigator.permissions.query = (d) => ((d as { name: string }).name === 'nfc' ? Promise.resolve({ state: 'granted' } as PermissionStatus) : query(d));
-  });
+  await stubNfcPermission(page, 'granted');
   await openScanner(page, 'Raffle');
   await readerOn(page);
   expect(await nfcActive(page)).toBe(1); // the tap's reader, not replaced by an auto-start
@@ -493,6 +705,7 @@ for (const mode of ['existing', 'failed'] as const) {
     await page.getByRole('button', { name: 'Manual search' }).click();
     await page.getByPlaceholder('Type a name').fill('nia');
     await page.getByRole('button', { name: /^(Link|Replace) badge for Nia Fixture$/ }).click();
+    await expect.poll(() => nfcActive(page)).toBe(1); // v0.12.4: the reader starts 0.8 s after the camera closes
     const uid = randomUid();
     await nfcTap(page, serialOf(uid), mode === 'existing' ? [`https://badges.example.test/profile/${uid}?tap`] : []);
     const sheet = page.getByRole('dialog', { name: 'Link a badge' });

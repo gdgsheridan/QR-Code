@@ -1,5 +1,6 @@
 import { expect, test, type Browser } from '@playwright/test';
 import { consoleMailText, E2E_ORIGIN, signIn, NO_JS } from '../fixtures/e2e';
+import { generateJoinCode } from '@/lib/domain/team';
 import { createAccount, createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 // SPEC F15 / §11 Teams (v0.7): organizers open forming and release tracks; hackers team up from their menu.
@@ -30,14 +31,18 @@ test('T-TEAM-09: below My team, a chart of teams per track appears once tracks a
     return rows[0]!.id;
   };
   const ai = await track(f.e1.id, 'Best AI');
-  await track(f.e1.id, 'Best Hardware');
+  const hw = await track(f.e1.id, 'Best Hardware');
+  await track(f.e1.id, 'Best Design');
   const other = await track(f.e2.id, 'Other event track');
   const { rows } = await f.pool.query<{ id: string }>(
-    `insert into teams (event_id, name, join_code, track_id) values
-      ($1, 'Data Wizards', 'DDDDDDDD', $2), ($1, 'Zebras', 'ZZZZZZZZ', $2),
-      ($1, 'Undecided', 'UUUUUUUU', null), ($3, 'Other event team', 'PPPPPPPP', $4) returning id`,
-    [f.e1.id, ai, f.e2.id, other],
+    `insert into teams (event_id, name, join_code) values
+      ($1, 'Data Wizards', 'DDDDDDDD'), ($1, 'Zebras', 'ZZZZZZZZ'),
+      ($1, 'Undecided', 'UUUUUUUU'), ($2, 'Other event team', 'PPPPPPPP') returning id`,
+    [f.e1.id, f.e2.id],
   );
+  // v0.11.50: Data Wizards picked two tracks, Zebras one, Undecided none.
+  await f.pool.query(`insert into team_tracks (team_id, track_id, event_id) values ($1, $4, $7), ($1, $5, $7), ($2, $4, $7), ($3, $6, $8)`,
+    [rows[0]!.id, rows[1]!.id, rows[3]!.id, ai, hw, other, f.e1.id, f.e2.id]);
   await f.pool.query('update participants set team_id = $1 where id = any($2)', [rows[0]!.id, [f.p.A, f.p.B]]);
   const a = await hacker(browser, f.p.A);
   // Use the signed-in cookies in a script-free context: the chart must read without JavaScript.
@@ -57,14 +62,16 @@ test('T-TEAM-09: below My team, a chart of teams per track appears once tracks a
     await expect(aiCard.getByRole('button')).toHaveCount(2);
     await expect(aiCard.getByRole('button', { name: 'Data Wizards · 2 members (your team)', exact: true })).toBeVisible();
     await expect(aiCard.getByRole('button', { name: 'Zebras · 0 members', exact: true })).toBeVisible();
-    await expect(chart.getByRole('group', { name: 'Best Hardware: No teams yet' })).toContainText('No teams yet');
+    // A team with two tracks is on both bars.
+    await expect(chart.getByRole('group', { name: 'Best Hardware: 1 team' }).getByRole('button', { name: 'Data Wizards · 2 members (your team)', exact: true })).toBeVisible();
+    await expect(chart.getByRole('group', { name: 'Best Design: No teams yet' })).toContainText('No teams yet');
     await expect(chart.getByRole('group', { name: 'No track yet: 1 team' }).getByRole('button', { name: 'Undecided · 0 members' })).toBeVisible();
     await expect(chart).not.toContainText(/hacker/i);
     await expect(chart.getByText(/Other event track|Other event team|Ada Fixture|Ben Fixture|DDDD-DDDD/)).toHaveCount(0);
     await expect(page.getByText(/Other event track|Other event team/)).toHaveCount(0);
     // With JavaScript, tapping a block shows its team.
     await a.page.goto('/me/team');
-    await a.page.getByRole('button', { name: 'Data Wizards · 2 members (your team)' }).click();
+    await a.page.getByRole('group', { name: 'Best AI: 2 teams' }).getByRole('button', { name: 'Data Wizards · 2 members (your team)' }).click();
     const tip = a.page.getByRole('tooltip');
     await expect(tip).toContainText('Data Wizards');
     await expect(tip).toContainText('2 members · Best AI');
@@ -77,7 +84,7 @@ test('T-TEAM-09: below My team, a chart of teams per track appears once tracks a
   }
 });
 
-test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joins with its code, A picks the released track', async ({ page, browser }) => {
+test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joins with its code, A picks released tracks', async ({ page, browser }) => {
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/teams`);
   // v0.11.32: organizers add tracks from the page again, one at a time: type, Enter, the next one.
   const addTrack = page.getByLabel('Add a track');
@@ -108,7 +115,7 @@ test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joi
   await expect(a.page.getByText('✓ Team created.')).toBeVisible();
   const code = (await a.page.getByText(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/).innerText()).replace('-', '');
   // Tracks exist but aren't released: the team learns when it can pick one.
-  await expect(a.page.getByText('Your team picks its track once organizers open track picks.')).toBeVisible();
+  await expect(a.page.getByText('Your team picks its tracks once organizers open track picks.')).toBeVisible();
   await expect(a.page.getByText('Ada Fixture (you)')).toBeVisible();
   await a.page.getByRole('button', { name: 'Copy join code' }).click();
   await expect(a.page.getByRole('status').filter({ hasText: 'Join code copied.' })).toBeAttached();
@@ -127,24 +134,36 @@ test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joi
   await b.page.getByRole('button', { name: 'Join team' }).click();
   await expect(b.page.getByText('✓ You joined the team.')).toBeVisible();
   await expect(b.page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
-  await expect(b.page.getByText('Ada Fixture')).toBeVisible();
+  await expect(b.page.getByText('Ada Fixture', { exact: true })).toBeVisible();
   await expect(b.page.getByText('Ben Fixture (you)')).toBeVisible();
 
   await page.getByLabel('Tracks released').check();
   await expect(page.getByText('✓ Tracks released.')).toBeVisible();
   await a.page.reload();
-  await a.page.getByLabel('Your team’s track').selectOption({ label: 'Best Hardware Project' });
-  await a.page.getByRole('button', { name: 'Save track' }).click();
-  await expect(a.page.getByText('✓ Track saved.')).toBeVisible();
+  // v0.11.50: any number of tracks, ticked under Interested tracks.
+  const picks = a.page.getByRole('group', { name: 'Interested tracks' });
+  await picks.getByLabel('Best AI/ML Project').check();
+  await picks.getByLabel('Best Hardware Project').check();
+  await a.page.getByRole('button', { name: 'Save tracks' }).click();
+  await expect(a.page.getByText('✓ Tracks saved.')).toBeVisible();
+  await expect(picks.getByLabel('Best AI/ML Project')).toBeChecked();
+  await expect(picks.getByLabel('Best Hardware Project')).toBeChecked();
 
-  // The organizer sees the team, both members and the track.
+  // The organizer sees the team, both members and both tracks, and can untick one.
   await page.reload();
   const team = page.getByRole('region', { name: 'Team Data Wizards' });
+  await expect(team.locator('summary')).toContainText('Best AI/ML Project, Best Hardware Project');
   await team.locator('summary').click();
   await expect(team.getByText('Ada Fixture')).toBeVisible();
   await expect(team.getByText('Ben Fixture')).toBeVisible();
-  await expect(team.getByLabel('Track of Data Wizards')).toHaveValue(/.+/);
-  await expect(team.getByLabel('Track of Data Wizards').locator('option:checked')).toHaveText('Best Hardware Project');
+  const teamTracks = team.getByRole('group', { name: 'Tracks of Data Wizards' });
+  await expect(teamTracks.getByLabel('Best AI/ML Project')).toBeChecked();
+  await expect(teamTracks.getByLabel('Best Hardware Project')).toBeChecked();
+  await teamTracks.getByLabel('Best AI/ML Project').uncheck();
+  await expect(page.getByText('✓ Tracks saved.')).toBeVisible();
+  await b.page.reload();
+  await expect(b.page.getByRole('group', { name: 'Interested tracks' }).getByLabel('Best AI/ML Project')).not.toBeChecked();
+  await expect(b.page.getByRole('group', { name: 'Interested tracks' }).getByLabel('Best Hardware Project')).toBeChecked();
   await a.context.close();
   await b.context.close();
 });
@@ -187,7 +206,7 @@ test('T-TEAM-07: N opts into the directory, A invites by email, N accepts and bo
   await invites.getByRole('button', { name: 'Accept', exact: true }).click();
   await expect(n.page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
   await a.goto('/me/team');
-  await expect(a.getByText('Nia Fixture')).toBeVisible();
+  await expect(a.getByText('Nia Fixture', { exact: true })).toBeVisible();
   await aContext.close();
   await n.context.close();
 });
@@ -209,6 +228,42 @@ test('T-TEAM-07 (v0.11.25): Leave team asks first in a dialog; Keep my team keep
   await dialog.getByRole('button', { name: 'Leave team' }).click();
   await expect(a.page.getByRole('button', { name: 'Create team' })).toBeVisible();
   await a.context.close();
+});
+
+test('T-TEAM-10 (v0.11.44): a member removes a teammate after confirming; the team gets a new join code; none while forming is closed', async ({ browser }) => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const { rows } = await f.pool.query<{ id: string }>(`insert into teams (event_id, name, join_code) values ($1, 'Kick Off', 'KKKKKKKK') returning id`, [f.e1.id]);
+  await f.pool.query('update participants set team_id = $1 where id = any($2)', [rows[0]!.id, [f.p.A, f.p.B]]);
+  const a = await hacker(browser, f.p.A);
+  try {
+    await a.page.goto('/me/team');
+    const team = a.page.getByRole('region', { name: 'Kick Off' });
+    await expect(team.locator('strong')).toHaveText('KKKK-KKKK');
+    await expect(team.getByRole('button', { name: /^Remove/ })).toHaveCount(1); // Ben's; never your own row
+    await team.getByRole('button', { name: 'Remove Ben Fixture' }).click();
+    const dialog = a.page.getByRole('dialog', { name: 'Remove Ben Fixture from Kick Off?' });
+    await expect(dialog).toContainText('They can’t rejoin with the current code: your team gets a new one.');
+    await dialog.getByRole('button', { name: 'Keep them' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(team.getByText('Ben Fixture', { exact: true })).toBeVisible();
+
+    await team.getByRole('button', { name: 'Remove Ben Fixture' }).click();
+    await dialog.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(a.page.getByText('✓ They’re off the team. Your team has a new join code: share it with anyone still joining.')).toBeVisible();
+    await expect(team.getByText('Ben Fixture', { exact: true })).toHaveCount(0);
+    await expect(team.locator('strong')).toHaveText(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+    await expect(team.locator('strong')).not.toHaveText('KKKK-KKKK');
+    expect((await f.pool.query('select team_id from participants where id = $1', [f.p.B])).rows[0]?.team_id).toBeNull();
+
+    // With forming closed, teammates stay listed but nobody can be removed.
+    await f.pool.query('update participants set team_id = $1 where id = $2', [rows[0]!.id, f.p.N]);
+    await f.pool.query('update events set teams_open = false where id = $1', [f.e1.id]);
+    await a.page.reload();
+    await expect(team.getByText('Nia Fixture', { exact: true })).toBeVisible();
+    await expect(team.getByRole('button', { name: /^Remove/ })).toHaveCount(0);
+  } finally {
+    await a.context.close();
+  }
 });
 
 test('T-TEAM-07: with forming closed, an invite says when it can be accepted and a team says how to leave', async ({ browser }) => {
@@ -258,7 +313,63 @@ test('T-TEAM-08 (v0.11.25): a hacker picks the tracks they want under Looking, b
   const ada = directory.getByRole('article', { name: 'Ada Fixture', exact: true });
   await expect(ada).toBeVisible();
   await expect(directory.getByRole('article')).toHaveCount(1);
-  await ada.locator('summary').click();
+  // v0.11.45: cards are open, so Wants to do shows without expanding.
   await expect(ada.locator('dt', { hasText: 'Wants to do' }).locator('xpath=following-sibling::dd[1]')).toHaveText('Best AI');
   await b.context.close();
+});
+
+test('T-TEAM-11 (v0.11.47): crafted result links load; a result shows once; an invite whose team is gone says so', async ({ browser }) => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const a = await hacker(browser, f.p.A);
+  const n = await hacker(browser, f.p.N);
+  try {
+    // Object.prototype's names in ?r= crash neither page.
+    await a.page.goto('/me/team?r=toString');
+    await expect(a.page.getByRole('heading', { name: 'Team', exact: true })).toBeVisible();
+    await a.page.goto('/me/hackers?r=constructor');
+    await expect(a.page.getByRole('heading', { name: 'Hackers', exact: true })).toBeVisible();
+
+    // A result shows once: it leaves the URL, so a reload doesn't repeat it.
+    await a.page.goto('/me/team');
+    await a.page.getByLabel('Team name').fill('Shown Once');
+    await a.page.getByRole('button', { name: 'Create team' }).click();
+    await expect(a.page.getByText('✓ Team created.', { exact: false })).toBeVisible();
+    await expect(a.page).not.toHaveURL(/[?&]r=/);
+    await a.page.reload();
+    await expect(a.page.getByRole('heading', { name: 'Shown Once' })).toBeVisible();
+    await expect(a.page.getByText('✓ Team created.', { exact: false })).toHaveCount(0);
+
+    // N opens an invite, then the team is deleted before N accepts.
+    await f.pool.query(`insert into team_invites (team_id, participant_id, event_id, invited_by) select team_id, $2, event_id, id from participants where id = $1`, [f.p.A, f.p.N]);
+    await n.page.goto('/me/team');
+    const invites = n.page.getByRole('region', { name: 'Pending invites' });
+    await expect(invites).toContainText('Shown Once');
+    await f.pool.query(`delete from teams where name = 'Shown Once' and event_id = $1`, [f.e1.id]);
+    await invites.getByRole('button', { name: 'Accept', exact: true }).click();
+    await expect(n.page.getByText('✕ That invite is no longer open.')).toBeVisible();
+  } finally {
+    await a.context.close();
+    await n.context.close();
+  }
+});
+
+test('T-TEAM-09 (v0.11.47): on a phone, a track with 20 teams stays inside the chart', async ({ browser }) => {
+  const { rows: [crowded] } = await f.pool.query<{ id: string }>(`insert into tracks (event_id, name) values ($1, 'Crowded') returning id`, [f.e1.id]);
+  await f.pool.query(`with crowd as (insert into teams (event_id, name, join_code) select $1, 'Crowd ' || g, ($3::text[])[g] from generate_series(1, 20) g returning id)
+    insert into team_tracks (team_id, track_id, event_id) select id, $2, $1 from crowd`,
+    [f.e1.id, crowded!.id, Array.from({ length: 20 }, () => generateJoinCode())]);
+  await f.pool.query('update events set tracks_released = true where id = $1', [f.e1.id]);
+  const a = await hacker(browser, f.p.A);
+  try {
+    await a.page.setViewportSize({ width: 390, height: 844 });
+    await a.page.goto('/me/team');
+    const bar = a.page.getByRole('group', { name: 'Crowded: 20 teams' }).locator('.track-bar');
+    await expect(bar.getByRole('button')).toHaveCount(20);
+    await a.page.waitForTimeout(1200); // the bars grow in on load
+    const [lastRight, plotRight] = await bar.evaluate((el) => [el.lastElementChild!.getBoundingClientRect().right, el.parentElement!.getBoundingClientRect().right]);
+    expect(lastRight).toBeLessThanOrEqual(plotRight! + 0.5);
+    expect(await a.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  } finally {
+    await a.context.close();
+  }
 });

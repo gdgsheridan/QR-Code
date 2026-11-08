@@ -47,7 +47,9 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
       expect(part).toContain('Please reply by Tue, Nov 3 · 11:59 PM EST.');
       expect(part).toContain('Invitations close Sat, Nov 7 · 11:59 PM EST; no reply by then counts as a no, and your spot goes to someone on the waitlist.');
     }
-    expect(renderRsvpEmail({ ...base, closesAt: '2026-11-08T04:59:00.000Z', replyBy, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 for Datathon');
+    const reminder = renderRsvpEmail({ ...base, closesAt: '2026-11-08T04:59:00.000Z', replyBy, reminder: true, now: new Date('2026-11-02T17:00:00Z') });
+    expect(reminder.subject).toBe('Reminder: Datathon starts in 5 days'); // v0.11.49: the countdown, the reply-by date in the body
+    expect(reminder.text).toContain('Please reply by Tue, Nov 3 · 11:59 PM EST.');
     // A reply-by date with no deadline: asked for, but nothing ever counts as a no.
     const soft = renderRsvpEmail({ ...base, closesAt: null, replyBy });
     for (const part of [soft.html, soft.text]) {
@@ -64,8 +66,25 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
     expect(emailEventName('hack-day', 'Hack Day')).toBe('Hack Day');
   });
 
-  it('T-RSVP-11: a reminder says so in the subject; no deadline, no deadline line; names are escaped', () => {
-    expect(renderRsvpEmail({ ...base, reminder: true }).subject).toBe('Reminder: reply by Tue, Nov 3 for Datathon');
+  it('T-RSVP-11: a reminder counts the days to the event in its timezone (v0.11.49); no deadline, no deadline line; names are escaped', () => {
+    const at = (now: string) => renderRsvpEmail({ ...base, reminder: true, now: new Date(now) });
+    expect(at('2026-11-03T17:00:00Z').subject).toBe('Reminder: Datathon starts in 4 days');
+    expect(at('2026-11-04T03:00:00Z').subject).toBe('Reminder: Datathon starts in 4 days'); // 10 PM Nov 3 in Toronto, Nov 4 in UTC
+    expect(at('2026-10-31T16:00:00Z').subject).toBe('Reminder: Datathon starts in 7 days'); // across the DST change
+    expect(at('2026-11-06T22:00:00Z').subject).toBe('Reminder: Datathon starts tomorrow');
+    expect(at('2026-11-07T12:00:00Z').subject).toBe('Reminder: Datathon starts today');
+    expect(at('2026-11-08T12:00:00Z').subject).toBe("Reminder: you're invited to Datathon");
+    expect(at('2026-11-03T17:00:00Z').text).toContain("A reminder: you're invited to Datathon, which starts in 4 days, and we haven't heard back yet.");
+    // The HTML headline ends in the count, set large on its own line.
+    const big = (now: string) => /Datathon (starts(?: in)?)<\/p>\s*<p style="[^"]*60px[^"]*">([^<]+)<\/p>/.exec(at(now).html)?.slice(1);
+    expect(big('2026-11-03T17:00:00Z')).toEqual(['starts in', '4 days']);
+    expect(big('2026-11-06T22:00:00Z')).toEqual(['starts', 'tomorrow']);
+    expect(big('2026-11-07T12:00:00Z')).toEqual(['starts', 'today']);
+    expect(at('2026-11-03T17:00:00Z').html).toContain("You're invited, and we haven't heard back from you yet. Will you be there?");
+    expect(at('2026-11-08T12:00:00Z').html).not.toContain('font-size:60px'); // after the start: the plain reminder line
+    expect(at('2026-11-08T12:00:00Z').html).toContain("A reminder: you're invited to <strong>Datathon</strong>, and we haven't heard back yet.");
+    expect(renderRsvpEmail({ ...base, now: new Date('2026-11-03T17:00:00Z') }).html).not.toContain('font-size:60px'); // the invitation has none
+    expect(at('2026-11-08T12:00:00Z').text).toContain("A reminder: you're invited to Datathon, and we haven't heard back yet.");
     const open = renderRsvpEmail({ ...base, closesAt: null });
     expect(open.text).not.toContain('Reply by');
     expect(open.text).not.toContain('counts as a no');

@@ -17,7 +17,7 @@ beforeAll(async () => {
   full = await team(f.e1.id, 'Alpha Full', 'JKLMNPQR');
   const other = await team(f.e2.id, 'Other event', 'ABCDEFGH');
   await f.pool.query('update participants set team_id = $1 where id = $2', [other, f.p.X]);
-  await f.pool.query('update teams set track_id = $1 where id = $2', [track, open]);
+  await f.pool.query('insert into team_tracks (team_id, track_id, event_id) values ($1, $2, $3)', [open, track, f.e1.id]);
   await f.pool.query('update participants set team_id = $1, directory_opt_in = (id = $2) where id = any($3)', [open, f.p.A, [f.p.A, f.p.B]]);
   const deleted = await f.addParticipant(f.e1.id);
   await f.pool.query("update participants set team_id = $1, first_name = 'Deleted sentinel', deleted_at = now() where id = $2", [open, deleted.id]);
@@ -38,7 +38,7 @@ it('T-DIR-07: opted-in names only, private members counted, deleted excluded, co
   const result = await read();
   expect(result.teams.map((t) => t.name)).toEqual(['Alpha Full', 'Zoë Builders']);
   expect(result.teams.find((t) => t.id === open)).toEqual({
-    id: open, name: 'Zoë Builders', count: 2, spots: 2, own: true, track: null,
+    id: open, name: 'Zoë Builders', count: 2, spots: 2, own: true, tracks: [],
     members: [{ name: 'Ada Fixture', self: true }], hidden: 1,
   });
   expect(result.teams.find((t) => t.id === full)).toMatchObject({ count: 4, spots: 0, own: false });
@@ -58,7 +58,11 @@ it('T-DIR-07: track names and filtering withheld until release, then event-scope
   const released = await read({ track });
   expect(released.tracks).toEqual([{ id: track, name: 'Hidden track' }]);
   expect(released.teams.map((t) => t.id)).toEqual([open]);
-  expect(released.teams[0]!.track).toBe('Hidden track');
+  expect(released.teams[0]!.tracks).toEqual(['Hidden track']);
+  // v0.11.50: a team with several tracks is found by any of them, and lists them all.
+  const second = (await f.pool.query<{ id: string }>("insert into tracks(event_id, name) values ($1, 'Another track') returning id", [f.e1.id])).rows[0]!.id;
+  await f.pool.query('insert into team_tracks (team_id, track_id, event_id) values ($1, $2, $3)', [open, second, f.e1.id]);
+  expect((await read({ track: second })).teams.map((t) => [t.id, t.tracks])).toEqual([[open, ['Another track', 'Hidden track']]]);
   expect((await read({ track: f.e2.id })).teams).toEqual([]);
   expect((await read({ track: 'invalid' })).teams).toEqual([]);
 });

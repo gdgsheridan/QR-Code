@@ -1,0 +1,22 @@
+/* Fixed behind the content, partly off the bottom-right corner (fixed boxes never make the page scroll). Mounted
+   before the rocket at the same z-index, so the rocket flies in front of it; Atom (z-index 1) floats in front too. */
+.planet {
+  --planet: clamp(130px, 24vw, 420px);
+  position: fixed;
+  right: calc(var(--planet) * -0.14);
+  bottom: calc(var(--planet) * -0.1);
+  z-index: -3;
+  width: var(--planet);
+  aspect-ratio: 640 / 399;
+  /* public/planet-sprite.webp: 12 frames of 640x399 side by side; steps land exactly on each frame, and alternate
+     plays them back again, so the bands sway one way and back (eased in the frames themselves). */
+  background: no-repeat 0 0 / 1200% 100%;
+  animation: planet-sway 3.6s steps(12, jump-none) infinite alternate;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.85;
+}
+
+@keyframes planet-sway { to { background-position: 100% 0; } }
+
+@media (prefers-reduced-motion: reduce) { .planet { animation: none; } }

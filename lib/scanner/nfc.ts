@@ -8,6 +8,13 @@ export function nfcSupported(): boolean {
 
 const subscribeNever = () => () => undefined;
 
+// After writing a tag, Chrome keeps its connection to it and Android then misses new taps until reader mode is turned
+// off and on, which is what leaving the page and coming back does (owner's report, v0.12.2). Chrome turns reader mode
+// off only 500 ms after the last reader stops (Chromium NfcImpl, DELAY_TO_DISABLE_READER_MODE_MS), as a low-priority
+// task that a busy phone can run late, and a new reader before it runs keeps the old session; so restart() stops,
+// waits well past that, and starts a fresh reader (v0.12.4: 2.5 s, was 1 s).
+const RESTART_GAP_MS = 2500;
+
 export interface NfcTag {
   serial: string;
   records: readonly NDEFRecord[];
@@ -18,6 +25,8 @@ export type NfcState = 'off' | 'starting' | 'on';
 const START_ERRORS: Record<string, string> = {
   NotAllowedError: 'NFC permission was denied. Allow it in Chrome’s site settings, then tap Start badge reader.',
   NotSupportedError: 'No usable NFC reader. Check that NFC is turned on in Android settings.',
+  // Chrome's answer when the phone's NFC setting is off.
+  NotReadableError: 'NFC is turned off. Turn it on in Android quick settings, then tap Start badge reader.',
 };
 
 /**
@@ -85,6 +94,18 @@ export function useNfcReader(opts: {
     }
   }, [remember]);
 
+  // v0.12.2: call after writing a tag; a no-op when no reader is running.
+  const restart = useCallback(async () => {
+    if (!controller.current) return;
+    controller.current.abort();
+    const gap = new AbortController();
+    controller.current = gap;
+    active.current = null;
+    setState('starting');
+    await new Promise((resolve) => setTimeout(resolve, RESTART_GAP_MS));
+    if (!gap.signal.aborted) await start(); // not if stop() or start() came first
+  }, [start]);
+
   const stop = useCallback(() => {
     controller.current?.abort();
     controller.current = null;
@@ -124,5 +145,5 @@ export function useNfcReader(opts: {
     return () => ctrl.current?.abort();
   }, []);
 
-  return { supported, state, error, start, stop };
+  return { supported, state, error, start, stop, restart };
 }

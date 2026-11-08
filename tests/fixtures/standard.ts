@@ -28,6 +28,11 @@ export interface ScanResult {
   revokeReason?: string;
   otherEvent?: string;
   capacity?: number;
+  /** SESSION_COOLDOWN: when the next workshop check-in opens, and the event's cooldown. */
+  availableAt?: string;
+  cooldownMinutes?: number;
+  /** v0.12: ACCEPTED again at a meal in seconds mode (nothing new written). */
+  seconds?: boolean;
 }
 
 export interface VoidResult {

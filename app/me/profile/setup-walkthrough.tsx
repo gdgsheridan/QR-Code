@@ -50,7 +50,7 @@ export function SetupStep({ number, children }: { number: number; children: Reac
     previous.current = step;
   }, [active, step, number]);
   if (!enabled) return children;
-  return <section ref={ref} data-step={number} aria-labelledby={`setup-step-${number}`} hidden={active && step !== number} className={!active ? 'contents' : step !== number ? 'hidden' : 'grid gap-[16px]'}>
+  return <section ref={ref} data-step={number} aria-labelledby={`setup-step-${number}`} hidden={active && step !== number} className={!active ? 'contents' : step !== number ? 'hidden' : 'setup-rise grid gap-[16px]'}>
     {children}
     {active && <div className="flex gap-3 [&>*]:flex-1">
       {number > 1 && <Button type="button" variant="outline" onClick={() => move(number - 1)}>Back</Button>}
@@ -69,7 +69,7 @@ export function SetupPanel({ networking = false, listed = false, children }: { n
     if (active && networking && step === NETWORKING_STEP) ref.current?.querySelector<HTMLElement>('h2')?.focus();
   }, [active, networking, step]);
   const hidden = active && (networking ? step !== NETWORKING_STEP : step === NETWORKING_STEP);
-  return <div ref={ref} hidden={hidden} className={hidden ? 'hidden' : 'contents'}>
+  return <div ref={ref} hidden={hidden} className={hidden ? 'hidden' : active && networking ? 'setup-rise contents' : 'contents'}>
     {children}
     {enabled && networking && <div className="flex flex-wrap items-center gap-3">
       {active && <Button type="button" variant="outline" onClick={() => move(LAST_FORM_STEP)}>Back</Button>}

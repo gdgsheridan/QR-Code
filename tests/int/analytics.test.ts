@@ -19,6 +19,9 @@ beforeAll(async () => {
   for (const t of [f.token.A, f.token.B, f.token.Rv, f.token.T]) await s(f.cp.D, t); // T is is_test
   for (const t of [f.token.A, f.token.B, f.token.T]) await s(f.cp.L, t);
   await s(f.cp.W, f.token.A);
+  // A attends Alpha Talk below too: workshops have a cooldown between check-ins (§8 step 11b), so
+  // A's Workshop scan happened 10 minutes earlier. Counts and ranking are unaffected.
+  await f.pool.query(`update scans set scanned_at = now() - interval '10 minutes' where participant_id = $1 and checkpoint_id = $2`, [f.p.A, f.cp.W]);
   const bW = await s(f.cp.W, f.token.B);
   await f.voidScan(bW.scanId ?? '', f.staff.org1); // voided: excluded
   for (const t of [f.token.A, f.token.B]) await s(f.cp.R, t);
@@ -36,6 +39,10 @@ beforeAll(async () => {
   await c.call('deleteParticipant', org, { slug: f.slug, id: z.id }, { method: 'DELETE' }); // deleted: excluded
 
   await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'pass_reissued')`, [f.p.N]);
+  // T-ANA-07: A is Vegetarian (fixture); only accepted, real, undeleted hackers count.
+  const diet = [[f.p.B, 'Halal'], [f.p.T, 'Vegan'], [f.p.C, 'Kosher'], [f.p.Wd, 'Vegan']] as const;
+  for (const [id, note] of diet) await f.pool.query(`update participants set dietary_notes = $2 where id = $1`, [id, note]);
+  await f.pool.query(`update participants set allergies = 'Peanuts', allergy_severity = 'severe' where id = any($1)`, [[f.p.A, f.p.T]]);
 });
 afterAll(async () => {
   await f.close();
@@ -63,7 +70,7 @@ describe('dashboard analytics (SPEC §13)', () => {
       ],
       arrivals: [{ arrivals: 3 }],
       outbox: { pending: 1, failed: 0 },
-      alerts: { doorClosed: false, notFound: [] },
+      alerts: { notFound: [] },
     });
   });
 
@@ -74,6 +81,18 @@ describe('dashboard analytics (SPEC §13)', () => {
     expect(byName.Raffle).toBe(2); // Rv's voided scan not counted
     expect(byName.Lunch).toBe(2); // T (is_test) not counted
     expect(byName.Door).toBe(3); // T (is_test) and Z (deleted) not counted
+  });
+
+  it('T-ANA-07: Catering lists accepted hackers’ dietary notes and allergies, excluding test, waitlisted, withdrawn and deleted people (v0.11.39)', async () => {
+    const { status, body } = await c.call('catering', org, { slug: f.slug });
+    expect(status).toBe(200);
+    expect(obj(body).hackers).toEqual([
+      { name: 'Ada Fixture', dietaryNotes: 'Vegetarian', allergies: 'Peanuts', allergySeverity: 'severe' },
+      { name: 'Ben Fixture', dietaryNotes: 'Halal', allergies: null, allergySeverity: null },
+      { name: 'Nia Fixture', dietaryNotes: null, allergies: null, allergySeverity: null },
+      { name: 'Rae Fixture', dietaryNotes: null, allergies: null, allergySeverity: null },
+    ]);
+    expect(obj((await c.call('dashboard', org, { slug: f.slug })).body)).not.toHaveProperty('dietary'); // moved to Catering
   });
 
   it('T-ANA-06: session ranking ties are sorted by name ascending', async () => {

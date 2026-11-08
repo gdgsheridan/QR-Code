@@ -21,7 +21,7 @@ test.afterAll(async () => {
 test('T-NFC-28: Tools no longer writes or links badges and without Web NFC participant linking is hidden', async ({ page }) => {
   await page.goto(`/admin/${f.slug}`);
   await expect(page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Participants' })).toBeVisible();
-  // v0.11.22: Tools is back, for Import CSV only (F10).
+  // v0.11.22: Tools is back, for Import CSV (F10); v0.12.4: and the CSV downloads.
   await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Tools', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Import CSV' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Link a badge' })).toHaveCount(0);

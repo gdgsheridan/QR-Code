@@ -115,7 +115,7 @@ describe('security (SPEC §14.12)', () => {
           and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')`,
     );
     const names = rows.map((r) => r.sig.split('(')[0]);
-    for (const expected of ['record_scan', 'issue_pass', 'void_scan', 'unlink_badge', '_who', '_prior', 'team_invite', '_participant_team', 'hacker_directory', '_set_hacker_profile', 'save_hacker_profile']) expect(names).toContain(expected);
+    for (const expected of ['record_scan', 'issue_pass', 'void_scan', 'unlink_badge', '_who', '_prior', 'team_invite', '_participant_team', 'hacker_directory', '_set_hacker_profile', 'save_hacker_profile', 'set_team_tracks', 'team_set_tracks']) expect(names).toContain(expected);
     for (const fn of rows) {
       expect(fn, fn.sig).toMatchObject({ public_exec: false, anon: false, authed: false });
       if (fn.definer) {

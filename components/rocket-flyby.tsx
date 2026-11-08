@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { isAttendeePage } from './attendee-pages';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import styles from './rocket-flyby.module.css';
 
@@ -16,17 +17,41 @@ const subscribeMotion = (notify: () => void) => {
   media.addEventListener('change', notify);
   return () => media.removeEventListener('change', notify);
 };
+// Owner's request: the rocket flies now and then, not on every load. At most once per browser every 15 minutes (the
+// last flight's time is kept in localStorage), and then on about one load in three.
+const LAST_FLIGHT = 'station:rocket';
+const COOLDOWN = 15 * 60_000; // ms
+const CHANCE = 1 / 3;
+const takeOff = () => {
+  try {
+    const now = Date.now();
+    if (Math.abs(now - Number(localStorage.getItem(LAST_FLIGHT))) < COOLDOWN) return false;
+    // Tests set station:rocket-chance to force (1) or forbid (0) a flight.
+    if (Math.random() >= Number(localStorage.getItem('station:rocket-chance') ?? CHANCE)) return false;
+    localStorage.setItem(LAST_FLIGHT, String(now));
+    return true;
+  } catch {
+    return false; // Storage unavailable: no cooldown to keep, so no flight.
+  }
+};
 
 export function RocketFlyby() {
   const pathname = usePathname();
-  const attendee = pathname === '/me' || pathname.startsWith('/me/');
-  const shown = attendee || ['/rsvp', '/login', '/set-password', '/auth/confirm'].includes(pathname);
+  const shown = isAttendeePage(pathname);
   const animate = useSyncExternalStore(subscribeMotion, motionAllowed, serverMotionAllowed);
   const rocket = useRef<HTMLDivElement>(null);
+  // This visit's roll, kept across Strict Mode's second effect run (which would otherwise meet the cooldown it just set).
+  const flight = useRef<boolean | null>(null);
 
   useEffect(() => {
     const el = rocket.current;
-    if (!el || !shown || !animate) return;
+    if (!el || !shown || !animate) {
+      flight.current = null;
+      return;
+    }
+    flight.current ??= takeOff();
+    el.dataset.rocket = flight.current ? 'flying' : 'grounded'; // shown only while flying (CSS)
+    if (!flight.current) return;
     let frame = 0;
     let last = 0;
     // The rocket's centre, velocity and turn; r: half its diagonal, so at any turn it's fully off-screen past r.
@@ -51,7 +76,7 @@ export function RocketFlyby() {
       el.style.transform = `translate3d(${cx - width / 2}px, ${cy - height / 2}px, 0) rotate(${turn}deg)`;
     };
     // v0.11.30 (owner's request): a random heading and a random point on screen; it enters from just off the edge
-    // behind it and flies straight through that point until it's off the far side. Once per page load.
+    // behind it and flies straight through that point until it's off the far side. At most once per page load.
     const launch = () => {
       measure();
       const heading = Math.random() * 2 * Math.PI; // screen radians (y down)
@@ -76,7 +101,7 @@ export function RocketFlyby() {
       cx += vx * dt;
       cy += vy * dt;
       draw();
-      // One flight per page load (owner's request): once it's off the far side it stays gone.
+      // At most one flight per page load (owner's request): once it's off the far side it stays gone.
       const gone = vx > 0 && cx > viewportWidth + r || vx < 0 && cx < -r || vy > 0 && cy > viewportHeight + r || vy < 0 && cy < -r;
       if (gone) el.style.visibility = 'hidden';
       else frame = requestAnimationFrame(tick);
@@ -87,7 +112,7 @@ export function RocketFlyby() {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', measure);
     };
-  }, [shown, animate]); // Attendee-to-attendee navigation preserves the current flight.
+  }, [shown, animate]); // Attendee-to-attendee navigation preserves the current flight (or its absence).
 
   if (!shown || !animate) return null;
   // The flame flickers through an 8-frame sprite (CSS); the flight itself is the transform set above.

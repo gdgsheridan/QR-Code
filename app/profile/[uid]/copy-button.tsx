@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 
 // SPEC §6.5 (v0.9.2): Discord has no public profile link for a username, so the badge page offers to copy it.
-export function CopyButton({ text, label }: { text: string; label: string }) {
+export function CopyButton({ text, label, className }: { text: string; label: string; className?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   async function copy() {
     try {
@@ -17,7 +17,7 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
   }
   return (
     <>
-      <Button type="button" variant="outline" onClick={copy} aria-label={label}>
+      <Button type="button" variant="outline" size="sm" className={className} onClick={copy} aria-label={label}>
         {state === 'copied' ? '✓ Copied' : 'Copy'}
       </Button>
       {/* Always rendered, so screen readers announce each change; only the failure needs to be seen. */}

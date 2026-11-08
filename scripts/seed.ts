@@ -61,7 +61,7 @@ async function main() {
   const eventId = event.data.id;
 
   const cps = await db.from('checkpoints').insert([
-    { event_id: eventId, name: 'Door', kind: 'door', requires_checkin: false, is_open: true, sort_order: 0 },
+    { event_id: eventId, name: 'Check-in', kind: 'door', requires_checkin: false, is_open: true, sort_order: 0 },
     { event_id: eventId, name: 'Lunch', kind: 'meal', is_open: true, sort_order: 1 },
     { event_id: eventId, name: 'Workshop', kind: 'session', capacity: 20, is_open: true, sort_order: 2 },
     { event_id: eventId, name: 'Raffle', kind: 'custom', requires_checkin: false, is_open: true, sort_order: 3 },

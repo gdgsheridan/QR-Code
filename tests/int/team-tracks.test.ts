@@ -8,24 +8,25 @@ let f: StandardFixture;
 beforeAll(async () => { f = await createStandardFixture(); });
 afterAll(async () => { await f.close(); });
 
-it('T-TEAM-09: release gates event-scoped tracks, sorted teams and undeleted member counts, with unassigned teams last', async () => {
+it('T-TEAM-09: release gates event-scoped tracks, sorted teams and undeleted member counts, with unassigned teams last; v0.11.50: a team is on each of its tracks', async () => {
   const db = serviceClient();
   const track = async (eventId: string, name: string) => {
     const { rows } = await f.pool.query<{ id: string }>('insert into tracks (event_id, name) values ($1, $2) returning id', [eventId, name]);
     return rows[0]!.id;
   };
-  const team = async (eventId: string, name: string, code: string, trackId: string | null) => {
-    const { rows } = await f.pool.query<{ id: string }>('insert into teams (event_id, name, join_code, track_id) values ($1, $2, $3, $4) returning id', [eventId, name, code, trackId]);
+  const team = async (eventId: string, name: string, code: string, trackIds: string[]) => {
+    const { rows } = await f.pool.query<{ id: string }>('insert into teams (event_id, name, join_code) values ($1, $2, $3) returning id', [eventId, name, code]);
+    await f.pool.query('insert into team_tracks (team_id, track_id, event_id) select $1, unnest($2::uuid[]), $3', [rows[0]!.id, trackIds, eventId]);
     return rows[0]!.id;
   };
   const hardware = await track(f.e1.id, 'Hardware');
   const ai = await track(f.e1.id, 'AI');
   const empty = await track(f.e1.id, 'Empty');
   const otherTrack = await track(f.e2.id, 'Other event');
-  const z = await team(f.e1.id, 'Zebras', 'ZZZZZZZZ', ai);
-  const a = await team(f.e1.id, 'Data Wizards', 'DDDDDDDD', ai);
-  const unassigned = await team(f.e1.id, 'Undecided', 'UUUUUUUU', null);
-  const otherTeam = await team(f.e2.id, 'Private elsewhere', 'PPPPPPPP', otherTrack);
+  const z = await team(f.e1.id, 'Zebras', 'ZZZZZZZZ', [ai]);
+  const a = await team(f.e1.id, 'Data Wizards', 'DDDDDDDD', [ai, hardware]);
+  const unassigned = await team(f.e1.id, 'Undecided', 'UUUUUUUU', []);
+  const otherTeam = await team(f.e2.id, 'Private elsewhere', 'PPPPPPPP', [otherTrack]);
   await f.pool.query('update participants set team_id = $1 where id = any($2)', [a, [f.p.A, f.p.B]]);
   await f.pool.query('update participants set team_id = $1 where id = $2', [z, f.p.N]);
   await f.pool.query('update participants set team_id = $1 where id = $2', [otherTeam, f.p.X]);
@@ -43,7 +44,7 @@ it('T-TEAM-09: release gates event-scoped tracks, sorted teams and undeleted mem
   expect(await tracksWithTeams(db, await loadMe())).toEqual([
     { id: ai, name: 'AI', teams: [{ id: a, name: 'Data Wizards', memberCount: 2 }, { id: z, name: 'Zebras', memberCount: 1 }] },
     { id: empty, name: 'Empty', teams: [] },
-    { id: hardware, name: 'Hardware', teams: [] },
+    { id: hardware, name: 'Hardware', teams: [{ id: a, name: 'Data Wizards', memberCount: 2 }] },
     { id: null, name: 'No track yet', teams: [{ id: unassigned, name: 'Undecided', memberCount: 0 }] },
   ]);
   await f.pool.query('delete from teams where id = $1', [unassigned]);

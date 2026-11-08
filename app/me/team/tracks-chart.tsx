@@ -51,7 +51,8 @@ export function TracksChart({ tracks }: { tracks: ChartTrack[] }) {
                 <span className="relative pl-2 text-xs text-muted-foreground">No teams yet</span>
               ) : (
                 <>
-                  <span className="track-bar relative flex h-5 gap-[2px]" style={{ width: `max(${x(total)}, ${track.teams.length * 18}px)`, transitionDelay: `${row * 50}ms` }}>
+                  {/* At least 18px a team so each block can be tapped, but never past the axis's end (v0.11.47: 20 teams overflowed a phone). */}
+                  <span className="track-bar relative flex h-5 gap-[2px]" style={{ width: `min(${x(most)}, max(${x(total)}, ${track.teams.length * 18}px))`, transitionDelay: `${row * 50}ms` }}>
                     {track.teams.map((team, index) => {
                       const id = `${track.key}:${team.id}`;
                       const centre = (index + 0.5) / most;
@@ -63,7 +64,7 @@ export function TracksChart({ tracks }: { tracks: ChartTrack[] }) {
                           onPointerLeave={(e) => { if (e.pointerType === 'mouse') setActive((a) => (a === id ? null : a)); }}
                           onFocus={() => setActive(id)} onBlur={() => setActive((a) => (a === id ? null : a))}
                           onClick={() => setActive(id)}
-                          className={`group relative -my-3 min-w-4 flex-1 basis-0 cursor-pointer appearance-none border-0 bg-transparent px-0 py-3 last:[&>span]:rounded-r-[4px] focus-visible:outline-none
+                          className={`group relative -my-3 min-w-0 flex-1 basis-0 cursor-pointer appearance-none border-0 bg-transparent px-0 py-3 last:[&>span]:rounded-r-[4px] focus-visible:outline-none
                             [&:focus-visible>span]:outline-2 [&:focus-visible>span]:outline-offset-2 [&:focus-visible>span]:outline-fg`}>
                           <span className={`block h-5 transition-[filter] duration-150 group-hover:brightness-125 ${track.unassigned ? 'bg-muted-foreground/60' : 'bg-accent'}
                             ${team.mine ? STRIPES : ''} ${active === id ? 'brightness-125' : ''}`} />

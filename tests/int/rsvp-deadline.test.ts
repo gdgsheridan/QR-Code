@@ -7,7 +7,7 @@ import { requireEnv } from '../fixtures/db';
 import { mockProvider, rsvpTokenFromEmail, sentTo, serviceClient } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
-// SPEC F13 (v0.9): the RSVP deadline, auto-"no" and reminders. run_rsvp_jobs() looks at every event with a
+// SPEC F13 (v0.9): the RSVP deadline, auto-"no" and reminders (organizer-sent since v0.11.35). run_rsvp_jobs() looks at every event with a
 // deadline, so assertions only look at this file's own people (never global counts).
 let f: StandardFixture;
 const events: Record<'open' | 'past' | 'ended' | 'race', string> = { open: '', past: '', ended: '', race: '' };
@@ -145,57 +145,100 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = $1`, [resent.id]);
   });
 
-  it('T-RSVP-10: reminders go out at 10:00 local on the three days ending on the deadline day, once each, with a new link', async () => {
+  it('T-RSVP-10: no automatic reminders (v0.11.35): an organizer\'s second RSVP to someone who got one is the reminder email', async () => {
     const ev = events.open;
     const r1 = await invitee(ev, { sentAgo: '1 day' });
+    // The old reminder days (10:00 local on the three days ending on the deadline day) queue nothing.
+    for (const day of [-2, -1, 0]) await jobs(await localAt(ev, day, '10:00'));
+    expect(await outbox(r1.id)).toEqual([]);
+    expect((await f.pool.query<{ n: number }>(`select count(*)::int as n from reminder_runs where event_id = $1 and kind = 'rsvp'`, [ev])).rows[0]?.n).toBe(0);
+
+    // A Yes with a (pre-v0.11.35) reminder in flight still cancels it and queues the pass.
     const yes = await invitee(ev, { sentAgo: '1 day' });
-    const accepted = await invitee(ev, { status: 'accepted' });
-    const notInvited = await invitee(ev, { sentAgo: null });
-    const first = await localAt(ev, -2, '10:00');
-    // Invited two hours before the first reminder: too soon for one.
-    const fresh = await invitee(ev, { sentAgo: '0 seconds' });
-    await f.pool.query(`update participants set rsvp_sent_at = $2::timestamptz - interval '2 hours' where id = $1`, [fresh.id, first]);
-    const reminders = async (id: string) => (await outbox(id)).filter((o) => o.kind === 'rsvp_reminder');
-
-    await jobs(await localAt(ev, -2, '09:59'));
-    for (const p of [r1, yes, accepted, notInvited, fresh]) expect(await reminders(p.id)).toEqual([]);
-    await jobs(first);
-    expect(await reminders(r1.id)).toEqual([{ kind: 'rsvp_reminder', status: 'pending' }]);
-    expect(await reminders(yes.id)).toHaveLength(1);
-    for (const p of [accepted, notInvited, fresh]) expect(await reminders(p.id)).toEqual([]);
-    await jobs(await localAt(ev, -2, '10:05'));
-    expect(await reminders(r1.id)).toHaveLength(1);
-
-    // Yes with a reminder in flight cancels it and still queues the pass.
+    await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'rsvp_reminder')`, [yes.id]);
     expect(await respond(yes.token, true)).toBe('GOING');
     expect(await outbox(yes.id)).toEqual([
       { kind: 'rsvp_reminder', status: 'cancelled' },
       { kind: 'pass_issued', status: 'pending' },
     ]);
+    await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = $1 and status = 'pending'`, [yes.id]);
 
-    const sentAt = (await row(r1.id))?.rsvp_sent_at;
-    const mail = mockProvider();
-    await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
-    const [reminder] = sentTo(mail.sent, r1.email);
+    const fresh = await invitee(ev, { sentAgo: null });
+    const failed = await invitee(ev, { sentAgo: '1 day' });
+    await f.pool.query(`insert into email_outbox (participant_id, kind, status) values ($1, 'rsvp', 'failed')`, [failed.id]);
+    const drain = async () => {
+      const mail = mockProvider();
+      await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
+      return mail.sent;
+    };
+    const send = (ids: string[]) => f.pool.query('select queue_rsvps($1, $2, $3)', [ev, ids, f.staff.org1]);
+
+    // First send: the invitation. An email that never arrived: the invitation again, not a reminder.
+    await send([fresh.id, failed.id]);
+    let sent = await drain();
+    expect(sentTo(sent, fresh.email).map((m) => m.subject)).toEqual(['You\'re invited: Deadline open']);
+    expect(sentTo(sent, fresh.email).map((m) => m.from)).toEqual(['Station <p@localhost>']);
+    expect(sentTo(sent, failed.email).map((m) => m.subject)).toEqual(['You\'re invited: Deadline open']);
+    const [invitation] = sentTo(sent, fresh.email);
+    if (!invitation) throw new Error('no invitation email');
+    const firstToken = rsvpTokenFromEmail(invitation);
+
+    // Sent again to someone who got it ("RSVP sent"): the reminder, with a new link; v0.11.42: the invitation's link keeps working.
+    await send([fresh.id]);
+    sent = await drain();
+    const [reminder] = sentTo(sent, fresh.email);
     if (!reminder) throw new Error('no reminder email');
-    expect(reminder.subject).toMatch(/^Reminder: reply by .+ for Deadline open$/);
+    expect(reminder.subject).toMatch(/^Reminder: Deadline open starts in (19|20|21) days$/); // v0.11.49: it starts in 20 days
+    expect(reminder.from).toBe('Station <p@localhost>'); // v0.11.43: the usual sender again (v0.11.37 to v0.11.42: Jobs, then Urgent)
+    expect(reminder.text).toContain('A reminder: you\'re invited');
     expect(reminder.text).toContain('11:59 PM');
-    const newToken = rsvpTokenFromEmail(reminder);
-    expect((await call({ token: newToken })).status).toBe(200);
-    expect((await call({ token: r1.token })).status).toBe(404);
-    expect((await row(r1.id))?.rsvp_sent_at).toEqual(sentAt); // a reminder never extends the 48 h
+    const viaReminder = await call({ token: rsvpTokenFromEmail(reminder) });
+    expect(viaReminder.status).toBe(200);
+    expect(await call({ token: firstToken })).toEqual(viaReminder); // the same invitation, the same close
 
-    await jobs(await localAt(ev, -1, '10:00'));
-    expect(await reminders(r1.id)).toHaveLength(2);
-    expect(await reminders(fresh.id)).toHaveLength(1);
-    expect(await reminders(yes.id)).toHaveLength(1);
-    await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = any($1) and status = 'pending'`, [[r1.id, fresh.id]]);
-    // More than 6 h late on the deadline day: skipped, not sent late.
-    await jobs(await localAt(ev, 0, '17:00'));
-    expect(await reminders(r1.id)).toHaveLength(2);
+    // Someone who said No and is invited again gets the invitation, not "we haven't heard back".
+    expect(await respond(rsvpTokenFromEmail(reminder), false)).toBe('NOT_GOING');
+    await send([fresh.id]);
+    sent = await drain();
+    expect(sentTo(sent, fresh.email).map((m) => m.subject)).toEqual(['You\'re invited: Deadline open']);
   });
 
-  it('T-RSVP-10: Nov 1, 2026 (the day DST ends in Toronto): the reminder goes at 10:00 EST, not EDT, and not 6 h late', async () => {
+  it('T-RSVP-14: every RSVP link sent to someone keeps working until their RSVP is revoked or their email changes (v0.11.42)', async () => {
+    const ev = events.open;
+    const p = await invitee(ev, { sentAgo: '1 day' });
+    const mail = mockProvider();
+    const resend = async () => {
+      await f.pool.query('select queue_rsvps($1, $2, $3)', [ev, [p.id], f.staff.org1]);
+      await drainUntilIdle({ db: serviceClient(), provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Station <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
+      const last = sentTo(mail.sent, p.email).at(-1);
+      if (!last) throw new Error('no RSVP email');
+      return rsvpTokenFromEmail(last);
+    };
+    const [second, third] = [await resend(), await resend()];
+    for (const token of [p.token, second, third]) expect((await call({ token })).status).toBe(200);
+    // Only sha256 hashes are kept (I-3), one row per link.
+    const { rows } = await f.pool.query<{ token_hash: string }>('select token_hash from rsvp_tokens where participant_id = $1 order by created_at', [p.id]);
+    expect(rows.map((r) => r.token_hash).sort()).toEqual([p.token, second, third].map(sha256hex).sort());
+
+    // The original link answers too, and the answer is theirs.
+    expect(await respond(p.token, false)).toBe('NOT_GOING');
+    expect((await row(p.id))?.status).toBe('withdrawn');
+
+    // Revoke RSVP forgets every link; a new RSVP after it doesn't bring the old ones back.
+    await f.pool.query('select revoke_rsvp($1, $2, $3)', [ev, p.id, f.staff.org1]);
+    for (const token of [p.token, second, third]) expect((await call({ token })).status).toBe(404);
+    expect((await f.pool.query('select 1 from rsvp_tokens where participant_id = $1', [p.id])).rowCount).toBe(0);
+    const fresh = await resend();
+    expect((await call({ token: fresh })).status).toBe(200);
+    for (const token of [p.token, second, third]) expect((await call({ token })).status).toBe(404);
+
+    // An email change in the Sheet clears the link (F3): every link sent to the old address dies with it.
+    await f.pool.query('update participants set rsvp_token_hash = null where id = $1', [p.id]);
+    expect((await call({ token: fresh })).status).toBe(404);
+    await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = $1 and status = 'pending'`, [p.id]);
+  });
+
+  it('T-RSVP-10: Nov 1, 2026 (the day DST ends in Toronto): no reminder at 10:00 EDT, 10:00 EST or later (v0.11.35)', async () => {
     const { rows } = await f.pool.query<{ id: string }>(
       `insert into events (slug, name, venue, starts_at, ends_at, rsvp_deadline)
        values ($1, 'DST Fest', 'Hall', '2026-11-07T14:00Z', '2026-11-08T22:00Z', '2026-11-04T04:59Z') returning id`,
@@ -205,12 +248,8 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     const p = await invitee(ev);
     await f.pool.query(`update participants set rsvp_sent_at = '2026-10-20T15:00Z' where id = $1`, [p.id]);
     const reminders = async () => (await outbox(p.id)).filter((o) => o.kind === 'rsvp_reminder').length;
-    await jobs('2026-11-01T14:00:00Z'); // 10:00 EDT: an hour early
+    for (const at of ['2026-11-01T14:00:00Z', '2026-11-01T15:00:00Z', '2026-11-01T21:00:00Z']) await jobs(at);
     expect(await reminders()).toBe(0);
-    await jobs('2026-11-01T21:00:00Z'); // 16:00 EST: 6 h late, skipped
-    expect(await reminders()).toBe(0);
-    await jobs('2026-11-01T15:00:00Z'); // 10:00 EST
-    expect(await reminders()).toBe(1);
     await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = $1`, [p.id]);
     await f.pool.query(`update events set rsvp_deadline = null where id = $1`, [ev]); // out of later runs' way
   });
@@ -302,8 +341,7 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     }
   });
 
-  it('T-CONC-08: reminders, answers and RSVP sends racing never deadlock, and every Yes gets its pass email', async () => {
-    // Made here, so no earlier test's run has used up its reminder day.
+  it('T-CONC-08: the RSVP jobs, answers and RSVP sends racing never deadlock, and every Yes gets its pass email', async () => {
     await addEvent('race', '40 days', '41 days', ahead(30));
     const ev = events.race;
     const people = await Promise.all(Array.from({ length: 20 }, () => invitee(ev, { sentAgo: '2 days' })));
@@ -316,12 +354,6 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     ];
     const results = await Promise.allSettled(tasks);
     expect(results.filter((r) => r.status === 'rejected')).toEqual([]);
-    // The reminder pass must really have raced: one of the three concurrent run_rsvp_jobs() calls fired
-    // the day's reminder run. Surviving email_outbox rows are not a valid assertion here, because every
-    // answer cancels that person's pending reminder (Yes queues the pass, No cancels everything) — whether
-    // any are left over depends purely on which transaction commits last.
-    const rsvpRuns = (await f.pool.query<{ n: number }>('select count(*)::int as n from reminder_runs where event_id = $1 and kind = $2', [ev, 'rsvp'])).rows[0]?.n;
-    expect(rsvpRuns).toBeGreaterThan(0);
     for (const [i, p] of people.entries()) {
       if (i % 2 !== 0) continue;
       expect(await row(p.id)).toMatchObject({ status: 'accepted' });
@@ -329,7 +361,7 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     }
     await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = any($1) and status = 'pending'`, [ids]);
   });
-  it('T-RSVP-13: a reply-by date earlier than the close (v0.11.28): shown, reminded on, but answers still count until the close', async () => {
+  it('T-RSVP-13: a reply-by date earlier than the close (v0.11.28): shown, never reminded on (v0.11.35), and answers still count until the close', async () => {
     const soft = async (slug: string, replyBy: string) => (await f.pool.query<{ id: string }>(
       `insert into events (slug, name, venue, starts_at, ends_at, rsvp_deadline, rsvp_reply_by)
        values ($1, 'Soft deadline', 'Hall', now() + interval '20 days', now() + interval '21 days', ${ahead(10)}, ${replyBy}) returning id`,
@@ -344,13 +376,13 @@ describe('RSVP deadline (SPEC F13, v0.9)', () => {
     await jobs();
     expect((await row(late.id))?.status).toBe('pending');
     expect(await respond(late.token, true)).toBe('GOING');
-    // Reminders fall on the reply-by day (10:00 local), not the close's.
+    // v0.11.35: 10:00 local on the reply-by day sends no reminder (they used to fall then).
     const ahead5 = await soft('soft-ahead', ahead(5));
     const waiting = await invitee(ahead5);
     const { rows } = await f.pool.query<{ at: Date }>(
       `select ((((rsvp_reply_by at time zone timezone)::date) + time '10:00') at time zone timezone) as at from events where id = $1`, [ahead5]);
     await jobs((rows[0]?.at ?? new Date(0)).toISOString());
-    expect((await outbox(waiting.id)).map((o) => o.kind)).toContain('rsvp_reminder');
+    expect(await outbox(waiting.id)).toEqual([]);
     // Never after the close.
     await expect(f.pool.query(`update events set rsvp_reply_by = rsvp_deadline + interval '1 minute' where id = $1`, [ahead5]))
       .rejects.toThrow(/events_reply_by_not_after_deadline/);

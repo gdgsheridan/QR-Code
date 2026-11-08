@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { generateQrVideo } from '../../scripts/gen-qr-video';
-import { authStatePath, chooseCheckpoint, E2E_ORIGIN, fakeCameraArgs, saveSignedInState, warmDevServer } from '../fixtures/e2e';
+import { authStatePath, chooseCheckpoint, E2E_ORIGIN, fakeCameraArgs, installFakeNfc, saveSignedInState, warmDevServer } from '../fixtures/e2e';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 // Chromium plays this file as the camera: fixture participant A's real pass QR.
@@ -23,6 +23,7 @@ test.afterAll(async () => {
 });
 
 test('T-SCUI-01: A\'s QR in front of the camera shows ADMIT within 1.5 s of the scanner being ready; T-SCUI-11: <video playsinline muted>', async ({ page }) => {
+  await installFakeNfc(page); // v0.12.1: Check-in runs only on phones with Web NFC
   await page.goto(`/scan/${f.slug}`);
   await chooseCheckpoint(page, 'Door');
   const result = page.getByTestId('scan-result');

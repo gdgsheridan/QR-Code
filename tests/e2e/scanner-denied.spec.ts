@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { authStatePath, chooseCheckpoint, fakeCameraArgs, saveSignedInState, warmDevServer } from '../fixtures/e2e';
+import { authStatePath, chooseCheckpoint, fakeCameraArgs, installFakeNfc, saveSignedInState, warmDevServer } from '../fixtures/e2e';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 const AUTH = authStatePath('scanner-denied');
@@ -20,6 +20,7 @@ test('T-SCUI-08: camera permission denied shows instructions and manual search s
   await page.addInitScript(() => {
     navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));
   });
+  await installFakeNfc(page); // v0.12.1: Check-in runs only on phones with Web NFC
   await page.goto(`/scan/${f.slug}`);
   await chooseCheckpoint(page, 'Door');
   await expect(page.getByText(/Camera access is blocked/)).toBeVisible();

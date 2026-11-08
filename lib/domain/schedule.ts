@@ -101,11 +101,36 @@ const NUDGE_WITHIN = 15;
 const DROP_MINUTES = 60; // a long card on a same-column one starting with it begins this much lower
 const DROP_MIN_LENGTH = 120;
 const NEIGHBOUR_WITHIN = 15; // a lone slot this close to another column's slot keeps its own column
+const BACKDROP_MINUTES = 180; // cards this long (Sponsor Station, Photo Booth) stack; shorter overlapping ones sit side by side
 const overlaps = (a: { startMinute: number; endMinute: number }, b: { startMinute: number; endMinute: number }) =>
   a.startMinute < b.endMinute && b.startMinute < a.endMinute;
+const backdrop = (s: TimelineSlot) => s.endMinute - s.startMinute >= BACKDROP_MINUTES;
+
+/** [lane, lanes] for each short card: overlapping short cards of one track split it, each in the first lane free at its start. */
+function lanes(slots: TimelineSlot[]) {
+  const lane = new Map<TimelineSlot, [number, number]>();
+  for (const track of TRACKS) {
+    let cluster: TimelineSlot[] = [];
+    let ends: number[] = [];
+    let clusterEnd = -Infinity;
+    const close = () => { for (const s of cluster) lane.set(s, [lane.get(s)![0], ends.length]); };
+    for (const slot of slots.filter(s => s.track === track.id && !backdrop(s))) {
+      if (slot.startMinute >= clusterEnd) { close(); cluster = []; ends = []; }
+      let index = ends.findIndex(end => end <= slot.startMinute);
+      if (index < 0) index = ends.push(0) - 1;
+      ends[index] = slot.endMinute;
+      lane.set(slot, [index, 0]);
+      cluster.push(slot);
+      clusterEnd = Math.max(clusterEnd, slot.endMinute);
+    }
+    close();
+  }
+  return lane;
+}
 
 // A slot whose overlap group stays in its own track, with no other track's slot right beside it, spans the day; hacking also runs under the food column
-// (food draws on top) and into the side column when that is free; overlaps in one track stack, each a step further in than the cards it covers.
+// (food draws on top) and into the side column when that is free. Long cards in one track stack, each a step further in than the cards it covers;
+// short ones that overlap sit side by side (v0.12.5), and step in past any long card beneath them.
 function layout(slots: TimelineSlot[]) {
   const used = TRACKS.filter(t => slots.some(s => s.track === t.id));
   const total = used.reduce((sum, t) => sum + t.weight, 0);
@@ -120,6 +145,7 @@ function layout(slots: TimelineSlot[]) {
     groups.at(-1)!.push(slot);
     groupEnd = Math.max(groupEnd, slot.endMinute);
   }
+  const lane = lanes(slots);
   slots.forEach((slot, i) => {
     const own = used.findIndex(t => t.id === slot.track);
     const group = groups.find(g => g.includes(slot))!;
@@ -127,13 +153,23 @@ function layout(slots: TimelineSlot[]) {
     const alone = group.every(s => s.track === slot.track) && !slots.some(s => s.track !== slot.track
       && s.startMinute < slot.endMinute + NEIGHBOUR_WITHIN && slot.startMinute - NEIGHBOUR_WITHIN < s.endMinute);
     if (alone) [from, to] = [0, used.length - 1];
-    else if (slot.category === 'hacking') {
+    else if (slot.category === 'hacking' || slot.track === 'food') {
+      // Food also reaches into a free side column, so a short meal beside a hacking milestone isn't squeezed (v0.12.7).
       const free = (track: ScheduleTrack) => !slots.some(s => s.track === track && overlaps(s, slot));
-      while (to + 1 < used.length && (used[to + 1]!.id === 'food' || free(used[to + 1]!.id))) to += 1;
+      while (to + 1 < used.length && ((slot.category === 'hacking' && used[to + 1]!.id === 'food') || free(used[to + 1]!.id))) to += 1;
     }
-    const below = slots.slice(0, i).filter(s => s.track === slot.track && overlaps(s, slot));
+    let { left, width } = extent(from, to);
+    const [index, count] = lane.get(slot) ?? [0, 1];
+    if (count > 1) {
+      const span = alone ? { left: 0, width: 1 } : extent(own, own);
+      const laneLeft = span.left + index * span.width / count;
+      // Only the last lane keeps a hacking card's reach into the next columns; any other would cover its neighbours.
+      width = index === count - 1 ? left + width - laneLeft : span.width / count;
+      left = laneLeft;
+    }
+    const below = slots.slice(0, i).filter(s => s.track === slot.track && overlaps(s, slot) && (backdrop(s) || backdrop(slot)));
     const depth = below.length ? Math.max(...below.map(s => s.depth)) + 1 : 0;
-    Object.assign(slot, extent(from, to), { depth, layer: i + (slot.track === 'food' ? slots.length : 0) });
+    Object.assign(slot, { left, width, depth, layer: i + (slot.track === 'food' ? slots.length : 0) });
   });
   for (const slot of slots) {
     const covered = slots.filter(s => s.layer < slot.layer && overlaps(s, slot)

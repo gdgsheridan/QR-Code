@@ -402,16 +402,18 @@
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: none; }
 }
-.page-rise > * > * { animation: page-rise 0.32s var(--ease) backwards; }
-.page-rise > * > :nth-child(2) { animation-delay: 40ms; }
-.page-rise > * > :nth-child(3) { animation-delay: 80ms; }
-.page-rise > * > :nth-child(4) { animation-delay: 120ms; }
-.page-rise > * > :nth-child(5) { animation-delay: 160ms; }
-.page-rise > * > :nth-child(6) { animation-delay: 200ms; }
-.page-rise > * > :nth-child(7) { animation-delay: 240ms; }
-.page-rise > * > :nth-child(n + 8) { animation-delay: 280ms; }
+/* .setup-rise: the profile setup walkthrough's visible step. Its blocks rise like a new page each time the step shows
+   (leaving display: none restarts a CSS animation), so Next and Back both play it. */
+.page-rise > * > *, .setup-rise > * { animation: page-rise 0.32s var(--ease) backwards; }
+.page-rise > * > :nth-child(2), .setup-rise > :nth-child(2) { animation-delay: 40ms; }
+.page-rise > * > :nth-child(3), .setup-rise > :nth-child(3) { animation-delay: 80ms; }
+.page-rise > * > :nth-child(4), .setup-rise > :nth-child(4) { animation-delay: 120ms; }
+.page-rise > * > :nth-child(5), .setup-rise > :nth-child(5) { animation-delay: 160ms; }
+.page-rise > * > :nth-child(6), .setup-rise > :nth-child(6) { animation-delay: 200ms; }
+.page-rise > * > :nth-child(7), .setup-rise > :nth-child(7) { animation-delay: 240ms; }
+.page-rise > * > :nth-child(n + 8), .setup-rise > :nth-child(n + 8) { animation-delay: 280ms; }
 @media (prefers-reduced-motion: reduce) {
-  .page-rise > * > * { animation: none; }
+  .page-rise > * > *, .setup-rise > * { animation: none; }
 }
 
 
@@ -429,7 +431,7 @@
   .setup-progress-fill { transition: none !important; }
 }
 
-/* v0.11.29: Team page Tracks chart. Bars grow from the baseline on load; nothing moves under reduced motion. */
+/* v0.11.29: Team page Tracks chart (and, v0.11.36, the admin dietary chart). Bars grow from the baseline on load; nothing moves under reduced motion. */
 .track-bar { transform-origin: left; transition: transform 0.5s var(--ease); }
 @starting-style { .track-bar { transform: scaleX(0); } }
 @keyframes tracks-tip { from { opacity: 0; translate: 0 4px; } }

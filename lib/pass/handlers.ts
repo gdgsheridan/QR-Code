@@ -80,7 +80,7 @@ export function createPassHandler(deps: { db: Db }) {
     // v0.11.25: the pass is about its holder. Anyone who scans the QR opens this page, so links show only
     // when they share them on their badge (§6.5), and never dietary notes, allergies or email.
     const { data: me, error } = await deps.db.from('participants')
-      .select('last_name, profile_public, linkedin_url, discord_username, website_url, teams(name, tracks(name))')
+      .select('last_name, profile_public, linkedin_url, discord_username, website_url, teams(name, team_tracks(tracks(name)))')
       .eq('id', participant.id).single();
     if (error) throw new Error(`pass holder load failed (${error.code})`);
     return json({
@@ -88,7 +88,8 @@ export function createPassHandler(deps: { db: Db }) {
       firstName: participant.firstName,
       lastName: me.last_name,
       event: { ...event, venue: formalVenue(event.venue) }, // v0.11.28: the venue's formal name
-      team: me.teams ? { name: me.teams.name, track: me.teams.tracks?.name ?? null } : null,
+      // v0.11.50: a team has any number of tracks.
+      team: me.teams ? { name: me.teams.name, tracks: me.teams.team_tracks.map((t) => t.tracks.name).toSorted((x, y) => x.localeCompare(y)) } : null,
       links: me.profile_public ? { linkedinUrl: me.linkedin_url, discord: me.discord_username, websiteUrl: me.website_url } : null,
     });
   };

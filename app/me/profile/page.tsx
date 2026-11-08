@@ -169,7 +169,7 @@ export default async function HackerProfilePage(props: {
       </div>
       {/* The walkthrough keeps its heading until Save and finish, even once steps 1–3 are saved. */}
       <h1>{setupDone && !walkthrough ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
-      {(!setupDone || walkthrough) && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
+      {(!setupDone || walkthrough) && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before the {m.event.name}. Your health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
       {!m.emergency && !walkthrough && <Alert role="note" asChild><p>
         We still need your emergency contact. <Link className="inline-flex min-h-11 items-center font-semibold text-accent" href="/me/emergency">Add your emergency contact →</Link>
       </p></Alert>}
@@ -330,7 +330,7 @@ export default async function HackerProfilePage(props: {
           />
           <Label htmlFor="bio">Bio</Label>
           <Textarea id="bio" name="bio" maxLength={280} rows={4} defaultValue={m.bio ?? ''} placeholder="What do you enjoy building? Who would you like to meet?" className="min-h-24 w-full" />
-          <PaceSlider key={m.pace ?? ''} value={m.pace ?? ''} />
+          <PaceSlider key={m.pace ?? ''} value={m.pace ?? ''} startBalanced={walkthrough} />
           <Label className="flex min-h-11 items-center gap-3">
             <input type="checkbox" name="directoryOptIn" defaultChecked={m.directoryOptIn} className="size-[22px] shrink-0" />
             List me in the Hacker directory

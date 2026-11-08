@@ -18,7 +18,7 @@ interface ActivePass {
   lastName: string;
   event: { name: string; venue: string; startsAt: string; timezone: string };
   /** v0.11.25: the holder's team, and the links they share on their badge (null when they don't). */
-  team: { name: string; track: string | null } | null;
+  team: { name: string; tracks: string[] } | null;
   links: { linkedinUrl: string | null; discord: string | null; websiteUrl: string | null } | null;
 }
 
@@ -224,10 +224,10 @@ function PassCard({ pass, checking, token }: { pass: ActivePass | null; checking
               <dd>{pass.team.name}</dd>
             </div>
           )}
-          {pass.team?.track && (
+          {pass.team && pass.team.tracks.length > 0 && (
             <div>
-              <dt>Track</dt>
-              <dd>{pass.team.track}</dd>
+              <dt>{pass.team.tracks.length === 1 ? 'Track' : 'Tracks'}</dt>
+              <dd>{pass.team.tracks.join(', ')}</dd>
             </div>
           )}
         </dl>}

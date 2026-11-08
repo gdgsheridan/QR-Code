@@ -19,6 +19,7 @@ export function adminClient(over: Partial<AdminDeps> = {}) {
     scheduleDrain: (t) => scheduled.push(t),
     drain,
     appOrigin: 'http://localhost:3100',
+    passSecret: requireEnv('PASS_TOKEN_SECRET'),
     ...over,
   });
 

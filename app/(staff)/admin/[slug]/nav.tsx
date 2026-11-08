@@ -8,10 +8,14 @@ const TABS = [
   ['', 'Dashboard'],
   ['/participants', 'Participants'],
   ['/teams', 'Teams'],
+  ['/workshops', 'Workshops'],
+  ['/leaderboard', 'Leaderboard'],
+  ['/judges', 'Judges'],
   ['/checkpoints', 'Checkpoints'],
+  ['/catering', 'Catering'],
   ['/staff', 'Staff'],
+  ['/schedule', 'Schedule'],
   ['/info', 'Info'],
-  ['/export', 'Export'],
   ['/tools', 'Tools'],
 ] as const;
 
@@ -21,7 +25,7 @@ export function AdminNav({ slug }: { slug: string }) {
   const base = `/admin/${slug}`;
   return (
     <nav aria-label="Admin" onFocus={(event) => event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' })}
-      className="flex justify-start items-center flex-nowrap gap-[8px] overflow-x-auto overflow-y-hidden
+      className="flex justify-start items-center flex-nowrap gap-[8px] max-[1700px]:gap-[2px] overflow-x-auto overflow-y-hidden
           max-w-full min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {TABS.map(([path, label]) => {
         const href = base + path;
@@ -34,7 +38,7 @@ export function AdminNav({ slug }: { slug: string }) {
 
           [transition:color_180ms_var(--ease),_background-color_180ms_var(--ease),_border-color_180ms_var(--ease)]
 
-          [padding-inline:18px] max-[600.001px]:min-h-[44px] max-[600.001px]:text-[0.875rem]
+          [padding-inline:16px] max-[1700px]:[padding-inline:8px] max-[1700px]:text-[0.875rem] max-[600.001px]:min-h-[44px] max-[600.001px]:text-[0.875rem]
 
           max-[600.001px]:[padding-inline:12px] [&[aria-current='page']]:text-accent
 
@@ -60,7 +64,7 @@ export function AdminNav({ slug }: { slug: string }) {
 
           [transition:color_180ms_var(--ease),_background-color_180ms_var(--ease),_border-color_180ms_var(--ease)]
 
-          [padding-inline:18px] max-[600.001px]:min-h-[44px] max-[600.001px]:text-[0.875rem]
+          [padding-inline:16px] max-[1700px]:[padding-inline:8px] max-[1700px]:text-[0.875rem] max-[600.001px]:min-h-[44px] max-[600.001px]:text-[0.875rem]
 
           max-[600.001px]:[padding-inline:12px] [&[aria-current='page']]:text-accent
 

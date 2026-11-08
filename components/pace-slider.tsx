@@ -5,16 +5,17 @@ import { Label } from '@/components/ui/label';
 import { PACE } from '@/lib/domain/profile';
 import { PACE_STOPS } from './pace-options';
 
-export function PaceSlider({ value, filter = false }: { value: string; filter?: boolean }) {
+export function PaceSlider({ value, filter = false, startBalanced = false }: { value: string; filter?: boolean; startBalanced?: boolean }) {
   const initialStop = PACE_STOPS.findIndex((pace) => pace === value);
   const [stop, setStop] = useState(initialStop > 0 ? initialStop : filter ? 0 : 2);
-  const [unset, setUnset] = useState(initialStop <= 0);
+  // startBalanced (the RSVP walkthrough): no saved pace starts live on Balanced, not greyed out (owner's request).
+  const [unset, setUnset] = useState(initialStop <= 0 && !startBalanced);
   // Not remounted when the filters navigate (that dropped keyboard focus); follow a new value instead (back/forward).
   const [shown, setShown] = useState(value);
   if (value !== shown) {
     setShown(value);
     setStop(initialStop > 0 ? initialStop : filter ? 0 : 2);
-    setUnset(initialStop <= 0);
+    setUnset(initialStop <= 0 && !startBalanced);
   }
   const id = filter ? 'pace' : 'profilePace';
   const pace = PACE_STOPS[stop] ?? '';
@@ -35,7 +36,7 @@ export function PaceSlider({ value, filter = false }: { value: string; filter?: 
       <fieldset className="grid gap-2">
         <legend>Your pace</legend>
         {PACE_STOPS.map((choice) => <Label key={choice} className="flex min-h-11 items-center gap-3">
-          <input type="radio" className="size-[22px]" name="pace" value={choice} defaultChecked={value === choice} />
+          <input type="radio" className="size-[22px]" name="pace" value={choice} defaultChecked={(value || (startBalanced ? 'balanced' : '')) === choice} />
           {choice ? PACE[choice] : 'Prefer not to say'}
         </Label>)}
       </fieldset>

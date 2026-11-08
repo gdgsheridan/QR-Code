@@ -147,10 +147,11 @@ describe('hacker menu (SPEC F14, v0.6)', () => {
     expect(await row()).toEqual({ team_status: 'solo', looking_for_team: false });
     expect(await setLooking(serviceClient(), user, id, true)).toBe('SAVED');
     expect(await row()).toEqual({ team_status: 'looking', looking_for_team: true });
-    // Someone who said "I have a team" and leaves an app team isn't put under Looking.
+    // Someone who said "I have a team" and leaves an app team isn't put under Looking; v0.11.47: the answer, which no
+    // longer holds, becomes solo (still a finished profile).
     await f.pool.query(`update participants set team_status = 'team', team_id = $2 where id = $1`, [id, team!.id]);
     await f.pool.query('update participants set team_id = null where id = $1', [id]);
-    expect(await row()).toEqual({ team_status: 'team', looking_for_team: false });
+    expect(await row()).toEqual({ team_status: 'solo', looking_for_team: false });
   });
 
   it('T-ME-10 (v0.11.25): the setup walkthrough requires the emergency contact and saves it with the other answers', async () => {

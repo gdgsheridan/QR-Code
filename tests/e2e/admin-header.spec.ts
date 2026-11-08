@@ -23,7 +23,7 @@ for (const [width, height] of [[390, 844], [1440, 900], [1920, 1080]] as const) 
     const header = page.locator('header');
     const nav = page.getByRole('navigation', { name: 'Admin' });
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(9); // v0.11.22: Tools is back in the header (§11).
+    await expect(links).toHaveCount(13); // v0.11.22: Tools is back in the header; v0.11.39: Catering; v0.12: Workshops and Leaderboard; v0.12.4: Judges, and Export folded into Tools; v0.12.6: Schedule (§11).
     await expect(links.first()).toHaveAttribute('aria-current', 'page');
     await expect(header.getByText(f.e1.name, { exact: true })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);

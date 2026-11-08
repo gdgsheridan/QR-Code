@@ -37,8 +37,9 @@ export async function TeamsView({ me, params, allowed }: {
             <h2 className="m-0 min-w-0 text-lg font-bold">{team.name}</h2>
             {team.own && <span className="shrink-0 rounded-full bg-accent/10 px-2 py-1 text-xs font-semibold text-accent">Your team</span>}
           </div>
-          {me.event.tracksReleased && (team.track
-            ? <span className="max-w-full justify-self-start rounded-full border border-border px-2 py-1 text-xs">{team.track}</span>
+          {me.event.tracksReleased && (team.tracks.length > 0
+            ? <ul aria-label="Tracks" className="m-0 flex list-none flex-wrap gap-1 p-0">{team.tracks.map((track) => (
+                <li key={track} className="max-w-full rounded-full border border-border px-2 py-1 text-xs">{track}</li>))}</ul>
             : <p className="m-0 text-sm text-muted-foreground">No track yet</p>)}
         </header>
         <div className="grid gap-2">

@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { generateQrVideo } from '../../scripts/gen-qr-video';
-import { authStatePath, chooseCheckpoint, E2E_ORIGIN, fakeCameraArgs, saveSignedInState } from '../fixtures/e2e';
+import { authStatePath, chooseCheckpoint, E2E_ORIGIN, fakeCameraArgs, installFakeNfc, saveSignedInState } from '../fixtures/e2e';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 const VIDEO = join(process.cwd(), 'tests', 'assets', 'e2e-malformed.y4m');
@@ -25,6 +25,7 @@ test('T-SCUI-06: a QR encoding https://example.com shows "Not a Datathon code" a
   page.on('request', (r) => {
     if (new URL(r.url()).pathname === '/api/scan') scans += 1;
   });
+  await installFakeNfc(page); // v0.12.1: Check-in runs only on phones with Web NFC
   await page.goto(`/scan/${f.slug}`);
   await chooseCheckpoint(page, 'Door');
   const result = page.getByTestId('scan-result');

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formalVenue } from '@/lib/email/links';
+import { renderEventEveEmail } from '@/lib/email/templates/event-eve';
 import { renderPassEmail } from '@/lib/email/templates/pass';
 import { renderProfileReminderEmail } from '@/lib/email/templates/profile-reminder';
 import { renderRsvpEmail } from '@/lib/email/templates/rsvp';
@@ -20,6 +21,7 @@ const emails = {
   teamInvites: renderTeamInviteEmail({ firstName: 'Ada', inviter: 'Ben', team: 'Byte Me', event: event.name, appOrigin: origin, count: 3 }),
   organizer: renderStaffAddedEmail({ name: 'Maya', role: 'organizer', event, slug: 'dashboard', appOrigin: origin }),
   volunteer: renderStaffAddedEmail({ name: null, role: 'volunteer', event, slug: 'dashboard', appOrigin: origin }),
+  eventEve: renderEventEveEmail({ firstName: 'Ada', event: event.name, appOrigin: origin }),
 };
 
 describe('email wording (SPEC §12)', () => {

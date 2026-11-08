@@ -4,7 +4,8 @@ import { renderTeamInviteEmail } from '@/lib/email/templates/team-invite';
 it('T-TEAM-06: invite email escapes names, links only to Team, has text and stays under 60 KB', () => {
   const origin = 'https://station.example.test';
   const email = renderTeamInviteEmail({ firstName: '<b>x</b>', inviter: '<b>x</b>', team: '<b>x</b>', event: '<b>x</b>', appOrigin: origin });
-  expect(email.subject).toBe('<b>x</b> invited you to join <b>x</b> at <b>x</b>');
+  // v0.11.47: the hacker-typed team name stays out of the subject (it's sent from the club's address); the body names it.
+  expect(email.subject).toBe('<b>x</b> invited you to join their team at <b>x</b>');
   expect(email.html).not.toContain('<b>x</b>');
   expect(email.html.match(/&lt;b&gt;x&lt;\/b&gt;/g)).toHaveLength(4);
   expect(email.html).toContain(`href="${origin}/me/team"`);

@@ -50,7 +50,8 @@ it('T-TEAM-05: opt-in directory, invite and email, consent and cleanup; own rows
   await drain();
   const email = onlyEmailTo(mail.sent, n.email);
   const joinCode = (await f.pool.query<{ join_code: string }>('select join_code from teams where id = $1', [teamId])).rows[0]?.join_code ?? '';
-  expect(email.subject).toBe(`Ada invited you to join Data Wizards at ${f.e1.name}`);
+  expect(email.subject).toBe(`Ada invited you to join their team at ${f.e1.name}`); // v0.11.47: the team name is in the body only
+  expect(email.text).toContain(`Ada invited you to join Data Wizards at ${f.e1.name}`);
   expect(email.text).toContain('https://station.example.test/me/team');
   expect(email.html).toContain('Data Wizards');
   expect(email.html).toContain('Ada');
@@ -245,4 +246,50 @@ it('T-TEAM-05 (v0.11.25): invite emails go out at most once an hour per person, 
   const emails = sentTo(mail.sent, address);
   expect(emails).toHaveLength(2);
   expect(emails[1]?.subject).toMatch(/^3 teams invited you/);
+});
+
+it('T-TEAM-05 (v0.11.47): an invite email goes out only while the invite can be accepted; one arriving mid-send gets its own email an hour later', async () => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const ids = (await Promise.all(Array.from({ length: 13 }, () => f.addParticipant(f.e1.id, { withPass: false })))).map((p) => p.id);
+  const [lead1, lead2, lead3, lead4, lead5, fill1, fill2, fill3, t1, t2, t3, t4] = ids as [string, string, string, string, string, string, string, string, string, string, string, string];
+  await f.pool.query('update participants set looking_for_team = true where id = any($1)', [[t1, t2, t3, t4]]);
+  for (const [lead, name] of [[lead1, 'Fills Up'], [lead2, 'Closes'], [lead3, 'Ends'], [lead4, 'Mid Send A'], [lead5, 'Mid Send B']] as const) {
+    expect(await createTeam(db, await as(lead), lead, name)).toBe('CREATED');
+  }
+  const statusOf = async (id: string) => (await f.pool.query<{ status: string }>(`select status from email_outbox where participant_id = $1 and kind = 'team_invite' order by created_at desc limit 1`, [id])).rows[0]?.status;
+  const mail = mockProvider();
+  const drainNow = () => drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://station.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
+
+  // The team filled up before the email went out.
+  expect(await inviteTeammate(db, await as(lead1), lead1, t1)).toBe('INVITED');
+  await f.pool.query('update participants set team_id = (select team_id from participants where id = $1) where id = any($2)', [lead1, [fill1, fill2, fill3]]);
+  await drainNow();
+  expect([sentTo(mail.sent, (await as(t1)).email), await statusOf(t1)]).toEqual([[], 'cancelled']);
+  // Team forming closed meanwhile.
+  expect(await inviteTeammate(db, await as(lead2), lead2, t2)).toBe('INVITED');
+  await f.pool.query('update events set teams_open = false where id = $1', [f.e1.id]);
+  await drainNow();
+  expect([sentTo(mail.sent, (await as(t2)).email), await statusOf(t2)]).toEqual([[], 'cancelled']);
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  // The event ended meanwhile.
+  const { rows: [times] } = await f.pool.query<{ starts_at: Date; ends_at: Date }>('select starts_at, ends_at from events where id = $1', [f.e1.id]);
+  expect(await inviteTeammate(db, await as(lead3), lead3, t3)).toBe('INVITED');
+  await f.pool.query(`update events set starts_at = now() - interval '2 days', ends_at = now() - interval '1 minute' where id = $1`, [f.e1.id]);
+  await drainNow();
+  await f.pool.query('update events set starts_at = $2, ends_at = $3 where id = $1', [f.e1.id, times!.starts_at, times!.ends_at]);
+  expect([sentTo(mail.sent, (await as(t3)).email), await statusOf(t3)]).toEqual([[], 'cancelled']);
+
+  // A second team invites while the first invite's email is being sent: that one is emailed an hour later.
+  let invitedMeanwhile: string | undefined;
+  const t4Email = (await as(t4)).email;
+  const midSend = mockProvider(async (m) => {
+    if (m.to === t4Email && !invitedMeanwhile) invitedMeanwhile = await inviteTeammate(db, await as(lead5), lead5, t4);
+  });
+  expect(await inviteTeammate(db, await as(lead4), lead4, t4)).toBe('INVITED');
+  await drainUntilIdle({ db, provider: midSend.provider, appOrigin: 'https://station.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
+  expect(invitedMeanwhile).toBe('INVITED');
+  expect(sentTo(midSend.sent, t4Email)).toHaveLength(1);
+  const { rows: [next] } = await f.pool.query<{ wait_m: number }>(
+    `select extract(epoch from next_attempt_at - now()) / 60 as wait_m from email_outbox where participant_id = $1 and kind = 'team_invite' and status = 'pending'`, [t4]);
+  expect(Number(next?.wait_m)).toBeGreaterThan(55);
 });

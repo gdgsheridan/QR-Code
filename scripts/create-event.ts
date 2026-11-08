@@ -43,7 +43,7 @@ async function main() {
     .select('id')
     .single();
   if (event.error) throw new Error(`event insert failed: ${event.error.message}`);
-  const door = await db.from('checkpoints').insert({ event_id: event.data.id, name: 'Door', kind: 'door', requires_checkin: false, is_open: false });
+  const door = await db.from('checkpoints').insert({ event_id: event.data.id, name: 'Check-in', kind: 'door', requires_checkin: false, is_open: false });
   if (door.error) throw new Error(`door insert failed: ${door.error.message}`);
   const invite = await db.from('staff_invites').insert({ event_id: event.data.id, email: normalizeEmail(organizer), role: 'organizer' });
   if (invite.error) throw new Error(`invite failed: ${invite.error.message}`);

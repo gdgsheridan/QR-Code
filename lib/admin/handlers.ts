@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Authenticate } from '@/lib/auth/session';
@@ -5,7 +6,7 @@ import { requireStaffBySlug } from '@/lib/auth/staff';
 import { staffNames as sharedStaffNames } from '@/lib/db/staff-names';
 import type { Database, Json } from '@/lib/db/types.gen';
 import { parseCsv, toCsv } from '@/lib/domain/csv';
-import { bucketLabel, doorClosedWarning } from '@/lib/domain/dashboard';
+import { bucketLabel } from '@/lib/domain/dashboard';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { normalizeEmail, toSearchText } from '@/lib/domain/normalize';
 import { parseSheetId } from '@/lib/domain/sheet';
@@ -14,6 +15,11 @@ import { generateJoinCode, parseTeamName, parseTrackNames } from '@/lib/domain/t
 import { isJsonContentType } from '@/lib/http/content-type';
 import { syncSheet } from '@/lib/ingest/sync';
 import { withinLimit } from '@/lib/pass/handlers';
+import { cateringHackers, cateringToken, cateringUrl } from './catering';
+import { hackerConnections, removeConnection } from './connection-admin';
+import { deleteJudge, importJudges, linkJudgeBadge, listJudges, setJudgeLinkedin, unlinkJudgeBadge } from './judges';
+import { normalizeLinkedIn, normalizeUid } from '@/lib/domain/badge';
+import { parseJudgesCsv } from '@/lib/domain/judges';
 import { PHOTO_BUCKET } from '@/lib/storage/photos';
 
 type Db = SupabaseClient<Database>;
@@ -27,6 +33,8 @@ export interface AdminDeps {
   drain: () => Promise<unknown>;
   /** NEXT_PUBLIC_APP_ORIGIN: where invite emails send people to set their password. */
   appOrigin: string;
+  /** PASS_TOKEN_SECRET: also derives the Catering share link's key (v0.11.39). */
+  passSecret: string;
   now?: () => Date;
   /** Builds a reader for a linked Sheet, or null when Sync now isn't configured. */
   sheetReader?: (sheetId: string) => (() => Promise<string[][]>) | null;
@@ -47,6 +55,12 @@ async function readJson(request: Request): Promise<unknown> {
 }
 
 const uuid = (v: string | undefined) => z.uuid().safeParse(v).data ?? null;
+
+// SPEC §11 Judges (v0.12.4)
+const judgesImportBody = z.object({ csv: z.string().max(4_000_000), dryRun: z.boolean() }).strict();
+const judgeUpdateBody = z.object({ linkedin: z.string().max(300) }).strict();
+const judgeBadgeBody = z.object({ uid: z.string().max(40) }).strict();
+const connectionRemoveBody = z.object({ a: z.uuid(), b: z.uuid() }).strict().refine((v) => v.a !== v.b);
 
 const metricsSchema = z.object({
   accepted: z.number(),
@@ -69,6 +83,32 @@ const metricsSchema = z.object({
   notFound: z.array(z.object({ staffUserId: z.string(), displayName: z.string().nullable(), count: z.number() })),
 });
 
+// SPEC §13 (v0.12): workshop and connection analytics, counts only.
+const bucketsSchema = z.array(z.object({ bucketUtc: z.string(), count: z.number() }).strict());
+const workshopAnalyticsSchema = z.object({
+  checkedIn: z.number(),
+  attendees: z.number(),
+  checkIns: z.number(),
+  cooldownMinutes: z.number(),
+  cooldownRefusals: z.number(),
+  distribution: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+  workshops: z.array(z.object({ id: z.string(), name: z.string(), isOpen: z.boolean(), capacity: z.number().nullable(), startsAt: z.string().nullable(), attendees: z.number() }).strict()),
+  buckets: bucketsSchema,
+}).strict();
+const workshopAttendanceSchema = z.array(z.object({ workshop: z.string(), firstName: z.string(), lastName: z.string(), scannedAt: z.string(), method: z.string() }).strict());
+const connectionAnalyticsSchema = z.object({
+  mutual: z.number(),
+  waiting: z.number(),
+  checkedIn: z.number(),
+  connectedPeople: z.number(),
+  buckets: bucketsSchema,
+}).strict();
+
+const leaderboardSchema = z.object({
+  frozenAt: z.string().nullable(),
+  rows: z.array(z.object({ rank: z.number(), name: z.string(), points: z.number() }).strict()),
+}).strict();
+
 // §11: the Sheet link (Sync page) and, since v0.6, the hackers' schedule and emergency info (Info page).
 const eventUpdate = z
   .object({
@@ -81,6 +121,8 @@ const eventUpdate = z
     rsvpDeadline: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
     // v0.11.28: the date shown to invitees (and the reminder days); not after the deadline (a database check).
     rsvpReplyBy: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
+    // SPEC §8 step 11b: minutes between check-ins to different workshops; 0 turns the cooldown off.
+    sessionCooldownMinutes: z.number().int().min(0).max(120).optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0);
@@ -96,7 +138,8 @@ const checkpointCreate = z
     sortOrder: z.number().int().optional(),
   })
   .strict();
-const checkpointUpdate = checkpointCreate.omit({ kind: true }).partial().strict();
+// v0.12: secondsMode only on meals (checkpoints_seconds_meal), so it isn't offered at creation, where the kind is new.
+const checkpointUpdate = checkpointCreate.omit({ kind: true }).extend({ secondsMode: z.boolean() }).partial().strict();
 
 const walkInBody = z
   .object({
@@ -112,7 +155,10 @@ const walkInBody = z
   .refine((b) => !b.notRsvped || (!b.checkInNow && !b.sendPass));
 
 const rsvpBody = z.object({ ids: z.array(z.uuid()).min(1).max(1000) }).strict();
+// v0.12.3: no ids = everyone who said Yes; ids = only those (a test send); dryRun = just the count.
+const eventEveBody = z.object({ ids: z.array(z.uuid()).min(1).max(1000).optional(), dryRun: z.boolean().optional() }).strict();
 const inviteBody = z.object({ email: z.string().transform(normalizeEmail).pipe(z.email()), role: z.enum(['organizer', 'volunteer']) }).strict();
+const TRACK_IDS = z.array(z.uuid()).max(100); // v0.11.50: a team's tracks
 
 type CheckpointRow = Database['public']['Tables']['checkpoints']['Row'];
 const checkpointView = (c: CheckpointRow) => ({
@@ -124,6 +170,7 @@ const checkpointView = (c: CheckpointRow) => ({
   capacity: c.capacity,
   startsAt: c.starts_at,
   sortOrder: c.sort_order,
+  secondsMode: c.seconds_mode,
 });
 
 function csvResponse(slug: string, kind: string, body: string): Response {
@@ -174,8 +221,15 @@ export function createAdminApi(deps: AdminDeps) {
     if (error) throw new Error(`audit_log insert failed (${error.code})`);
   }
 
+  // v0.11.50: replaces a team's tracks: SAVED, BAD_TRACK (another event's track) or NOT_FOUND (another event's team).
+  async function setTeamTracks(eventId: string, teamId: string, trackIds: string[]) {
+    const { data, error } = await db.rpc('set_team_tracks', { p_event_id: eventId, p_team_id: teamId, p_track_ids: trackIds });
+    if (error) throw new Error(`set_team_tracks failed (${error.code})`);
+    return data;
+  }
+
   async function loadEvent(eventId: string) {
-    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released, rsvp_deadline, rsvp_reply_by').eq('id', eventId).single();
+    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released, rsvp_deadline, rsvp_reply_by, session_cooldown_minutes').eq('id', eventId).single();
     if (error) throw new Error(`event load failed (${error.code})`);
     return data;
   }
@@ -199,7 +253,6 @@ export function createAdminApi(deps: AdminDeps) {
         fill: c.capacity ? round4(c.liveScans / c.capacity) : null,
         ...(c.kind === 'meal' && { uptake: m.checkedIn ? round4(c.liveScans / m.checkedIn) : null }),
       }));
-      const door = m.checkpoints.find((c) => c.kind === 'door');
       return json({
         event: { name: event.name, startsAt: event.starts_at, endsAt: event.ends_at, timezone: event.timezone },
         generatedAt: now().toISOString(),
@@ -218,10 +271,34 @@ export function createAdminApi(deps: AdminDeps) {
         }),
         outbox: m.outbox,
         alerts: {
-          doorClosed: doorClosedWarning({ now: now(), startsAt: event.starts_at, endsAt: event.ends_at, doorOpen: door?.isOpen ?? false }),
           notFound: m.notFound,
         },
       });
+    },
+
+    // GET /api/admin/[slug]/catering (§11, v0.11.39): accepted, real, undeleted hackers' dietary notes and allergies,
+    // and the share link when there is one.
+    async catering(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const [hackers, link] = await Promise.all([
+        cateringHackers(db, g.eventId),
+        db.from('events').select('slug, catering_link_id').eq('id', g.eventId).single(),
+      ]);
+      if (link.error) throw new Error(`event load failed (${link.error.code})`);
+      const { slug, catering_link_id: linkId } = link.data;
+      return json({ hackers, shareUrl: linkId ? cateringUrl(deps.appOrigin, slug, cateringToken(deps.passSecret, linkId)) : null });
+    },
+
+    // POST /api/admin/[slug]/catering/link (§11, v0.11.39): a new share link; the previous one stops working at once.
+    async cateringLink(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const linkId = randomUUID();
+      const { data, error } = await db.from('events').update({ catering_link_id: linkId }).eq('id', g.eventId).select('slug').single();
+      if (error) throw new Error(`catering link update failed (${error.code})`);
+      await audit(g.eventId, g.userId, 'catering.link', g.eventId);
+      return json({ shareUrl: cateringUrl(deps.appOrigin, data.slug, cateringToken(deps.passSecret, linkId)) });
     },
 
     // GET /api/admin/[slug]/checkpoints
@@ -279,13 +356,15 @@ export function createAdminApi(deps: AdminDeps) {
         ...(b.requiresCheckin !== undefined && { requires_checkin: b.requiresCheckin }),
         ...(b.startsAt !== undefined && { starts_at: b.startsAt }),
         ...(b.sortOrder !== undefined && { sort_order: b.sortOrder }),
+        ...(b.secondsMode !== undefined && { seconds_mode: b.secondsMode }),
       };
       const { data, error } = await db.from('checkpoints').update(patch).eq('id', id).eq('event_id', g.eventId).select('*').maybeSingle();
-      if (error?.code === '23514') return badRequest(); // e.g. a door with requires_checkin
+      if (error?.code === '23514') return badRequest(); // e.g. a door with requires_checkin, or seconds on a non-meal
       if (error?.code === '23505') return json({ error: 'NAME_TAKEN' }, 409);
       if (error) throw new Error(`checkpoint update failed (${error.code})`);
       if (!data) return notFound();
       if (b.isOpen !== undefined) await audit(g.eventId, g.userId, b.isOpen ? 'checkpoint.open' : 'checkpoint.close', id);
+      if (b.secondsMode !== undefined) await audit(g.eventId, g.userId, 'checkpoint.seconds', id, { on: b.secondsMode });
       return json({ checkpoint: checkpointView(data) });
     },
 
@@ -298,7 +377,7 @@ export function createAdminApi(deps: AdminDeps) {
       const { data, error } = await db.rpc('delete_checkpoint', { p_event_id: g.eventId, p_checkpoint_id: id, p_actor: g.userId });
       if (error) throw new Error(`delete_checkpoint failed (${error.code})`);
       if (data === 'NOT_FOUND') return notFound();
-      if (data === 'HAS_SCANS') return json({ error: 'HAS_SCANS', message: 'This checkpoint has scans, so it can’t be deleted. Close it instead.' }, 409);
+      if (data === 'HAS_SCANS') return json({ error: 'HAS_SCANS', message: 'Someone is still scanned here, so it can’t be deleted. Remove their scans under People first, or close it instead.' }, 409);
       return json({ code: data });
     },
 
@@ -436,6 +515,116 @@ export function createAdminApi(deps: AdminDeps) {
       if (error) throw new Error(`queue_rsvps failed (${error.code})`);
       if (data > 0) deps.scheduleDrain(deps.drain);
       return json({ queued: data });
+    },
+
+    // POST /api/admin/[slug]/participants/event-eve  { ids?, dryRun? }  (§12, v0.12.3: accepted hackers who haven't had it)
+    async sendEventEve(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = eventEveBody.safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      const { data, error } = await db.rpc('queue_event_eve', {
+        p_event_id: g.eventId,
+        p_actor: g.userId,
+        ...(body.data.ids && { p_participant_ids: body.data.ids }),
+        p_dry_run: body.data.dryRun ?? false,
+      });
+      if (error) throw new Error(`queue_event_eve failed (${error.code})`);
+      if (!body.data.dryRun && data > 0) deps.scheduleDrain(deps.drain);
+      return json({ count: data });
+    },
+
+    // GET /api/admin/[slug]/connections?participantId=  (F17, v0.12.4, owner's decision: one hacker's connections)
+    async listConnections(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(new URL(request.url).searchParams.get('participantId') ?? undefined);
+      if (!id) return badRequest();
+      const connections = await hackerConnections(db, g.eventId, id);
+      return connections ? json({ connections }) : notFound();
+    },
+
+    // DELETE /api/admin/[slug]/connections  { a, b }: removes both taps between two hackers (F17, v0.12.4)
+    async removeConnection(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = connectionRemoveBody.safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      const removed = await removeConnection(db, g.eventId, body.data.a, body.data.b);
+      if (removed === 0) return notFound();
+      await audit(g.eventId, g.userId, 'connection.remove', body.data.a, { taps: removed }); // ids and a count only (I-11)
+      return json({ removed });
+    },
+
+    // GET /api/admin/[slug]/judges (§11 Judges, v0.12.4)
+    async listJudges(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      return json({ judges: await listJudges(db, g.eventId) });
+    },
+
+    // POST /api/admin/[slug]/judges/import  { csv, dryRun }: the tracker's Confirmed rows (or the Judges tab's Yes rows)
+    async importJudges(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = judgesImportBody.safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      const parsed = parseJudgesCsv(body.data.csv);
+      if (!parsed.ok) return json({ error: 'bad_sheet', message: 'Missing header: Name' }, 422);
+      const counts = await importJudges(db, g.eventId, parsed.judges, body.data.dryRun);
+      if (!body.data.dryRun) await audit(g.eventId, g.userId, 'judge.import', null, { created: counts.created, updated: counts.updated });
+      return json({ ...counts, total: parsed.judges.length, skipped: parsed.skipped, badLinkedin: parsed.badLinkedin });
+    },
+
+    // PATCH /api/admin/[slug]/judges/[id]  { linkedin }: blank clears it
+    async updateJudge(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      const body = judgeUpdateBody.safeParse(await readJson(request));
+      if (!id || !body.success) return badRequest();
+      const raw = body.data.linkedin.trim();
+      const url = raw ? normalizeLinkedIn(raw) : null;
+      if (raw && !url) return json({ error: 'invalid_linkedin', message: 'That isn’t a LinkedIn profile link (linkedin.com/in/…).' }, 400);
+      if (!(await setJudgeLinkedin(db, g.eventId, id, url))) return notFound();
+      await audit(g.eventId, g.userId, 'judge.update', id);
+      return json({ linkedinUrl: url });
+    },
+
+    // DELETE /api/admin/[slug]/judges/[id]
+    async deleteJudge(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      if (!id) return badRequest();
+      if (!(await deleteJudge(db, g.eventId, id))) return notFound();
+      await audit(g.eventId, g.userId, 'judge.delete', id);
+      return json({ deleted: true });
+    },
+
+    // POST /api/admin/[slug]/judges/[id]/badge  { uid }: LINKED (+ from: the hacker it was taken from)
+    async linkJudgeBadge(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      const body = judgeBadgeBody.safeParse(await readJson(request));
+      // Like POST /api/events/:slug/badges: only the normalized UID (§6.5).
+      if (!id || !body.success || normalizeUid(body.data.uid) !== body.data.uid) return badRequest();
+      const result = await linkJudgeBadge(db, g.eventId, id, body.data.uid, g.userId, now());
+      if (result.code === 'NOT_FOUND') return json(result, 404);
+      await audit(g.eventId, g.userId, 'judge.badge', id, { fromHacker: !!result.from }); // never the UID or a name in detail
+      return json(result);
+    },
+
+    // DELETE /api/admin/[slug]/judges/[id]/badge
+    async unlinkJudgeBadge(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      if (!id) return badRequest();
+      if (!(await unlinkJudgeBadge(db, g.eventId, id))) return json({ code: 'NOT_FOUND' }, 404);
+      await audit(g.eventId, g.userId, 'judge.unbadge', id);
+      return json({ code: 'UNLINKED' });
     },
 
     // POST /api/admin/[slug]/participants/[id]/resend
@@ -576,6 +765,68 @@ export function createAdminApi(deps: AdminDeps) {
       return json({ code: data });
     },
 
+    // GET /api/admin/[slug]/analytics/workshops (§13): attendance per workshop, how many workshops each
+    // checked-in hacker attended (0, 1, 2, 3+), cooldown refusals and check-ins per 15 minutes.
+    async getWorkshopAnalytics(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const [{ data, error }, event] = await Promise.all([db.rpc('workshop_analytics', { p_event_id: g.eventId }), loadEvent(g.eventId)]);
+      if (error) throw new Error(`workshop_analytics failed (${error.code})`);
+      const a = workshopAnalyticsSchema.parse(data);
+      return json({
+        ...a,
+        timezone: event.timezone,
+        workshops: a.workshops.map((w) => ({ ...w, fill: w.capacity ? round4(w.attendees / w.capacity) : null })),
+        buckets: a.buckets.map((b) => {
+          const bucketUtc = new Date(b.bucketUtc).toISOString();
+          return { bucketUtc, label: bucketLabel(bucketUtc, event.timezone), count: b.count };
+        }),
+      });
+    },
+
+    // GET /api/admin/[slug]/analytics/connections (§13, F17): totals only, never who met whom.
+    async getConnectionAnalytics(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const [{ data, error }, event] = await Promise.all([db.rpc('connection_analytics', { p_event_id: g.eventId }), loadEvent(g.eventId)]);
+      if (error) throw new Error(`connection_analytics failed (${error.code})`);
+      const a = connectionAnalyticsSchema.parse(data);
+      return json({
+        ...a,
+        timezone: event.timezone,
+        connectedShare: a.checkedIn ? Math.min(1, round4(a.connectedPeople / a.checkedIn)) : 0, // a voided door scan can leave someone connected but not checked in
+        buckets: a.buckets.map((b) => {
+          const bucketUtc = new Date(b.bucketUtc).toISOString();
+          return { bucketUtc, label: bucketLabel(bucketUtc, event.timezone), count: b.count };
+        }),
+      });
+    },
+
+    // F17 step 6 (v0.12): the connection leaderboard for the projector: rank, "First L." and points, top 10.
+    async getLeaderboard(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const { data, error } = await db.rpc('connection_leaderboard', { p_event_id: g.eventId, p_limit: 10 });
+      if (error) throw new Error(`connection_leaderboard failed (${error.code})`);
+      return json(leaderboardSchema.parse(data));
+    },
+
+    // Freeze before prizes: the board stays as of this moment until unfrozen. Audited with no detail.
+    async freezeLeaderboard(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = z.object({ frozen: z.boolean() }).strict().safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      const { frozen } = body.data;
+      const { error } = await db
+        .from('events')
+        .update({ leaderboard_frozen_at: frozen ? now().toISOString() : null })
+        .eq('id', g.eventId);
+      if (error) throw new Error(`leaderboard freeze failed (${error.code})`);
+      await audit(g.eventId, g.userId, frozen ? 'leaderboard.freeze' : 'leaderboard.unfreeze', g.eventId, {});
+      return json({ frozen });
+    },
+
     // GET /api/admin/[slug]/event
     async getEvent(request: Request, params: Params) {
       const g = await guard(request, params);
@@ -598,6 +849,7 @@ export function createAdminApi(deps: AdminDeps) {
         tracksReleased: e.tracks_released,
         rsvpDeadline: e.rsvp_deadline && new Date(e.rsvp_deadline).toISOString(),
         rsvpReplyBy: e.rsvp_reply_by && new Date(e.rsvp_reply_by).toISOString(),
+        sessionCooldownMinutes: e.session_cooldown_minutes,
         lastSyncAt: lastSync ? new Date(lastSync.created_at).toISOString() : null,
       });
     },
@@ -608,7 +860,7 @@ export function createAdminApi(deps: AdminDeps) {
       if (g instanceof Response) return g;
       const body = eventUpdate.safeParse(await readJson(request));
       if (!body.success) return badRequest();
-      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased, rsvpDeadline, rsvpReplyBy } = body.data;
+      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased, rsvpDeadline, rsvpReplyBy, sessionCooldownMinutes } = body.data;
       const sheetId = sheet === undefined || sheet === null ? null : parseSheetId(sheet);
       if (sheet !== undefined && sheet !== null && sheetId === null) return badRequest();
       const { error } = await db
@@ -621,12 +873,13 @@ export function createAdminApi(deps: AdminDeps) {
           ...(tracksReleased !== undefined && { tracks_released: tracksReleased }),
           ...(rsvpDeadline !== undefined && { rsvp_deadline: rsvpDeadline }),
           ...(rsvpReplyBy !== undefined && { rsvp_reply_by: rsvpReplyBy }),
+          ...(sessionCooldownMinutes !== undefined && { session_cooldown_minutes: sessionCooldownMinutes }),
         })
         .eq('id', g.eventId);
       if (error?.code === '23514') return badRequest(); // a reply-by date after the deadline
       if (error) throw new Error(`event update failed (${error.code})`);
       if (sheet !== undefined) await audit(g.eventId, g.userId, 'event.sheet_link', g.eventId, { linked: sheetId !== null });
-      if (schedule !== undefined || emergencyInfo !== undefined || rsvpDeadline !== undefined || rsvpReplyBy !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
+      if (schedule !== undefined || emergencyInfo !== undefined || rsvpDeadline !== undefined || rsvpReplyBy !== undefined || sessionCooldownMinutes !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
       const flags = { ...(teamsOpen !== undefined && { teamsOpen }), ...(tracksReleased !== undefined && { tracksReleased }) };
       if (Object.keys(flags).length > 0) await audit(g.eventId, g.userId, 'event.teams', g.eventId, flags);
       return json({
@@ -635,6 +888,7 @@ export function createAdminApi(deps: AdminDeps) {
         ...(emergencyInfo !== undefined && { emergencyInfo }),
         ...(rsvpDeadline !== undefined && { rsvpDeadline: rsvpDeadline && new Date(rsvpDeadline).toISOString() }),
         ...(rsvpReplyBy !== undefined && { rsvpReplyBy: rsvpReplyBy && new Date(rsvpReplyBy).toISOString() }),
+        ...(sessionCooldownMinutes !== undefined && { sessionCooldownMinutes }),
         ...flags,
       });
     },
@@ -646,7 +900,7 @@ export function createAdminApi(deps: AdminDeps) {
       const [event, tracks, teams, unassigned] = await Promise.all([
         loadEvent(g.eventId),
         db.from('tracks').select('id, name').eq('event_id', g.eventId).order('created_at'),
-        db.from('teams').select('id, name, join_code, track_id, participants(id, first_name, last_name, status)').eq('event_id', g.eventId).order('created_at'),
+        db.from('teams').select('id, name, join_code, team_tracks(track_id), participants(id, first_name, last_name, status)').eq('event_id', g.eventId).order('created_at'),
         db
           .from('participants')
           .select('id, first_name, last_name, looking_for_team')
@@ -666,7 +920,7 @@ export function createAdminApi(deps: AdminDeps) {
           id: t.id,
           name: t.name,
           code: t.join_code,
-          trackId: t.track_id,
+          trackIds: t.team_tracks.map((x) => x.track_id),
           members: t.participants.map((p) => ({ id: p.id, displayName: name(p), status: p.status })),
         })),
         unassigned: (unassigned.data ?? []).map((p) => ({ id: p.id, displayName: name(p), looking: p.looking_for_team })),
@@ -709,7 +963,7 @@ export function createAdminApi(deps: AdminDeps) {
       return json({ track: data });
     },
 
-    // DELETE /api/admin/[slug]/tracks/[id]: teams that chose it are left without a track (FK set null)
+    // DELETE /api/admin/[slug]/tracks/[id]: teams that chose it keep their other tracks (team_tracks cascade)
     async deleteTrack(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
@@ -722,32 +976,37 @@ export function createAdminApi(deps: AdminDeps) {
       return json({ deleted: true });
     },
 
-    // POST /api/admin/[slug]/teams  { name, trackId? }
+    // POST /api/admin/[slug]/teams  { name, trackIds? }  (v0.11.50: any number of tracks)
     async createTeam(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
-      const body = z.object({ name: z.string().max(200), trackId: z.uuid().nullable().optional() }).strict().safeParse(await readJson(request));
+      const body = z.object({ name: z.string().max(200), trackIds: TRACK_IDS.optional() }).strict().safeParse(await readJson(request));
       const name = body.success ? parseTeamName(body.data.name) : null;
       if (!body.success || !name) return badRequest();
       const { data, error } = await db
         .from('teams')
-        .insert({ event_id: g.eventId, name, join_code: generateJoinCode(), track_id: body.data.trackId ?? null })
-        .select('id, name, join_code, track_id')
+        .insert({ event_id: g.eventId, name, join_code: generateJoinCode() })
+        .select('id, name, join_code')
         .single();
       if (error?.code === '23505') return json({ error: 'NAME_TAKEN', message: 'Another team already has that name.' }, 409);
-      if (error?.code === '23503') return notFound(); // another event's track
       if (error) throw new Error(`team insert failed (${error.code})`);
+      if ((await setTeamTracks(g.eventId, data.id, body.data.trackIds ?? [])) !== 'SAVED') {
+        // Another event's track: no team, as when the single track's foreign key refused it.
+        const { error: undo } = await db.from('teams').delete().eq('id', data.id);
+        if (undo) throw new Error(`team undo failed (${undo.code})`);
+        return notFound();
+      }
       await audit(g.eventId, g.userId, 'team.create', data.id);
-      return json({ team: { id: data.id, name: data.name, code: data.join_code, trackId: data.track_id } }, 201);
+      return json({ team: { id: data.id, name: data.name, code: data.join_code, trackIds: [...new Set(body.data.trackIds ?? [])] } }, 201);
     },
 
-    // PATCH /api/admin/[slug]/teams/[id]  { name?, trackId? }
+    // PATCH /api/admin/[slug]/teams/[id]  { name?, trackIds? }  (trackIds replaces the team's tracks)
     async updateTeam(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
       const id = uuid(params.id);
       const body = z
-        .object({ name: z.string().max(200).optional(), trackId: z.uuid().nullable().optional() })
+        .object({ name: z.string().max(200).optional(), trackIds: TRACK_IDS.optional() })
         .strict()
         .refine((b) => Object.keys(b).length > 0)
         .safeParse(await readJson(request));
@@ -755,19 +1014,25 @@ export function createAdminApi(deps: AdminDeps) {
       if (!body.success) return badRequest();
       const name = body.data.name === undefined ? undefined : parseTeamName(body.data.name);
       if (name === null) return badRequest();
-      const { data, error } = await db
-        .from('teams')
-        .update({ ...(name !== undefined && { name }), ...(body.data.trackId !== undefined && { track_id: body.data.trackId }) })
-        .eq('id', id)
-        .eq('event_id', g.eventId)
-        .select('id, name, join_code, track_id')
-        .maybeSingle();
-      if (error?.code === '23505') return json({ error: 'NAME_TAKEN', message: 'Another team already has that name.' }, 409);
-      if (error?.code === '23503') return notFound();
-      if (error) throw new Error(`team update failed (${error.code})`);
+      if (body.data.trackIds !== undefined) {
+        const trackIds = [...new Set(body.data.trackIds)];
+        const { data, error } = await db.from('tracks').select('id').eq('event_id', g.eventId).in('id', trackIds);
+        if (error) throw new Error(`tracks load failed (${error.code})`);
+        if (data.length !== trackIds.length) return notFound();
+        // A track can still be deleted between this check and setTeamTracks; that residual race is acceptable.
+      }
+      if (name !== undefined) {
+        const { data, error } = await db.from('teams').update({ name }).eq('id', id).eq('event_id', g.eventId).select('id').maybeSingle();
+        if (error?.code === '23505') return json({ error: 'NAME_TAKEN', message: 'Another team already has that name.' }, 409);
+        if (error) throw new Error(`team update failed (${error.code})`);
+        if (!data) return notFound();
+      }
+      if (body.data.trackIds !== undefined && (await setTeamTracks(g.eventId, id, body.data.trackIds)) !== 'SAVED') return notFound();
+      const { data, error } = await db.from('teams').select('id, name, join_code, team_tracks(track_id)').eq('id', id).eq('event_id', g.eventId).maybeSingle();
+      if (error) throw new Error(`team load failed (${error.code})`);
       if (!data) return notFound();
       await audit(g.eventId, g.userId, 'team.update', id);
-      return json({ team: { id: data.id, name: data.name, code: data.join_code, trackId: data.track_id } });
+      return json({ team: { id: data.id, name: data.name, code: data.join_code, trackIds: data.team_tracks.map((t) => t.track_id) } });
     },
 
     // DELETE /api/admin/[slug]/teams/[id]: its members are moved out (FK set null)
@@ -791,20 +1056,29 @@ export function createAdminApi(deps: AdminDeps) {
       const body = z.object({ teamId: z.uuid().nullable() }).strict().safeParse(await readJson(request));
       if (!id) return notFound();
       if (!body.success) return badRequest();
-      const { data, error } = await db
-        .from('participants')
-        .update({ team_id: body.data.teamId })
-        .eq('id', id)
-        .eq('event_id', g.eventId)
-        .is('deleted_at', null)
-        .select('id')
-        .maybeSingle();
+      const teamId = body.data.teamId;
+      const notAccepted = () => json({ error: 'NOT_ACCEPTED', message: 'Only accepted hackers can be on a team.' }, 409);
+      const { data: before, error: readError } = await db.from('participants').select('team_id, status')
+        .eq('id', id).eq('event_id', g.eventId).is('deleted_at', null).maybeSingle();
+      if (readError) throw new Error(`team member load failed (${readError.code})`);
+      if (!before) return notFound();
+      // v0.11.47: only accepted hackers join a team (a stale Add after someone withdrew is refused).
+      if (teamId && before.status !== 'accepted') return notAccepted();
+      let update = db.from('participants').update({ team_id: teamId }).eq('id', id).eq('event_id', g.eventId).is('deleted_at', null);
+      if (teamId) update = update.eq('status', 'accepted');
+      const { data, error } = await update.select('id').maybeSingle();
       if (error?.code === '23514') return json({ error: 'TEAM_FULL', message: 'That team already has 4 people.' }, 409);
       if (error?.code === '23503') return notFound(); // another event's team
       if (error) throw new Error(`team member update failed (${error.code})`);
-      if (!data) return notFound();
-      await audit(g.eventId, g.userId, 'team.member', id, { teamId: body.data.teamId });
-      return json({ teamId: body.data.teamId });
+      if (!data) return teamId ? notAccepted() : notFound();
+      // v0.11.47: whoever is taken off a team (removed or moved) leaves it a new join code, like a hacker's Remove
+      // (F15 step 5), so they can't just rejoin with the one they know.
+      if (before.team_id && before.team_id !== teamId) {
+        const { error: codeError } = await db.from('teams').update({ join_code: generateJoinCode() }).eq('id', before.team_id);
+        if (codeError && codeError.code !== '23505') throw new Error(`join code change failed (${codeError.code})`); // 23505: about once in 10^10, the old code stays
+      }
+      await audit(g.eventId, g.userId, 'team.member', id, { teamId });
+      return json({ teamId });
     },
 
     // POST /api/admin/[slug]/sync  { dryRun }  (F10)
@@ -895,6 +1169,20 @@ export function createAdminApi(deps: AdminDeps) {
               s.scanned_at, local(s.scanned_at), s.checkpoints.name, s.checkpoints.kind, s.participants.first_name,
               s.participants.last_name, s.participants.is_test, s.method, names.get(s.scanned_by) ?? '', s.voided_at, s.void_reason,
             ]),
+          ),
+        );
+      }
+
+      // SPEC §11: who attended which workshop. No emails, like scans.csv; the §13 exclusions apply.
+      if (kind === 'workshops.csv') {
+        const { data, error } = await db.rpc('workshop_attendance', { p_event_id: g.eventId });
+        if (error) throw new Error(`workshop_attendance failed (${error.code})`);
+        return csvResponse(
+          slug,
+          kind,
+          toCsv(
+            ['workshop', 'first_name', 'last_name', 'scanned_at_utc', 'scanned_at_local', 'method'],
+            workshopAttendanceSchema.parse(data).map((r) => [r.workshop, r.firstName, r.lastName, new Date(r.scannedAt).toISOString(), local(r.scannedAt), r.method]),
           ),
         );
       }

@@ -123,6 +123,10 @@ test('T-UI-02: the profile setup step bar fills as you go forward and back; redu
     await page.getByRole('button', { name: 'Next', exact: true }).click();
     await expect(page.getByText('Step 2 of 4: Health and access', { exact: true })).toBeVisible();
     const arriving = await snapshot();
+    // The step's own blocks rise too (owner's request: every RSVP onboarding page animates).
+    const stepRising = await page.locator('[data-step="2"] > *').evaluateAll((elements) =>
+      elements.some((el) => el.getAnimations().some((animation) => animation.playState === 'running')));
+    expect(stepRising).toBe(reducedMotion === 'no-preference');
     expect(arriving[1]?.filled).toBe(true);
     expect(arriving[0]?.running).toBe(0); // Already-filled segments stay still.
     if (reducedMotion === 'reduce') {
@@ -132,6 +136,7 @@ test('T-UI-02: the profile setup step bar fills as you go forward and back; redu
     }
     await settle();
     await expect(secondFill).toHaveCSS('transform', /^(none|matrix\(1, 0, 0, 1, 0, 0\))$/);
+    await expect(page.getByRole('heading', { name: 'Health and access' })).toHaveCSS('opacity', '1');
 
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(page.getByText('Step 1 of 4: The event', { exact: true })).toBeVisible();
@@ -224,15 +229,18 @@ test('T-UI-03: Atom floats beside attendee content only when there is room, and 
   await expect(atom).toHaveCount(0);
 });
 
-test('T-UI-04: the background rocket flies straight where its nose points, a new heading each load, on attendee pages, and is absent with reduced motion, on passes and for staff', async ({ page }) => {
+test('T-UI-04: the background rocket flies straight where its nose points, a new heading each flight, now and then (at most once in 15 minutes, about one load in three) on attendee pages, and is absent with reduced motion, on passes and for staff', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   const email = await emailOf(f.p.Rv);
   await createAccount(email);
   await signIn(page, email, '/me');
-  await page.reload(); // Start a fresh flight rather than sampling near the end of the login page's flight.
+  // Force the next load's flight: no recent flight on record, and a chance of 1.
+  await page.evaluate(() => { localStorage.removeItem('station:rocket'); localStorage.setItem('station:rocket-chance', '1'); });
+  await page.reload(); // A fresh flight, rather than the login page's.
   const rocket = page.locator('[data-rocket]');
   await expect(rocket).toHaveCount(1);
+  await expect(rocket).toHaveAttribute('data-rocket', 'flying');
   await expect(rocket).toHaveAttribute('aria-hidden', 'true');
   await expect(rocket).toHaveCSS('pointer-events', 'none');
   // The flame flickers through the 8-frame sprite, a running CSS animation separate from the flight's transform.
@@ -267,10 +275,26 @@ test('T-UI-04: the background rocket flies straight where its nose points, a new
   const later = await at();
   // Straight: the next 1.5 s go the same way.
   expect(Math.abs(((Math.atan2(later.y - mid.y, later.x - mid.x) * 180 / Math.PI - first) % 360 + 540) % 360 - 180)).toBeLessThan(3);
-  // Another load, another heading.
+  // A fresh load right after a flight stays grounded, even with the chance forced: one flight per 15 minutes.
   await page.reload();
-  await expect(rocket).toHaveCount(1);
+  await expect(rocket).toHaveAttribute('data-rocket', 'grounded');
+  await expect(rocket).toBeHidden();
+  // Past the cooldown (its record cleared), another flight, another heading.
+  await page.evaluate(() => localStorage.removeItem('station:rocket'));
+  await page.reload();
+  await expect(rocket).toHaveAttribute('data-rocket', 'flying');
   expect(Math.abs(((await heading()) - first + 540) % 360 - 180)).toBeGreaterThan(0.5);
+  // Without the forced chance, a load flies on about one roll in three: a high roll skips it (starting no cooldown),
+  // a low one flies.
+  await page.evaluate(() => { localStorage.removeItem('station:rocket'); localStorage.removeItem('station:rocket-chance'); });
+  for (const [roll, outcome] of [[0.9, 'grounded'], [0.2, 'flying']] as const) {
+    const other = await page.context().newPage();
+    await other.addInitScript((r) => { Math.random = () => r; }, roll);
+    await other.goto('/me');
+    await expect(other.locator('[data-rocket]')).toHaveAttribute('data-rocket', outcome);
+    expect(await other.evaluate(() => localStorage.getItem('station:rocket') !== null)).toBe(outcome === 'flying');
+    await other.close();
+  }
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.reload();
